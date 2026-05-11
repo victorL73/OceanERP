@@ -93,7 +93,7 @@ export class ApiClient {
   }
 
   products() {
-    return this.request<PagedResult<Product>>('/api/products', { auth: true });
+    return this.request<PagedResult<Product>>('/api/products?pageSize=500', { auth: true });
   }
 
   createProduct(payload: { reference: string; name: string; description?: string; purchasePrice: number; salePrice: number; vatRate: number }) {

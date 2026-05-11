@@ -1176,6 +1176,17 @@ function Stock({ items, movements, products, warehouses, onChanged }: { items: S
   const [warehouseId, setWarehouseId] = useState('');
   const [quantity, setQuantity] = useState('0');
   const [alertThreshold, setAlertThreshold] = useState('0');
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+
+  function productLabel(id: string) {
+    const product = productById.get(id);
+    return product ? `${product.reference} - ${product.name}` : id;
+  }
+
+  function warehouseLabel(id: string) {
+    return warehouseById.get(id)?.name ?? id;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1224,8 +1235,8 @@ function Stock({ items, movements, products, warehouses, onChanged }: { items: S
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']} rows={items.map((item) => [item.productId, item.warehouseId, item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])} />
-      <DataTable columns={['Produit', 'Type', 'Quantite', 'Motif', 'Date']} rows={movements.map((item) => [item.productId, item.type, item.quantity, item.reason, item.createdAt])} />
+      <DataTable columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']} rows={items.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])} />
+      <DataTable columns={['Produit', 'Entrepot', 'Type', 'Quantite', 'Motif', 'Date']} rows={movements.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.type, item.quantity, item.reason, item.createdAt])} />
     </>
   );
 }
