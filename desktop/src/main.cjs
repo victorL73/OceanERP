@@ -3,7 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const defaultSettings = {
-  serverUrl: process.env.OCEANERP_WEB_URL || readPackagedServerUrl() || 'http://localhost:5173'
+  serverUrl: process.env.OCEANERP_WEB_URL || readPackagedServerUrl() || ''
 };
 
 let mainWindow;
@@ -182,7 +182,7 @@ function loadLauncher(errorMessage = '') {
             <div class="brand"><div class="mark">OE</div><span>OceanERP</span></div>
             <p>Choisissez le serveur ERP avant de vous connecter. Cette adresse peut etre changee sans reconstruire l'installateur Windows.</p>
           </div>
-          <p>Derniere adresse connue<br><code>${escapeHtml(settings.serverUrl)}</code></p>
+          <p>Derniere adresse connue<br><code>${escapeHtml(settings.serverUrl || 'Aucune')}</code></p>
         </aside>
         <main>
           <form id="form">
@@ -190,7 +190,7 @@ function loadLauncher(errorMessage = '') {
             <p class="hint">Entrez l'adresse du serveur OceanERP. L'ecran d'identification s'ouvrira ensuite depuis ce serveur.</p>
             <label>
               Adresse du serveur
-              <input id="serverUrl" type="url" required placeholder="http://192.168.68.70:8080" value="${escapeHtml(settings.serverUrl)}" />
+              <input id="serverUrl" type="url" required placeholder="http://adresse-du-serveur:8080" value="${escapeHtml(settings.serverUrl)}" />
             </label>
             <div id="error" class="error">${escapeHtml(errorMessage)}</div>
             <div class="actions">
@@ -334,7 +334,7 @@ app.whenReady().then(() => {
 app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, url) => {
     const serverUrl = readSettings().serverUrl;
-    if (!url.startsWith(serverUrl) && !url.startsWith('data:text/html')) {
+    if (serverUrl && !url.startsWith(serverUrl) && !url.startsWith('data:text/html')) {
       event.preventDefault();
       shell.openExternal(url);
     }

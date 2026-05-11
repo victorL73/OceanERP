@@ -1,5 +1,5 @@
 param(
-    [string]$ServerUrl = "http://192.168.68.70:8080"
+    [string]$ServerUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,11 +23,21 @@ function Resolve-Npm {
 $npm = Resolve-Npm
 
 Write-Host "OceanERP desktop test"
-Write-Host "Server URL: $ServerUrl"
+if ($ServerUrl) {
+    Write-Host "Server URL pre-remplie: $ServerUrl"
+}
+else {
+    Write-Host "Server URL: saisie au demarrage de l'application"
+}
 
 Push-Location $desktop
 try {
-    $env:OCEANERP_WEB_URL = $ServerUrl.TrimEnd("/")
+    if ($ServerUrl) {
+        $env:OCEANERP_WEB_URL = $ServerUrl.TrimEnd("/")
+    }
+    else {
+        Remove-Item Env:\OCEANERP_WEB_URL -ErrorAction SilentlyContinue
+    }
     & $npm install
     & $npm run dev
 }

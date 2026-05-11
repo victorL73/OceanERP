@@ -81,6 +81,11 @@ tar -tzf /opt/oceanerp/backups/YYYYMMDDTHHMMSSZ/documents.tar.gz
 
 ## Phase 2 en cours
 
+Phase 1 couvre maintenant aussi :
+
+- espace `Parametres` du compte connecte : email, nom affiche, changement de mot de passe ;
+- ecran admin `Utilisateurs/Roles` pour creer les comptes, creer les roles et affecter les permissions par module.
+
 La Phase 2 contient maintenant :
 
 - commandes avec produit, entrepot, reservation et expedition stock ;
@@ -102,8 +107,8 @@ docker compose --env-file .env -f docker-compose.yml up -d
 
 ```powershell
 cd deploy/windows
-.\build-installer.ps1 -ServerUrl "http://192.168.68.70:8080"
+.\build-installer.ps1
 ```
 
 Le script prepare l'installateur via `electron-builder`; il ne cree un `.exe` que lorsque les dependances Node sont installees et que la commande aboutit.
-L'URL serveur est seulement une valeur pre-remplie : l'application Windows demande l'adresse serveur au demarrage et permet de la changer via `OceanERP > Changer de serveur`.
+L'application Windows demande l'adresse serveur au demarrage et permet de la changer via `OceanERP > Changer de serveur`. Pour pre-remplir volontairement une URL, utiliser `.\build-installer.ps1 -ServerUrl "http://IP_DU_SERVEUR:8080"`.

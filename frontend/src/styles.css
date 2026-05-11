@@ -16,7 +16,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -77,7 +78,8 @@ button {
 }
 
 .nav-list button,
-.logout {
+.logout,
+.account-button {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -93,13 +95,34 @@ button {
 
 .nav-list button.active,
 .nav-list button:hover,
-.logout:hover {
+.logout:hover,
+.account-button.active,
+.account-button:hover {
   background: #1e293b;
   color: #fff;
 }
 
-.logout {
+.account-button {
+  display: grid;
+  grid-template-columns: 18px 1fr;
   margin-top: auto;
+}
+
+.account-button span,
+.account-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-button small {
+  grid-column: 2;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.logout {
+  margin-top: 0;
 }
 
 .workspace {
@@ -253,6 +276,76 @@ h1 {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   padding: 0 12px;
+}
+
+.form-grid input[readonly] {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.check-field,
+.multi-select {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.check-field {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-height: 40px;
+}
+
+.check-field input {
+  width: 16px;
+  height: 16px;
+}
+
+.multi-select select {
+  min-height: 96px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.permission-picker {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.permission-picker fieldset {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.permission-picker legend {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.permission-picker label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.inline-message {
+  margin-top: 12px;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .secondary,
@@ -413,12 +506,15 @@ th {
   }
 
   .nav-list button,
-  .logout {
+  .logout,
+  .account-button {
     justify-content: center;
   }
 
   .nav-list span,
-  .logout span {
+  .logout span,
+  .account-button span,
+  .account-button small {
     display: none;
   }
 

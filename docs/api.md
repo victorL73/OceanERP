@@ -7,9 +7,16 @@ Swagger est activé en environnement `Development`.
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `PUT /api/auth/me`
+- `POST /api/auth/change-password`
 - `GET /api/users`
 - `POST /api/users`
+- `PUT /api/users/{id}/roles`
 - `GET /api/users/roles`
+- `POST /api/users/roles`
+- `PUT /api/users/roles/{id}`
+- `GET /api/users/permissions`
 - `GET /api/customers`
 - `POST /api/customers`
 - `GET /api/products`
@@ -62,6 +69,8 @@ Hub : `/hubs/notifications`
 ## Sécurité API
 
 Les routes métier exigent un JWT. Les politiques d'autorisation utilisent les claims `permission`, par exemple `customers.read` ou `quotes.write`.
+
+Les endpoints `GET /api/auth/me`, `PUT /api/auth/me` et `/api/auth/change-password` concernent le compte connecte. Les endpoints `/api/users/*` sont reserves aux comptes disposant de `auth.users.read` ou `auth.users.write`, donc typiquement aux administrateurs.
 
 La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*` et `prestashop.*`.
 

@@ -6,6 +6,9 @@
 - Refresh tokens hashés en SHA-256.
 - Hash des mots de passe via `PasswordHasher<TUser>`.
 - RBAC et permissions granulaires.
+- Gestion admin des comptes, roles et permissions par module.
+- Espace utilisateur pour modifier email, nom affiche et mot de passe.
+- Revocation des refresh tokens actifs apres changement de mot de passe.
 - Audit logs de connexion.
 - Middleware centralisé d'erreurs.
 - CORS configurable.
@@ -42,4 +45,3 @@ Le socle prévoit :
 - registre de consentements
 - politiques de rétention configurables
 - revue des droits d'accès par rôle
-

@@ -21,6 +21,20 @@ export type User = {
   permissions: string[];
 };
 
+export type Role = {
+  id: string;
+  name: string;
+  description: string;
+  permissions: string[];
+};
+
+export type Permission = {
+  id: string;
+  module: string;
+  action: string;
+  code: string;
+};
+
 export type Customer = {
   id: string;
   code: string;

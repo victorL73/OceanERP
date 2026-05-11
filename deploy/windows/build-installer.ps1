@@ -1,5 +1,5 @@
 param(
-    [string]$ServerUrl = "https://erp.example.com"
+    [string]$ServerUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,16 +25,31 @@ function Resolve-Npm {
 $npm = Resolve-Npm
 
 Write-Host "OceanERP Windows installer build"
-Write-Host "Server URL: $ServerUrl"
+if ($ServerUrl) {
+    Write-Host "Server URL pre-remplie: $ServerUrl"
+}
+else {
+    Write-Host "Server URL: saisie au demarrage de l'application"
+}
 
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-@{
-    serverUrl = $ServerUrl.TrimEnd("/")
-} | ConvertTo-Json | Set-Content -Path $configFile -Encoding UTF8
+if ($ServerUrl) {
+    @{
+        serverUrl = $ServerUrl.TrimEnd("/")
+    } | ConvertTo-Json | Set-Content -Path $configFile -Encoding UTF8
+}
+elseif (Test-Path $configFile) {
+    Remove-Item -Path $configFile -Force
+}
 
 Push-Location $desktop
 try {
-    $env:OCEANERP_WEB_URL = $ServerUrl
+    if ($ServerUrl) {
+        $env:OCEANERP_WEB_URL = $ServerUrl
+    }
+    else {
+        Remove-Item Env:\OCEANERP_WEB_URL -ErrorAction SilentlyContinue
+    }
     & $npm install
     & $npm run dist:win
 }

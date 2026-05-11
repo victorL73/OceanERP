@@ -10,14 +10,17 @@ import type {
   MailAccount,
   NotificationItem,
   PagedResult,
+  Permission,
   PrestashopConnection,
   PrestashopSyncLog,
   Product,
   Quote,
   QuoteDocument,
+  Role,
   SalesOrder,
   StockItem,
   StockMovement,
+  User,
   Warehouse
 } from '../types';
 
@@ -28,9 +31,14 @@ type RequestOptions = RequestInit & { auth?: boolean };
 export class ApiClient {
   private accessToken: string | null = localStorage.getItem('oceanerp.accessToken');
   private refreshToken: string | null = localStorage.getItem('oceanerp.refreshToken');
+  private currentUser: User | null = this.readStoredUser();
 
   get token() {
     return this.accessToken;
+  }
+
+  get user() {
+    return this.currentUser;
   }
 
   async login(email: string, password: string) {
@@ -45,9 +53,27 @@ export class ApiClient {
   logout() {
     this.accessToken = null;
     this.refreshToken = null;
+    this.currentUser = null;
     localStorage.removeItem('oceanerp.accessToken');
     localStorage.removeItem('oceanerp.refreshToken');
+    localStorage.removeItem('oceanerp.user');
     window.dispatchEvent(new Event('oceanerp.authChanged'));
+  }
+
+  async me() {
+    const user = await this.request<User>('/api/auth/me', { auth: true });
+    this.setUser(user);
+    return user;
+  }
+
+  async updateProfile(payload: { email: string; displayName: string }) {
+    const user = await this.request<User>('/api/auth/me', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+    this.setUser(user);
+    return user;
+  }
+
+  changePassword(payload: { currentPassword: string; newPassword: string }) {
+    return this.request<void>('/api/auth/change-password', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
   summary() {
@@ -137,6 +163,34 @@ export class ApiClient {
     return this.request<NotificationItem[]>('/api/notifications', { auth: true });
   }
 
+  users() {
+    return this.request<User[]>('/api/users', { auth: true });
+  }
+
+  createUser(payload: { email: string; displayName: string; password: string; roles: string[] }) {
+    return this.request<User>('/api/users', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateUserRoles(userId: string, payload: { roles: string[]; isActive: boolean }) {
+    return this.request<User>(`/api/users/${userId}/roles`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  roles() {
+    return this.request<Role[]>('/api/users/roles', { auth: true });
+  }
+
+  permissions() {
+    return this.request<Permission[]>('/api/users/permissions', { auth: true });
+  }
+
+  createRole(payload: { name: string; description: string; permissions: string[] }) {
+    return this.request<Role>('/api/users/roles', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateRole(roleId: string, payload: { description: string; permissions: string[] }) {
+    return this.request<Role>(`/api/users/roles/${roleId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
   orders() {
     return this.request<PagedResult<SalesOrder>>('/api/orders', { auth: true });
   }
@@ -222,7 +276,27 @@ export class ApiClient {
     this.refreshToken = auth.refreshToken;
     localStorage.setItem('oceanerp.accessToken', auth.accessToken);
     localStorage.setItem('oceanerp.refreshToken', auth.refreshToken);
+    this.setUser(auth.user);
     window.dispatchEvent(new Event('oceanerp.authChanged'));
+  }
+
+  private setUser(user: User) {
+    this.currentUser = user;
+    localStorage.setItem('oceanerp.user', JSON.stringify(user));
+  }
+
+  private readStoredUser() {
+    const raw = localStorage.getItem('oceanerp.user');
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(raw) as User;
+    } catch {
+      localStorage.removeItem('oceanerp.user');
+      return null;
+    }
   }
 
   private async request<T>(path: string, options: RequestOptions = {}, retryOnUnauthorized = true): Promise<T> {

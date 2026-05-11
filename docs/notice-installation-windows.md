@@ -21,10 +21,16 @@ Depuis une machine Windows avec Node.js et npm :
 
 ```powershell
 cd deploy/windows
-.\build-installer.ps1 -ServerUrl "http://192.168.68.70:8080"
+.\build-installer.ps1
 ```
 
 Le resultat est genere par `electron-builder` dans le dossier `desktop/dist`.
+
+Optionnel : pour pre-remplir l'adresse serveur dans l'ecran de demarrage, utiliser :
+
+```powershell
+.\build-installer.ps1 -ServerUrl "http://IP_DU_SERVEUR:8080"
+```
 
 ## Connexion et choix du serveur
 
@@ -37,7 +43,7 @@ http://192.168.68.70:8080
 
 Ensuite seulement, l'application charge l'ecran d'identification du serveur choisi.
 
-L'URL fournie par `-ServerUrl` sert uniquement de valeur pre-remplie par defaut. Elle est embarquee dans `desktop/config/default-server.json` au moment du build, mais l'utilisateur peut la changer sans reconstruire le `.exe`.
+Sans parametre `-ServerUrl`, aucune adresse serveur n'est embarquee dans l'installateur. L'URL fournie par `-ServerUrl` sert uniquement de valeur pre-remplie par defaut. Elle est embarquee dans `desktop/config/default-server.json` au moment du build, mais l'utilisateur peut la changer sans reconstruire le `.exe`.
 
 L'utilisateur peut ensuite changer l'URL depuis le menu :
 
@@ -53,8 +59,10 @@ Avant de creer l'installateur, on peut tester le shell Electron :
 
 ```powershell
 cd deploy/windows
-.\test-desktop.ps1 -ServerUrl "http://192.168.68.70:8080"
+.\test-desktop.ps1
 ```
+
+Optionnel : `.\test-desktop.ps1 -ServerUrl "http://IP_DU_SERVEUR:8080"` pre-remplit l'adresse pendant le test.
 
 Verifier :
 

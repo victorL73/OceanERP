@@ -1,31 +1,56 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, LayoutDashboard, LogOut, Mail, Package, Plus, Search, ShieldCheck, ShoppingCart, Store, Upload, Users, Warehouse as WarehouseIcon } from 'lucide-react';
+import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Plus, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Upload, UserRound, Users, Warehouse as WarehouseIcon } from 'lucide-react';
 import { api } from './api/client';
-import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, PrestashopConnection, PrestashopSyncLog, Product, Quote, SalesOrder, StockItem, StockMovement, Warehouse } from './types';
+import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
-type ViewKey = 'dashboard' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'invoices' | 'stock' | 'emails' | 'prestashop';
+type ViewKey = 'dashboard' | 'settings' | 'users' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
-const views: Array<{ key: ViewKey; label: string; icon: typeof LayoutDashboard }> = [
-  { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
-  { key: 'customers', label: 'Clients', icon: Users },
-  { key: 'products', label: 'Produits', icon: Package },
-  { key: 'quotes', label: 'Devis', icon: FileText },
-  { key: 'orders', label: 'Commandes', icon: ShoppingCart },
-  { key: 'invoices', label: 'Factures', icon: FileText },
-  { key: 'stock', label: 'Stock', icon: WarehouseIcon },
-  { key: 'emails', label: 'Emails', icon: Mail },
-  { key: 'prestashop', label: 'PrestaShop', icon: Store },
-  { key: 'drive', label: 'Drive', icon: Folder },
-  { key: 'notifications', label: 'Notifications', icon: Bell }
+const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
+  { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
+  { key: 'users', label: 'Utilisateurs/Roles', icon: ShieldCheck, permission: 'auth.users.read' },
+  { key: 'customers', label: 'Clients', icon: Users, permission: 'customers.read' },
+  { key: 'products', label: 'Produits', icon: Package, permission: 'products.read' },
+  { key: 'quotes', label: 'Devis', icon: FileText, permission: 'quotes.read' },
+  { key: 'orders', label: 'Commandes', icon: ShoppingCart, permission: 'orders.read' },
+  { key: 'invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
+  { key: 'stock', label: 'Stock', icon: WarehouseIcon, permission: 'stock.read' },
+  { key: 'emails', label: 'Emails', icon: Mail, permission: 'emails.read' },
+  { key: 'prestashop', label: 'PrestaShop', icon: Store, permission: 'prestashop.read' },
+  { key: 'drive', label: 'Drive', icon: Folder, permission: 'drive.read' },
+  { key: 'notifications', label: 'Notifications', icon: Bell, permission: 'notifications.read' }
 ];
+
+const viewLabels: Record<ViewKey, string> = {
+  dashboard: 'Tableau de bord',
+  settings: 'Parametres',
+  users: 'Utilisateurs/Roles',
+  customers: 'Clients',
+  products: 'Produits',
+  quotes: 'Devis',
+  orders: 'Commandes',
+  invoices: 'Factures',
+  stock: 'Stock',
+  emails: 'Emails',
+  prestashop: 'PrestaShop',
+  drive: 'Drive',
+  notifications: 'Notifications'
+};
+
+function hasPermission(user: User | null, permission?: string) {
+  return !permission || !user || user.roles.includes('Administrator') || user.permissions.includes(permission);
+}
 
 export default function App() {
   const [isAuthenticated, setAuthenticated] = useState(Boolean(api.token));
   const [view, setView] = useState<ViewKey>('dashboard');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(api.user);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
   const [customers, setCustomers] = useState<PagedResult<Customer> | null>(null);
   const [products, setProducts] = useState<PagedResult<Product> | null>(null);
   const [quotes, setQuotes] = useState<PagedResult<Quote> | null>(null);
@@ -41,9 +66,13 @@ export default function App() {
   const [emailMessages, setEmailMessages] = useState<PagedResult<EmailMessage> | null>(null);
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
+  const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
 
   useEffect(() => {
-    const syncAuthState = () => setAuthenticated(Boolean(api.token));
+    const syncAuthState = () => {
+      setAuthenticated(Boolean(api.token));
+      setCurrentUser(api.user);
+    };
     window.addEventListener('oceanerp.authChanged', syncAuthState);
     return () => window.removeEventListener('oceanerp.authChanged', syncAuthState);
   }, []);
@@ -54,6 +83,15 @@ export default function App() {
     try {
       if (target === 'dashboard') {
         setSummary(await api.summary());
+      }
+      if (target === 'settings') {
+        setCurrentUser(await api.me());
+      }
+      if (target === 'users') {
+        const [nextUsers, nextRoles, nextPermissions] = await Promise.all([api.users(), api.roles(), api.permissions()]);
+        setUsers(nextUsers);
+        setRoles(nextRoles);
+        setPermissions(nextPermissions);
       }
       if (target === 'customers') {
         setCustomers(await api.customers());
@@ -112,6 +150,24 @@ export default function App() {
 
   useEffect(() => {
     if (!isAuthenticated) {
+      setCurrentUser(null);
+      return;
+    }
+
+    api.me()
+      .then(setCurrentUser)
+      .catch(() => setAuthenticated(false));
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const currentView = navViews.find((item) => item.key === view);
+    if (currentUser && currentView && !hasPermission(currentUser, currentView.permission)) {
+      setView('dashboard');
+    }
+  }, [currentUser, view]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
       return;
     }
 
@@ -138,7 +194,14 @@ export default function App() {
   }, [isAuthenticated, view]);
 
   if (!isAuthenticated) {
-    return <Login onLoggedIn={() => setAuthenticated(true)} />;
+    return (
+      <Login
+        onLoggedIn={() => {
+          setCurrentUser(api.user);
+          setAuthenticated(true);
+        }}
+      />
+    );
   }
 
   return (
@@ -153,7 +216,7 @@ export default function App() {
         </div>
 
         <nav className="nav-list">
-          {views.map((item) => {
+          {visibleViews.map((item) => {
             const Icon = item.icon;
             return (
               <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => setView(item.key)}>
@@ -164,10 +227,17 @@ export default function App() {
           })}
         </nav>
 
+        <button className={view === 'settings' ? 'account-button active' : 'account-button'} onClick={() => setView('settings')}>
+          <UserRound size={18} />
+          <span>{currentUser?.displayName ?? 'Compte utilisateur'}</span>
+          <small>Parametres</small>
+        </button>
+
         <button
           className="logout"
           onClick={() => {
             api.logout();
+            setCurrentUser(null);
             setAuthenticated(false);
           }}
         >
@@ -180,7 +250,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">ERP modulaire</p>
-            <h1>{views.find((item) => item.key === view)?.label}</h1>
+            <h1>{viewLabels[view]}</h1>
           </div>
           <div className="top-actions">
             <div className="search">
@@ -198,6 +268,8 @@ export default function App() {
         {loading && <div className="loading">Chargement...</div>}
 
         {!loading && view === 'dashboard' && <Dashboard summary={summary} />}
+        {!loading && view === 'settings' && <Settings currentUser={currentUser} onUserChanged={setCurrentUser} onSignedOut={() => { api.logout(); setCurrentUser(null); setAuthenticated(false); }} />}
+        {!loading && view === 'users' && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={() => load('users')} />}
         {!loading && view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
         {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('quotes')} />}
@@ -283,6 +355,271 @@ function Dashboard({ summary }: { summary: DashboardSummary | null }) {
         </article>
       ))}
     </section>
+  );
+}
+
+function Settings({ currentUser, onUserChanged, onSignedOut }: { currentUser: User | null; onUserChanged: (user: User) => void; onSignedOut: () => void }) {
+  const [email, setEmail] = useState(currentUser?.email ?? '');
+  const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEmail(currentUser?.email ?? '');
+    setDisplayName(currentUser?.displayName ?? '');
+  }, [currentUser]);
+
+  async function updateProfile(event: FormEvent) {
+    event.preventDefault();
+    setProfileMessage(null);
+    try {
+      const user = await api.updateProfile({ email, displayName });
+      onUserChanged(user);
+      setProfileMessage('Profil mis a jour.');
+    } catch (err) {
+      setProfileMessage(err instanceof Error ? err.message : 'Mise a jour impossible');
+    }
+  }
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setPasswordMessage(null);
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('Les mots de passe ne correspondent pas.');
+      return;
+    }
+
+    try {
+      await api.changePassword({ currentPassword, newPassword });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordMessage('Mot de passe modifie. Reconnexion requise.');
+      window.setTimeout(onSignedOut, 900);
+    } catch (err) {
+      setPasswordMessage(err instanceof Error ? err.message : 'Modification impossible');
+    }
+  }
+
+  return (
+    <>
+      <Panel title="Compte personnel">
+        <form className="form-grid" onSubmit={updateProfile}>
+          <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          <input readOnly value={currentUser?.roles.join(', ') ?? ''} aria-label="Roles" />
+          <button className="primary" type="submit">
+            <SettingsIcon size={16} />
+            Enregistrer
+          </button>
+        </form>
+        {profileMessage && <div className="inline-message">{profileMessage}</div>}
+      </Panel>
+
+      <Panel title="Mot de passe">
+        <form className="form-grid" onSubmit={changePassword}>
+          <input required type="password" autoComplete="current-password" placeholder="Mot de passe actuel" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+          <input required type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+          <input required type="password" autoComplete="new-password" placeholder="Confirmation" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+          <button className="primary" type="submit">
+            <KeyRound size={16} />
+            Modifier
+          </button>
+        </form>
+        {passwordMessage && <div className="inline-message">{passwordMessage}</div>}
+      </Panel>
+    </>
+  );
+}
+
+function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; roles: Role[]; permissions: Permission[]; onChanged: () => Promise<void> }) {
+  const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [password, setPassword] = useState('');
+  const [newUserRoles, setNewUserRoles] = useState<string[]>(['Sales']);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedUserRoles, setSelectedUserRoles] = useState<string[]>([]);
+  const [selectedUserActive, setSelectedUserActive] = useState(true);
+  const [roleName, setRoleName] = useState('');
+  const [roleDescription, setRoleDescription] = useState('');
+  const [rolePermissions, setRolePermissions] = useState<string[]>(['dashboard.read']);
+  const [editRoleId, setEditRoleId] = useState('');
+  const [editRoleDescription, setEditRoleDescription] = useState('');
+  const [editRolePermissions, setEditRolePermissions] = useState<string[]>([]);
+
+  const groupedPermissions = useMemo(() => {
+    return permissions.reduce<Record<string, Permission[]>>((groups, permission) => {
+      groups[permission.module] = [...(groups[permission.module] ?? []), permission];
+      return groups;
+    }, {});
+  }, [permissions]);
+
+  useEffect(() => {
+    const user = users.find((item) => item.id === selectedUserId);
+    if (user) {
+      setSelectedUserRoles(user.roles);
+      setSelectedUserActive(user.isActive);
+    }
+  }, [selectedUserId, users]);
+
+  useEffect(() => {
+    const role = roles.find((item) => item.id === editRoleId);
+    if (role) {
+      setEditRoleDescription(role.description);
+      setEditRolePermissions(role.permissions);
+    }
+  }, [editRoleId, roles]);
+
+  async function createUser(event: FormEvent) {
+    event.preventDefault();
+    await api.createUser({ email, displayName, password, roles: newUserRoles.length > 0 ? newUserRoles : ['Sales'] });
+    setEmail('');
+    setDisplayName('');
+    setPassword('');
+    setNewUserRoles(['Sales']);
+    await onChanged();
+  }
+
+  async function updateUser(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedUserId) {
+      throw new Error('Selectionner un utilisateur.');
+    }
+
+    await api.updateUserRoles(selectedUserId, { roles: selectedUserRoles, isActive: selectedUserActive });
+    await onChanged();
+  }
+
+  async function createRole(event: FormEvent) {
+    event.preventDefault();
+    await api.createRole({ name: roleName, description: roleDescription, permissions: rolePermissions });
+    setRoleName('');
+    setRoleDescription('');
+    setRolePermissions(['dashboard.read']);
+    await onChanged();
+  }
+
+  async function updateRole(event: FormEvent) {
+    event.preventDefault();
+    if (!editRoleId) {
+      throw new Error('Selectionner un role.');
+    }
+
+    await api.updateRole(editRoleId, { description: editRoleDescription, permissions: editRolePermissions });
+    await onChanged();
+  }
+
+  return (
+    <>
+      <Panel title="Nouvel utilisateur">
+        <form className="form-grid" onSubmit={createUser}>
+          <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          <input required type="password" placeholder="Mot de passe provisoire" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <MultiSelect label="Roles" values={newUserRoles} options={roles.map((role) => role.name)} onChange={setNewUserRoles} />
+          <button className="primary" type="submit">
+            <Plus size={16} />
+            Creer
+          </button>
+        </form>
+      </Panel>
+
+      <Panel title="Affectation utilisateur">
+        <form className="form-grid" onSubmit={updateUser}>
+          <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+            <option value="">Utilisateur</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.email}
+              </option>
+            ))}
+          </select>
+          <MultiSelect label="Roles" values={selectedUserRoles} options={roles.map((role) => role.name)} onChange={setSelectedUserRoles} />
+          <label className="check-field">
+            <input type="checkbox" checked={selectedUserActive} onChange={(event) => setSelectedUserActive(event.target.checked)} />
+            Actif
+          </label>
+          <button className="primary" type="submit">
+            <ShieldCheck size={16} />
+            Enregistrer
+          </button>
+        </form>
+      </Panel>
+
+      <Panel title="Nouveau role">
+        <form className="form-grid" onSubmit={createRole}>
+          <input required placeholder="Nom du role" value={roleName} onChange={(event) => setRoleName(event.target.value)} />
+          <input placeholder="Description" value={roleDescription} onChange={(event) => setRoleDescription(event.target.value)} />
+          <PermissionPicker groupedPermissions={groupedPermissions} selected={rolePermissions} onChange={setRolePermissions} />
+          <button className="primary" type="submit">
+            <Plus size={16} />
+            Creer
+          </button>
+        </form>
+      </Panel>
+
+      <Panel title="Permissions du role">
+        <form className="form-grid" onSubmit={updateRole}>
+          <select value={editRoleId} onChange={(event) => setEditRoleId(event.target.value)}>
+            <option value="">Role</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+          <input placeholder="Description" value={editRoleDescription} onChange={(event) => setEditRoleDescription(event.target.value)} />
+          <PermissionPicker groupedPermissions={groupedPermissions} selected={editRolePermissions} onChange={setEditRolePermissions} />
+          <button className="primary" type="submit">
+            <ShieldCheck size={16} />
+            Mettre a jour
+          </button>
+        </form>
+      </Panel>
+
+      <DataTable columns={['Email', 'Nom', 'Roles', 'Statut']} rows={users.map((user) => [user.email, user.displayName, user.roles.join(', '), user.isActive ? 'Actif' : 'Inactif'])} />
+      <DataTable columns={['Role', 'Description', 'Permissions']} rows={roles.map((role) => [role.name, role.description, role.permissions.length])} />
+    </>
+  );
+}
+
+function MultiSelect({ label, values, options, onChange }: { label: string; values: string[]; options: string[]; onChange: (values: string[]) => void }) {
+  return (
+    <label className="multi-select">
+      {label}
+      <select multiple value={values} onChange={(event) => onChange(Array.from(event.currentTarget.selectedOptions).map((option) => option.value))}>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function PermissionPicker({ groupedPermissions, selected, onChange }: { groupedPermissions: Record<string, Permission[]>; selected: string[]; onChange: (permissions: string[]) => void }) {
+  function toggle(permission: string) {
+    onChange(selected.includes(permission) ? selected.filter((item) => item !== permission) : [...selected, permission]);
+  }
+
+  return (
+    <div className="permission-picker">
+      {Object.entries(groupedPermissions).map(([module, items]) => (
+        <fieldset key={module}>
+          <legend>{module}</legend>
+          {items.map((permission) => (
+            <label key={permission.code}>
+              <input type="checkbox" checked={selected.includes(permission.code)} onChange={() => toggle(permission.code)} />
+              {permission.action}
+            </label>
+          ))}
+        </fieldset>
+      ))}
+    </div>
   );
 }
 

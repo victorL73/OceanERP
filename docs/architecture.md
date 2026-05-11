@@ -11,8 +11,8 @@ OceanERP suit une Clean Architecture stricte.
 
 ## Modules MVP
 
-- Authentification JWT et refresh tokens.
-- RBAC avec rôles et permissions granulaires.
+- Authentification JWT, refresh tokens et espace Parametres pour le profil utilisateur.
+- RBAC avec roles, permissions granulaires et ecran admin `Utilisateurs/Roles`.
 - Clients.
 - Produits, catégories et fournisseurs produits.
 - Devis avec calculs, statuts et PDF QuestPDF.
