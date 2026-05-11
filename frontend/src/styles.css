@@ -590,6 +590,17 @@ th {
   gap: 14px;
 }
 
+.product-edit-form .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.product-edit-form input,
+.product-edit-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
 .full-field {
   grid-column: 1 / -1;
 }
@@ -930,7 +941,8 @@ th {
   }
 
   .product-detail-hero,
-  .product-facts {
+  .product-facts,
+  .product-edit-form .form-grid {
     grid-template-columns: 1fr;
   }
 

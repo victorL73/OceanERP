@@ -17,6 +17,11 @@ public sealed class ProductService(ErpDbContext db, IConfiguration configuration
 {
     private const string PrestashopProvider = "PrestaShop";
     private const string PrestashopProductModule = "products";
+    private static readonly HashSet<string> PrestashopReadOnlyProductFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "manufacturer_name",
+        "quantity"
+    };
 
     public async Task<PagedResult<ProductDto>> SearchAsync(string? search, int page, int pageSize, CancellationToken cancellationToken)
     {
@@ -204,6 +209,7 @@ public sealed class ProductService(ErpDbContext db, IConfiguration configuration
                 return Result.Failure("Reponse PrestaShop produit invalide.");
             }
 
+            RemovePrestashopReadOnlyFields(productElement);
             SetElementValue(productElement, "reference", product.Reference);
             SetElementValue(productElement, "name", product.Name);
             SetElementValue(productElement, "price", FormatDecimal(product.SalePrice));
@@ -253,6 +259,14 @@ public sealed class ProductService(ErpDbContext db, IConfiguration configuration
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"PUT produit PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+    }
+
+    private static void RemovePrestashopReadOnlyFields(XElement productElement)
+    {
+        foreach (var child in productElement.Elements().Where(x => PrestashopReadOnlyProductFields.Contains(x.Name.LocalName)).ToList())
+        {
+            child.Remove();
         }
     }
 
