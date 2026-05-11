@@ -27,7 +27,7 @@ public sealed class ProductService(ErpDbContext db, IConfiguration configuration
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var query = db.Products.Include(x => x.Category).Include(x => x.MainSupplier).AsQueryable();
+        var query = db.Products.Include(x => x.Category).Include(x => x.Brand).Include(x => x.MainSupplier).AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
         {
             query = query.Where(x => x.Reference.Contains(search) || x.Name.Contains(search));
@@ -40,7 +40,7 @@ public sealed class ProductService(ErpDbContext db, IConfiguration configuration
 
     public async Task<Result<ProductDto>> GetAsync(Guid id, CancellationToken cancellationToken)
     {
-        var product = await db.Products.Include(x => x.Category).Include(x => x.MainSupplier).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var product = await db.Products.Include(x => x.Category).Include(x => x.Brand).Include(x => x.MainSupplier).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         return product is null ? Result<ProductDto>.Failure("Product not found.") : Result<ProductDto>.Success(Map(product));
     }
 
@@ -72,13 +72,14 @@ public sealed class ProductService(ErpDbContext db, IConfiguration configuration
         db.Products.Add(product);
         await db.SaveChangesAsync(cancellationToken);
         await db.Entry(product).Reference(x => x.Category).LoadAsync(cancellationToken);
+        await db.Entry(product).Reference(x => x.Brand).LoadAsync(cancellationToken);
         await db.Entry(product).Reference(x => x.MainSupplier).LoadAsync(cancellationToken);
         return Result<ProductDto>.Success(Map(product));
     }
 
     public async Task<Result<ProductDto>> UpdateAsync(Guid id, UpdateProductRequest request, CancellationToken cancellationToken)
     {
-        var product = await db.Products.Include(x => x.Category).Include(x => x.MainSupplier).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var product = await db.Products.Include(x => x.Category).Include(x => x.Brand).Include(x => x.MainSupplier).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (product is null)
         {
             return Result<ProductDto>.Failure("Product not found.");
@@ -161,6 +162,8 @@ public sealed class ProductService(ErpDbContext db, IConfiguration configuration
             product.VatRate,
             product.CategoryId,
             product.Category?.Name,
+            product.BrandId,
+            product.Brand?.Name,
             product.MainSupplierId,
             product.MainSupplier?.Name,
             product.IsActive);

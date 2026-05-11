@@ -25,6 +25,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
+    public DbSet<ProductBrand> ProductBrands => Set<ProductBrand>();
     public DbSet<ProductSupplier> ProductSuppliers => Set<ProductSupplier>();
 
     public DbSet<Quote> Quotes => Set<Quote>();
@@ -141,6 +142,12 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         {
             entity.HasIndex(x => x.Name).IsUnique();
             entity.Property(x => x.Name).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<ProductBrand>(entity =>
+        {
+            entity.HasIndex(x => x.Name).IsUnique();
+            entity.Property(x => x.Name).HasMaxLength(200);
         });
 
         modelBuilder.Entity<ProductSupplier>(entity =>

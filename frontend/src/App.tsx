@@ -1109,6 +1109,7 @@ function ProductDetailsModal({ product, formatAmount, onClose, onSaved }: { prod
 
         <div className="detail-grid product-meta-grid">
           <DetailItem label="Categorie" value={product.categoryName || '-'} />
+          <DetailItem label="Marque" value={product.brandName || '-'} />
           <DetailItem label="Fournisseur principal" value={product.mainSupplierName || '-'} />
           <DetailItem label="URL image" value={product.imageUrl ? <a href={product.imageUrl} target="_blank" rel="noreferrer">Ouvrir l'image</a> : '-'} />
           <DetailItem label="Identifiant interne" value={product.id} />

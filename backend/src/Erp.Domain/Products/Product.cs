@@ -13,6 +13,8 @@ public sealed class Product : AuditableEntity
     public decimal VatRate { get; set; } = 20m;
     public Guid? CategoryId { get; set; }
     public ProductCategory? Category { get; set; }
+    public Guid? BrandId { get; set; }
+    public ProductBrand? Brand { get; set; }
     public Guid? MainSupplierId { get; set; }
     public ProductSupplier? MainSupplier { get; set; }
     public bool IsActive { get; set; } = true;

@@ -54,6 +54,7 @@ export type Product = {
   salePrice: number;
   vatRate: number;
   categoryName?: string;
+  brandName?: string;
   mainSupplierName?: string;
   isActive: boolean;
 };

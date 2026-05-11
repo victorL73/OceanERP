@@ -17,7 +17,8 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     private const string Provider = "PrestaShop";
     private const string DefaultWarehouseName = "PrestaShop";
     private readonly Dictionary<string, ProductCategory?> categoryCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, ProductSupplier?> manufacturerCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ProductBrand?> brandCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ProductSupplier?> supplierCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> AllowedRichTextTags = new(StringComparer.OrdinalIgnoreCase)
     {
         "p", "br", "ul", "ol", "li", "strong", "b", "em", "i", "u", "h1", "h2", "h3", "h4", "blockquote"
@@ -181,6 +182,8 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             product.IsActive = GetBool(item, "active") ?? product.IsActive;
             product.Category = await ResolveProductCategoryAsync(apiBaseUrl, item, cancellationToken);
             product.CategoryId = product.Category?.Id;
+            product.Brand = await ResolveProductBrandAsync(apiBaseUrl, item, cancellationToken);
+            product.BrandId = product.Brand?.Id;
             product.MainSupplier = await ResolveProductSupplierAsync(apiBaseUrl, item, cancellationToken);
             product.MainSupplierId = product.MainSupplier?.Id;
         }
@@ -407,41 +410,70 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 db.ProductCategories.Add(category);
             }
 
-            AddExternalReferenceIfMissing("categories", categoryExternalId, category.Id);
+            await UpsertExternalReferenceAsync("categories", categoryExternalId, category.Id, cancellationToken);
         }
 
         categoryCache[categoryExternalId] = category;
         return category;
     }
 
-    private async Task<ProductSupplier?> ResolveProductSupplierAsync(string apiBaseUrl, JsonElement product, CancellationToken cancellationToken)
+    private async Task<ProductBrand?> ResolveProductBrandAsync(string apiBaseUrl, JsonElement product, CancellationToken cancellationToken)
     {
         var manufacturerExternalId = GetString(product, "id_manufacturer");
         var manufacturerNameFromProduct = GetString(product, "manufacturer_name");
         if (string.IsNullOrWhiteSpace(manufacturerExternalId) || manufacturerExternalId is "0")
         {
-            return await ResolveSupplierByNameAsync(manufacturerNameFromProduct, cancellationToken);
+            return await ResolveBrandByNameAsync(manufacturerNameFromProduct, cancellationToken);
         }
 
-        if (manufacturerCache.TryGetValue(manufacturerExternalId, out var cachedSupplier))
+        if (brandCache.TryGetValue(manufacturerExternalId, out var cachedBrand))
+        {
+            return cachedBrand;
+        }
+
+        var brand = await FindBrandByExternalIdAsync(manufacturerExternalId, cancellationToken);
+        if (brand is null)
+        {
+            var brandName = await FetchPrestashopResourceNameAsync(apiBaseUrl, "manufacturers", "manufacturer", manufacturerExternalId, cancellationToken)
+                ?? manufacturerNameFromProduct
+                ?? $"Fabricant PrestaShop {manufacturerExternalId}";
+            brand = await ResolveBrandByNameAsync(brandName, cancellationToken);
+            if (brand is not null)
+            {
+                await UpsertExternalReferenceAsync("manufacturers", manufacturerExternalId, brand.Id, cancellationToken);
+            }
+        }
+
+        brandCache[manufacturerExternalId] = brand;
+        return brand;
+    }
+
+    private async Task<ProductSupplier?> ResolveProductSupplierAsync(string apiBaseUrl, JsonElement product, CancellationToken cancellationToken)
+    {
+        var supplierExternalId = FirstNonEmpty(GetString(product, "id_supplier"), GetFirstAssociationId(product, "suppliers"));
+        if (string.IsNullOrWhiteSpace(supplierExternalId) || supplierExternalId is "0")
+        {
+            return null;
+        }
+
+        if (supplierCache.TryGetValue(supplierExternalId, out var cachedSupplier))
         {
             return cachedSupplier;
         }
 
-        var supplier = await FindSupplierByExternalIdAsync(manufacturerExternalId, cancellationToken);
+        var supplier = await FindSupplierByExternalIdAsync(supplierExternalId, cancellationToken);
         if (supplier is null)
         {
-            var supplierName = await FetchPrestashopResourceNameAsync(apiBaseUrl, "manufacturers", "manufacturer", manufacturerExternalId, cancellationToken)
-                ?? manufacturerNameFromProduct
-                ?? $"Fabricant PrestaShop {manufacturerExternalId}";
+            var supplierName = await FetchPrestashopResourceNameAsync(apiBaseUrl, "suppliers", "supplier", supplierExternalId, cancellationToken)
+                ?? $"Fournisseur PrestaShop {supplierExternalId}";
             supplier = await ResolveSupplierByNameAsync(supplierName, cancellationToken);
             if (supplier is not null)
             {
-                AddExternalReferenceIfMissing("manufacturers", manufacturerExternalId, supplier.Id);
+                await UpsertExternalReferenceAsync("suppliers", supplierExternalId, supplier.Id, cancellationToken);
             }
         }
 
-        manufacturerCache[manufacturerExternalId] = supplier;
+        supplierCache[supplierExternalId] = supplier;
         return supplier;
     }
 
@@ -457,12 +489,42 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private async Task<ProductSupplier?> FindSupplierByExternalIdAsync(string externalId, CancellationToken cancellationToken)
     {
-        var reference = db.ExternalReferences.Local.FirstOrDefault(x => x.Provider == Provider && x.ExternalId == ExternalKey("manufacturers", externalId))
-            ?? await FindReferenceAsync("manufacturers", externalId, cancellationToken);
+        var reference = db.ExternalReferences.Local.FirstOrDefault(x => x.Provider == Provider && x.ExternalId == ExternalKey("suppliers", externalId))
+            ?? await FindReferenceAsync("suppliers", externalId, cancellationToken);
         return reference is null
             ? null
             : db.ProductSuppliers.Local.FirstOrDefault(x => x.Id == reference.EntityId)
               ?? await db.ProductSuppliers.FirstOrDefaultAsync(x => x.Id == reference.EntityId, cancellationToken);
+    }
+
+    private async Task<ProductBrand?> FindBrandByExternalIdAsync(string externalId, CancellationToken cancellationToken)
+    {
+        var reference = db.ExternalReferences.Local.FirstOrDefault(x => x.Provider == Provider && x.ExternalId == ExternalKey("manufacturers", externalId))
+            ?? await FindReferenceAsync("manufacturers", externalId, cancellationToken);
+        return reference is null
+            ? null
+            : db.ProductBrands.Local.FirstOrDefault(x => x.Id == reference.EntityId)
+              ?? await db.ProductBrands.FirstOrDefaultAsync(x => x.Id == reference.EntityId, cancellationToken);
+    }
+
+    private async Task<ProductBrand?> ResolveBrandByNameAsync(string? brandName, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(brandName))
+        {
+            return null;
+        }
+
+        brandName = Truncate(brandName.Trim(), 200);
+        var brand = db.ProductBrands.Local.FirstOrDefault(x => x.Name == brandName)
+            ?? await db.ProductBrands.FirstOrDefaultAsync(x => x.Name == brandName, cancellationToken);
+        if (brand is not null)
+        {
+            return brand;
+        }
+
+        brand = new ProductBrand { Name = brandName };
+        db.ProductBrands.Add(brand);
+        return brand;
     }
 
     private async Task<ProductSupplier?> ResolveSupplierByNameAsync(string? supplierName, CancellationToken cancellationToken)
@@ -515,15 +577,19 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             : null;
     }
 
-    private void AddExternalReferenceIfMissing(string module, string externalId, Guid entityId)
+    private async Task UpsertExternalReferenceAsync(string module, string externalId, Guid entityId, CancellationToken cancellationToken)
     {
         var key = ExternalKey(module, externalId);
-        if (db.ExternalReferences.Local.Any(x => x.Provider == Provider && x.ExternalId == key))
+        var reference = db.ExternalReferences.Local.FirstOrDefault(x => x.Provider == Provider && x.ExternalId == key)
+            ?? await db.ExternalReferences.FirstOrDefaultAsync(x => x.Provider == Provider && x.ExternalId == key, cancellationToken);
+        if (reference is null)
         {
+            db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = key, Module = module, EntityId = entityId });
             return;
         }
 
-        db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = key, Module = module, EntityId = entityId });
+        reference.Module = module;
+        reference.EntityId = entityId;
     }
 
     private async Task<Warehouse> GetOrCreatePrestashopWarehouseAsync(CancellationToken cancellationToken)

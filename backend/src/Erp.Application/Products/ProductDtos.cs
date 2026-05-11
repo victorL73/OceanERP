@@ -11,6 +11,8 @@ public sealed record ProductDto(
     decimal VatRate,
     Guid? CategoryId,
     string? CategoryName,
+    Guid? BrandId,
+    string? BrandName,
     Guid? MainSupplierId,
     string? MainSupplierName,
     bool IsActive);
