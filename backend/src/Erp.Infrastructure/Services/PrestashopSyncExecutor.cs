@@ -169,6 +169,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
             product.Name = Truncate(FirstNonEmpty(GetLocalizedString(item, "name"), product.Reference), 240);
             product.Description = FirstNonEmpty(StripHtml(GetLocalizedString(item, "description_short")), StripHtml(GetLocalizedString(item, "description")));
+            product.ImageUrl = BuildPrestashopImageUrl(apiBaseUrl, item) ?? product.ImageUrl;
             product.SalePrice = GetDecimal(item, "price") ?? product.SalePrice;
             product.PurchasePrice = GetDecimal(item, "wholesale_price") ?? product.PurchasePrice;
             product.IsActive = GetBool(item, "active") ?? product.IsActive;
@@ -623,6 +624,52 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private static string? StripHtml(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : Regex.Replace(value, "<.*?>", " ").Replace("&nbsp;", " ").Trim();
+
+    private static string? BuildPrestashopImageUrl(string apiBaseUrl, JsonElement product)
+    {
+        var imageId = FirstNonEmpty(GetString(product, "id_default_image"), GetFirstAssociationId(product, "images"));
+        if (string.IsNullOrWhiteSpace(imageId) || imageId is "0")
+        {
+            return null;
+        }
+
+        var numericImageId = Regex.Replace(imageId, @"\D", string.Empty);
+        if (string.IsNullOrWhiteSpace(numericImageId))
+        {
+            return null;
+        }
+
+        var shopRoot = apiBaseUrl.TrimEnd('/');
+        if (shopRoot.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+        {
+            shopRoot = shopRoot[..^4];
+        }
+
+        var imagePath = string.Join("/", numericImageId.ToCharArray());
+        return $"{shopRoot}/img/p/{imagePath}/{numericImageId}.jpg";
+    }
+
+    private static string? GetFirstAssociationId(JsonElement item, string associationName)
+    {
+        if (item.ValueKind != JsonValueKind.Object
+            || !item.TryGetProperty("associations", out var associations)
+            || associations.ValueKind != JsonValueKind.Object
+            || !associations.TryGetProperty(associationName, out var association))
+        {
+            return null;
+        }
+
+        foreach (var associationItem in EnumerateCollection(association, x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out _)))
+        {
+            var id = GetString(associationItem, "id");
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                return id;
+            }
+        }
+
+        return null;
+    }
 
     private async Task<string> BuildUniqueProductReferenceAsync(string requestedReference, string externalId, CancellationToken cancellationToken)
     {

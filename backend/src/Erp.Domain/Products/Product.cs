@@ -7,6 +7,7 @@ public sealed class Product : AuditableEntity
     public string Reference { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? ImageUrl { get; set; }
     public decimal PurchasePrice { get; set; }
     public decimal SalePrice { get; set; }
     public decimal VatRate { get; set; } = 20m;
@@ -16,4 +17,3 @@ public sealed class Product : AuditableEntity
     public ProductSupplier? MainSupplier { get; set; }
     public bool IsActive { get; set; } = true;
 }
-

@@ -830,6 +830,7 @@ function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => P
 function Products({ items, onChanged }: { items: Product[]; onChanged: () => Promise<void> }) {
   const [reference, setReference] = useState('');
   const [name, setName] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
   const [salePrice, setSalePrice] = useState('0');
   const [purchasePrice, setPurchasePrice] = useState('0');
   const [vatRate, setVatRate] = useState('20');
@@ -851,12 +852,14 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
     await api.createProduct({
       reference,
       name,
+      imageUrl: imageUrl || undefined,
       purchasePrice: Number(purchasePrice),
       salePrice: Number(salePrice),
       vatRate: Number(vatRate)
     });
     setReference('');
     setName('');
+    setImageUrl('');
     setSalePrice('0');
     setPurchasePrice('0');
     setVatRate('20');
@@ -874,6 +877,10 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
           <label className="field">
             <span>Designation</span>
             <input required placeholder="Nom du produit" value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>URL image</span>
+            <input placeholder="https://..." value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} />
           </label>
           <label className="field">
             <span>Prix achat HT (€)</span>
@@ -894,8 +901,8 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
         </form>
       </Panel>
       <DataTable
-        columns={['Reference', 'Designation', 'Prix vente', 'TVA', 'Statut']}
-        rows={items.map((item) => [item.reference, item.name, formatAmount(item.salePrice), `${item.vatRate}%`, item.isActive ? 'Actif' : 'Inactif'])}
+        columns={['Image', 'Reference', 'Designation', 'Prix vente', 'TVA', 'Statut']}
+        rows={items.map((item) => [<ProductThumb key={item.id} product={item} />, item.reference, item.name, formatAmount(item.salePrice), `${item.vatRate}%`, item.isActive ? 'Actif' : 'Inactif'])}
         onRowClick={(index) => setSelectedProductId(items[index]?.id ?? null)}
         selectedRowIndex={selectedProduct ? items.findIndex((item) => item.id === selectedProduct.id) : undefined}
       />
@@ -906,7 +913,20 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
   );
 }
 
+function ProductThumb({ product }: { product: Product }) {
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <span className={product.imageUrl && !failed ? 'product-thumb' : 'product-thumb empty'}>
+      {product.imageUrl && !failed ? <img src={product.imageUrl} alt={product.name} onError={() => setFailed(true)} /> : <Package size={18} />}
+    </span>
+  );
+}
+
 function ProductDetailsModal({ product, formatAmount, onClose }: { product: Product; formatAmount: (value: number) => string; onClose: () => void }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const hasImage = Boolean(product.imageUrl && !imageFailed);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -918,28 +938,53 @@ function ProductDetailsModal({ product, formatAmount, onClose }: { product: Prod
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    setImageFailed(false);
+  }, [product.imageUrl]);
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
+      <section className="modal-panel product-modal" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
         <header className="modal-header">
           <div>
             <p className="eyebrow">Article</p>
-            <h2 id="product-detail-title">{product.reference}</h2>
+            <h2 id="product-detail-title">{product.name}</h2>
           </div>
           <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
             <X size={18} />
           </button>
         </header>
-        <div className="detail-grid">
-          <DetailItem label="Reference" value={product.reference} />
-          <DetailItem label="Designation" value={product.name} />
-          <DetailItem label="Description" value={product.description || '-'} />
-          <DetailItem label="Prix achat HT" value={formatAmount(product.purchasePrice)} />
-          <DetailItem label="Prix vente HT" value={formatAmount(product.salePrice)} />
-          <DetailItem label="TVA" value={`${product.vatRate}%`} />
+
+        <div className="product-detail-hero">
+          <div className="product-image-frame">
+            {hasImage ? (
+              <img src={product.imageUrl} alt={product.name} onError={() => setImageFailed(true)} />
+            ) : (
+              <div className="product-image-placeholder">
+                <Package size={42} />
+                <span>Aucune image</span>
+              </div>
+            )}
+          </div>
+
+          <div className="product-summary">
+            <div className="product-summary-line">
+              <span className="reference-badge">{product.reference}</span>
+              <span className={product.isActive ? 'status-badge active' : 'status-badge'}>{product.isActive ? 'Actif' : 'Inactif'}</span>
+            </div>
+            <p>{product.description || 'Aucune description renseignee.'}</p>
+            <div className="product-facts">
+              <DetailItem label="Prix vente HT" value={formatAmount(product.salePrice)} />
+              <DetailItem label="Prix achat HT" value={formatAmount(product.purchasePrice)} />
+              <DetailItem label="TVA" value={`${product.vatRate}%`} />
+            </div>
+          </div>
+        </div>
+
+        <div className="detail-grid product-meta-grid">
           <DetailItem label="Categorie" value={product.categoryName || '-'} />
           <DetailItem label="Fournisseur principal" value={product.mainSupplierName || '-'} />
-          <DetailItem label="Statut" value={product.isActive ? 'Actif' : 'Inactif'} />
+          <DetailItem label="URL image" value={product.imageUrl ? <a href={product.imageUrl} target="_blank" rel="noreferrer">Ouvrir l'image</a> : '-'} />
           <DetailItem label="Identifiant interne" value={product.id} />
         </div>
       </section>

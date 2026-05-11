@@ -46,6 +46,7 @@ public sealed class ProductService(ErpDbContext db) : IProductService
             Reference = request.Reference.Trim(),
             Name = request.Name.Trim(),
             Description = request.Description,
+            ImageUrl = NormalizeOptional(request.ImageUrl),
             PurchasePrice = request.PurchasePrice,
             SalePrice = request.SalePrice,
             VatRate = request.VatRate,
@@ -70,6 +71,7 @@ public sealed class ProductService(ErpDbContext db) : IProductService
 
         product.Name = request.Name.Trim();
         product.Description = request.Description;
+        product.ImageUrl = NormalizeOptional(request.ImageUrl);
         product.PurchasePrice = request.PurchasePrice;
         product.SalePrice = request.SalePrice;
         product.VatRate = request.VatRate;
@@ -118,6 +120,7 @@ public sealed class ProductService(ErpDbContext db) : IProductService
             product.Reference,
             product.Name,
             product.Description,
+            product.ImageUrl,
             product.PurchasePrice,
             product.SalePrice,
             product.VatRate,
@@ -126,4 +129,7 @@ public sealed class ProductService(ErpDbContext db) : IProductService
             product.MainSupplierId,
             product.MainSupplier?.Name,
             product.IsActive);
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

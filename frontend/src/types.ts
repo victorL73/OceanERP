@@ -49,6 +49,7 @@ export type Product = {
   reference: string;
   name: string;
   description?: string;
+  imageUrl?: string;
   purchasePrice: number;
   salePrice: number;
   vatRate: number;

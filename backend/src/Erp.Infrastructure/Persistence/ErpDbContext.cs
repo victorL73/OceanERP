@@ -155,6 +155,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             entity.HasIndex(x => x.Reference).IsUnique();
             entity.Property(x => x.Reference).HasMaxLength(80);
             entity.Property(x => x.Name).HasMaxLength(240);
+            entity.Property(x => x.ImageUrl).HasMaxLength(1000);
             entity.Property(x => x.PurchasePrice).HasPrecision(18, 2);
             entity.Property(x => x.SalePrice).HasPrecision(18, 2);
             entity.Property(x => x.VatRate).HasPrecision(5, 2);
