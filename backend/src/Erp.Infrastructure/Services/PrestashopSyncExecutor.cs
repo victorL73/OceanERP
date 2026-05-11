@@ -68,21 +68,30 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private async Task<string> ProbePrestashopAsync(PrestashopConnection connection, string apiKey, CancellationToken cancellationToken)
     {
+        var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
         httpClient.Timeout = TimeSpan.FromSeconds(20);
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Basic",
             Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
 
-        await EnsureSuccessfulPrestashopRequestAsync($"{connection.ShopUrl}/api?output_format=JSON", "racine API", cancellationToken);
+        await EnsureSuccessfulPrestashopRequestAsync($"{apiBaseUrl}?output_format=JSON", "racine API", cancellationToken);
 
         var resourceStatuses = new List<string>();
         foreach (var resource in ProbeResources)
         {
-            await EnsureSuccessfulPrestashopRequestAsync($"{connection.ShopUrl}/api/{resource}?display=[id]&limit=1&output_format=JSON", resource, cancellationToken);
+            await EnsureSuccessfulPrestashopRequestAsync($"{apiBaseUrl}/{resource}?display=[id]&limit=1&output_format=JSON", resource, cancellationToken);
             resourceStatuses.Add($"{resource}: OK");
         }
 
         return $"Connexion PrestaShop OK. {string.Join("; ", resourceStatuses)}.";
+    }
+
+    private static string GetApiBaseUrl(string shopUrl)
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : $"{normalized}/api";
     }
 
     private async Task EnsureSuccessfulPrestashopRequestAsync(string url, string label, CancellationToken cancellationToken)

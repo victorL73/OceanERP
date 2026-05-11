@@ -105,7 +105,12 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
     }
 
     private static string NormalizeShopUrl(string shopUrl)
-        => shopUrl.Trim().TrimEnd('/');
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized[..^4]
+            : normalized;
+    }
 
     private void SetApiKey(PrestashopConnection connection, string? apiKey, bool clearApiKey)
     {
