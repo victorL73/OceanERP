@@ -385,7 +385,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private async Task<ProductCategory?> ResolveProductCategoryAsync(string apiBaseUrl, JsonElement product, CancellationToken cancellationToken)
     {
-        var categoryExternalId = FirstNonEmpty(GetString(product, "id_category_default"), GetFirstAssociationId(product, "categories"));
+        var categoryExternalId = FirstNonEmpty(GetPrestashopResourceId(product, "id_category_default"), GetFirstAssociationId(product, "categories"));
         if (string.IsNullOrWhiteSpace(categoryExternalId) || categoryExternalId is "0")
         {
             return null;
@@ -419,7 +419,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private async Task<ProductBrand?> ResolveProductBrandAsync(string apiBaseUrl, JsonElement product, CancellationToken cancellationToken)
     {
-        var manufacturerExternalId = GetString(product, "id_manufacturer");
+        var manufacturerExternalId = GetPrestashopResourceId(product, "id_manufacturer");
         var manufacturerNameFromProduct = GetString(product, "manufacturer_name");
         if (string.IsNullOrWhiteSpace(manufacturerExternalId) || manufacturerExternalId is "0")
         {
@@ -450,7 +450,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private async Task<ProductSupplier?> ResolveProductSupplierAsync(string apiBaseUrl, JsonElement product, CancellationToken cancellationToken)
     {
-        var supplierExternalId = FirstNonEmpty(GetString(product, "id_supplier"), GetFirstAssociationId(product, "suppliers"));
+        var supplierExternalId = FirstNonEmpty(GetPrestashopResourceId(product, "id_supplier"), GetFirstAssociationId(product, "suppliers"));
         if (string.IsNullOrWhiteSpace(supplierExternalId) || supplierExternalId is "0")
         {
             return null;
@@ -745,7 +745,17 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         => detail.Length > 240 ? detail[..240] : detail;
 
     private static string? GetRequiredId(JsonElement item)
-        => GetString(item, "id");
+        => GetPrestashopResourceId(item, "id") ?? GetString(item, "id");
+
+    private static string? GetPrestashopResourceId(JsonElement item, string propertyName)
+    {
+        if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return ReadPrestashopId(property);
+    }
 
     private static string? GetString(JsonElement item, params string[] propertyNames)
     {
