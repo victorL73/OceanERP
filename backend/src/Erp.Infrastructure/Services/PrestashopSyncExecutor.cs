@@ -16,6 +16,10 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 {
     private const string Provider = "PrestaShop";
     private const string DefaultWarehouseName = "PrestaShop";
+    private static readonly HashSet<string> AllowedRichTextTags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "p", "br", "ul", "ol", "li", "strong", "b", "em", "i", "u", "h1", "h2", "h3", "h4", "blockquote"
+    };
 
     public async Task ExecuteAsync(Guid syncLogId, CancellationToken cancellationToken)
     {
@@ -168,7 +172,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             }
 
             product.Name = Truncate(FirstNonEmpty(GetLocalizedString(item, "name"), product.Reference), 240);
-            product.Description = FirstNonEmpty(StripHtml(GetLocalizedString(item, "description_short")), StripHtml(GetLocalizedString(item, "description")));
+            product.Description = BuildProductDescription(item) ?? product.Description;
             product.ImageUrl = BuildPrestashopImageUrl(apiBaseUrl, item) ?? product.ImageUrl;
             product.SalePrice = GetDecimal(item, "price") ?? product.SalePrice;
             product.PurchasePrice = GetDecimal(item, "wholesale_price") ?? product.PurchasePrice;
@@ -622,12 +626,42 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
 
-    private static string? StripHtml(string? value)
-        => string.IsNullOrWhiteSpace(value) ? null : Regex.Replace(value, "<.*?>", " ").Replace("&nbsp;", " ").Trim();
+    private static string? BuildProductDescription(JsonElement product)
+    {
+        var description = FirstNonEmpty(GetLocalizedString(product, "description_short"), GetLocalizedString(product, "description"));
+        return string.IsNullOrWhiteSpace(description) ? null : SanitizeRichText(description);
+    }
+
+    private static string SanitizeRichText(string value)
+    {
+        var withoutDangerousBlocks = Regex.Replace(value, @"<\s*(script|style)[^>]*>.*?<\s*/\s*\1\s*>", " ", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        var sanitized = Regex.Replace(
+            withoutDangerousBlocks,
+            @"<\s*(/?)\s*([a-zA-Z0-9]+)(?:\s+[^>]*)?\s*/?\s*>",
+            match =>
+            {
+                var tag = match.Groups[2].Value.ToLowerInvariant();
+                if (!AllowedRichTextTags.Contains(tag))
+                {
+                    return " ";
+                }
+
+                if (tag == "br")
+                {
+                    return "<br>";
+                }
+
+                var closing = match.Groups[1].Value == "/" ? "/" : string.Empty;
+                return $"<{closing}{tag}>";
+            },
+            RegexOptions.IgnoreCase);
+
+        return sanitized.Replace("&nbsp;", " ").Trim();
+    }
 
     private static string? BuildPrestashopImageUrl(string apiBaseUrl, JsonElement product)
     {
-        var imageId = FirstNonEmpty(GetString(product, "id_default_image"), GetFirstAssociationId(product, "images"));
+        var imageId = FirstNonEmpty(GetDefaultImageId(product), GetFirstAssociationId(product, "images"));
         if (string.IsNullOrWhiteSpace(imageId) || imageId is "0")
         {
             return null;
@@ -649,6 +683,88 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         return $"{shopRoot}/img/p/{imagePath}/{numericImageId}.jpg";
     }
 
+    private static string? GetDefaultImageId(JsonElement product)
+    {
+        if (product.ValueKind != JsonValueKind.Object || !product.TryGetProperty("id_default_image", out var image))
+        {
+            return null;
+        }
+
+        return ReadPrestashopId(image);
+    }
+
+    private static string? ReadPrestashopId(JsonElement element)
+    {
+        if (element.ValueKind is JsonValueKind.String or JsonValueKind.Number)
+        {
+            return ExtractLastNumericValue(element.ToString());
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in element.EnumerateArray())
+            {
+                var id = ReadPrestashopId(child);
+                if (!string.IsNullOrWhiteSpace(id))
+                {
+                    return id;
+                }
+            }
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var preferredProperty in new[] { "#text", "value", "id" })
+            {
+                if (element.TryGetProperty(preferredProperty, out var preferred))
+                {
+                    var id = ReadPrestashopId(preferred);
+                    if (!string.IsNullOrWhiteSpace(id))
+                    {
+                        return id;
+                    }
+                }
+            }
+
+            if (element.TryGetProperty("@attributes", out var attributes))
+            {
+                foreach (var hrefProperty in new[] { "xlink:href", "href" })
+                {
+                    if (attributes.ValueKind == JsonValueKind.Object && attributes.TryGetProperty(hrefProperty, out var href))
+                    {
+                        var id = ReadPrestashopId(href);
+                        if (!string.IsNullOrWhiteSpace(id))
+                        {
+                            return id;
+                        }
+                    }
+                }
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                var id = ReadPrestashopId(property.Value);
+                if (!string.IsNullOrWhiteSpace(id))
+                {
+                    return id;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ExtractLastNumericValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var matches = Regex.Matches(value, @"\d+");
+        return matches.Count == 0 ? null : matches[^1].Value;
+    }
+
     private static string? GetFirstAssociationId(JsonElement item, string associationName)
     {
         if (item.ValueKind != JsonValueKind.Object
@@ -661,7 +777,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
         foreach (var associationItem in EnumerateCollection(association, x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("id", out _)))
         {
-            var id = GetString(associationItem, "id");
+            var id = associationItem.TryGetProperty("id", out var idElement) ? ReadPrestashopId(idElement) : ReadPrestashopId(associationItem);
             if (!string.IsNullOrWhiteSpace(id))
             {
                 return id;

@@ -926,6 +926,7 @@ function ProductThumb({ product }: { product: Product }) {
 function ProductDetailsModal({ product, formatAmount, onClose }: { product: Product; formatAmount: (value: number) => string; onClose: () => void }) {
   const [imageFailed, setImageFailed] = useState(false);
   const hasImage = Boolean(product.imageUrl && !imageFailed);
+  const descriptionHtml = useMemo(() => sanitizeRichText(product.description), [product.description]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -972,7 +973,6 @@ function ProductDetailsModal({ product, formatAmount, onClose }: { product: Prod
               <span className="reference-badge">{product.reference}</span>
               <span className={product.isActive ? 'status-badge active' : 'status-badge'}>{product.isActive ? 'Actif' : 'Inactif'}</span>
             </div>
-            <p>{product.description || 'Aucune description renseignee.'}</p>
             <div className="product-facts">
               <DetailItem label="Prix vente HT" value={formatAmount(product.salePrice)} />
               <DetailItem label="Prix achat HT" value={formatAmount(product.purchasePrice)} />
@@ -980,6 +980,15 @@ function ProductDetailsModal({ product, formatAmount, onClose }: { product: Prod
             </div>
           </div>
         </div>
+
+        <section className="product-description-section">
+          <h3>Description</h3>
+          {descriptionHtml ? (
+            <div className="product-description" dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
+          ) : (
+            <div className="product-description empty">Aucune description renseignee.</div>
+          )}
+        </section>
 
         <div className="detail-grid product-meta-grid">
           <DetailItem label="Categorie" value={product.categoryName || '-'} />
@@ -990,6 +999,45 @@ function ProductDetailsModal({ product, formatAmount, onClose }: { product: Prod
       </section>
     </div>
   );
+}
+
+const allowedRichTextTags = new Set(['p', 'br', 'ul', 'ol', 'li', 'strong', 'b', 'em', 'i', 'u', 'h1', 'h2', 'h3', 'h4', 'blockquote']);
+
+function sanitizeRichText(value?: string) {
+  if (!value?.trim()) {
+    return '';
+  }
+
+  const document = new DOMParser().parseFromString(value, 'text/html');
+  const serialize = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtml(node.textContent ?? '');
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
+
+    const element = node as Element;
+    const tag = element.tagName.toLowerCase();
+    const children = Array.from(element.childNodes).map(serialize).join('');
+    if (!allowedRichTextTags.has(tag)) {
+      return children;
+    }
+
+    return tag === 'br' ? '<br>' : `<${tag}>${children}</${tag}>`;
+  };
+
+  return Array.from(document.body.childNodes).map(serialize).join('').trim();
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 function Quotes({ items, customers, onChanged }: { items: Quote[]; customers: Customer[]; onChanged: () => Promise<void> }) {
