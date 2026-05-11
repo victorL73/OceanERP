@@ -66,6 +66,12 @@ export default function App() {
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
 
+  async function refreshPrestashopData() {
+    const [nextConnections, nextLogs] = await Promise.all([api.prestashopConnections(), api.prestashopLogs()]);
+    setPrestashopConnections(nextConnections);
+    setPrestashopLogs(nextLogs);
+  }
+
   useEffect(() => {
     const syncAuthState = () => {
       setAuthenticated(Boolean(api.token));
@@ -136,9 +142,7 @@ export default function App() {
         setEmailMessages(nextMessages);
       }
       if (target === 'prestashop') {
-        const [nextConnections, nextLogs] = await Promise.all([api.prestashopConnections(), api.prestashopLogs()]);
-        setPrestashopConnections(nextConnections);
-        setPrestashopLogs(nextLogs);
+        await refreshPrestashopData();
       }
       if (target === 'notifications') {
         setNotifications(await api.notifications());
@@ -294,7 +298,7 @@ export default function App() {
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('stock')} />}
         {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} onChanged={() => load('emails')} />}
-        {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={() => load('prestashop')} />}
+        {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
         {!loading && view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {!loading && view === 'notifications' && <Notifications items={notifications} />}
       </main>
@@ -1301,23 +1305,70 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncFailed, setSyncFailed] = useState(false);
 
+  function isPending(status: string) {
+    return status === 'Queued' || status === 'Running';
+  }
+
+  async function waitForSyncResult(syncLogId: string) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      const nextLogs = await api.prestashopLogs();
+      const currentLog = nextLogs.find((item) => item.id === syncLogId);
+      await onChanged();
+      if (currentLog && !isPending(currentLog.status)) {
+        return currentLog;
+      }
+    }
+
+    return null;
+  }
+
   async function sync(connection: PrestashopConnection) {
     setSyncingConnectionId(connection.id);
     setSyncFailed(false);
-    setSyncMessage(`Synchronisation PrestaShop lancee pour ${connection.shopUrl}.`);
+    setSyncMessage(`Demande envoyee pour ${connection.shopUrl}.`);
 
     try {
-      const result = await api.runPrestashopSync(connection.id);
+      let result = await api.runPrestashopSync(connection.id);
       setSyncFailed(result.status === 'Failed');
       setSyncMessage(result.message || `Synchronisation ${result.status}.`);
       await onChanged();
+
+      if (isPending(result.status)) {
+        setSyncMessage(`${result.message || 'Synchronisation en attente.'} Suivi du traitement en cours...`);
+        const completedLog = await waitForSyncResult(result.id);
+        if (completedLog) {
+          result = completedLog;
+          setSyncFailed(result.status === 'Failed');
+          setSyncMessage(result.message || `Synchronisation ${result.status}.`);
+        } else {
+          setSyncFailed(false);
+          setSyncMessage('La synchronisation est encore en cours. Les journaux se mettront a jour automatiquement au prochain rafraichissement.');
+        }
+      }
     } catch (err) {
       setSyncFailed(true);
       setSyncMessage(err instanceof Error ? err.message : 'Synchronisation PrestaShop impossible.');
-      await onChanged();
+      await onChanged().catch(() => undefined);
     } finally {
       setSyncingConnectionId(null);
     }
+  }
+
+  function renderSyncAction(connection: PrestashopConnection) {
+    if (!connection.isActive) {
+      return <span className="muted-text">Inactive dans Parametres</span>;
+    }
+
+    if (!connection.hasApiKey) {
+      return <span className="muted-text">Cle API manquante</span>;
+    }
+
+    return (
+      <button className="secondary" type="button" disabled={Boolean(syncingConnectionId)} onClick={() => sync(connection)}>
+        {syncingConnectionId === connection.id ? 'Synchronisation...' : 'Synchroniser'}
+      </button>
+    );
   }
 
   return (
@@ -1332,9 +1383,7 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
           item.shopUrl,
           item.hasApiKey ? 'Configuree' : 'Manquante',
           item.isActive ? 'Actif' : 'Inactif',
-          <button className="secondary" type="button" disabled={!item.isActive || !item.hasApiKey || Boolean(syncingConnectionId)} onClick={() => sync(item)}>
-            {syncingConnectionId === item.id ? 'Synchronisation...' : 'Synchroniser'}
-          </button>
+          renderSyncAction(item)
         ])}
       />
       <DataTable columns={['Connexion', 'Statut', 'Message', 'Fin']} rows={logs.map((item) => [item.prestashopConnectionId, item.status, item.message || '-', item.completedAt ?? item.createdAt])} />

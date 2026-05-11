@@ -37,7 +37,10 @@ public static class DependencyInjection
             options.UseNpgsql(connectionString);
         });
 
-        services.AddHttpClient<IPrestashopService, PrestashopService>();
+        services.AddSingleton<IPrestashopSyncQueue, PrestashopSyncQueue>();
+        services.AddScoped<IPrestashopService, PrestashopService>();
+        services.AddHttpClient<PrestashopSyncExecutor>();
+        services.AddHostedService<PrestashopSyncWorker>();
         services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IAuthService, AuthService>();

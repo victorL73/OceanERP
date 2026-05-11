@@ -259,6 +259,11 @@ h1 {
   line-height: 1.5;
 }
 
+.muted-text {
+  color: #64748b;
+  font-size: 13px;
+}
+
 .browser-tabs {
   display: flex;
   align-items: flex-end;

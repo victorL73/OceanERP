@@ -92,7 +92,7 @@ La Phase 2 contient maintenant :
 - factures depuis commandes expediees, paiements et PDF facture ;
 - stock avec quantite physique, reservee, disponible, seuil bas et mouvements ;
 - comptes email avec ports SMTP/IMAP, secret de mot de passe et journal d'envoi ;
-- PrestaShop avec connexions, cle API configurable par admin dans `Parametres` et journal de synchronisation manuelle avec diagnostic `Completed`/`Failed`.
+- PrestaShop avec connexions, cle API configurable par admin dans `Parametres` et journal de synchronisation manuelle traite par worker (`Queued`, `Running`, `Completed`, `Failed`).
 
 Apres `git pull`, redeployer sur Ubuntu :
 

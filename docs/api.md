@@ -81,4 +81,5 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Une facture ne peut etre creee que depuis une commande `Shipped` ou `Completed`.
 - `POST /api/invoices/{id}/pdf` genere un PDF facture via QuestPDF et stocke uniquement ses metadonnees en PostgreSQL.
 - Le module email journalise les envois. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true` et si le secret du mot de passe SMTP est present en configuration.
-- La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations. Une synchronisation manuelle execute immediatement un test API PrestaShop et termine le journal en `Completed` ou `Failed` avec un message de diagnostic.
+- La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations.
+- `POST /api/prestashop/connections/{id}/sync` cree un journal `Queued` et retourne immediatement. Un worker serveur passe ensuite le journal en `Running`, puis `Completed` ou `Failed` avec un message de diagnostic.

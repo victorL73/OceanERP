@@ -57,4 +57,4 @@ La migration `PrestashopProtectedApiKey` ajoute :
 
 La migration `PrestashopSyncExecutionLog` ajoute :
 
-- `PrestashopSyncLogs.Message`, `StartedAt` et `CompletedAt` pour savoir si la synchronisation a vraiment execute un appel PrestaShop et pourquoi elle a echoue le cas echeant.
+- `PrestashopSyncLogs.Message`, `StartedAt` et `CompletedAt` pour suivre la file de synchronisation PrestaShop et diagnostiquer les etats `Queued`, `Running`, `Completed` et `Failed`.
