@@ -14,7 +14,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     public async Task ExecuteAsync(Guid syncLogId, CancellationToken cancellationToken)
     {
         var log = await db.PrestashopSyncLogs.FirstOrDefaultAsync(x => x.Id == syncLogId, cancellationToken);
-        if (log is null || log.Status is "Completed" or "Failed")
+        if (log is null || log.Status is not ("Queued" or "Running"))
         {
             return;
         }
@@ -47,9 +47,9 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
         try
         {
-            var message = await ProbePrestashopAsync(connection, apiKeyResult.Value!, cancellationToken);
-            log.Status = "Completed";
-            log.Message = message;
+            var result = await ProbePrestashopAsync(connection, apiKeyResult.Value!, cancellationToken);
+            log.Status = result.Status;
+            log.Message = TrimMessage(result.Message);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -66,7 +66,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<string> ProbePrestashopAsync(PrestashopConnection connection, string apiKey, CancellationToken cancellationToken)
+    private async Task<PrestashopProbeResult> ProbePrestashopAsync(PrestashopConnection connection, string apiKey, CancellationToken cancellationToken)
     {
         var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
         httpClient.Timeout = TimeSpan.FromSeconds(20);
@@ -74,16 +74,20 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             "Basic",
             Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
 
-        await EnsureSuccessfulPrestashopRequestAsync($"{apiBaseUrl}?output_format=JSON", "racine API", cancellationToken);
-
         var resourceStatuses = new List<string>();
         foreach (var resource in ProbeResources)
         {
-            await EnsureSuccessfulPrestashopRequestAsync($"{apiBaseUrl}/{resource}?display=[id]&limit=1&output_format=JSON", resource, cancellationToken);
-            resourceStatuses.Add($"{resource}: OK");
+            resourceStatuses.Add(await ProbeResourceAsync($"{apiBaseUrl}/{resource}?display=[id]&limit=1&output_format=JSON", resource, cancellationToken));
         }
 
-        return $"Connexion PrestaShop OK. {string.Join("; ", resourceStatuses)}.";
+        var successCount = resourceStatuses.Count(x => x.EndsWith(": OK", StringComparison.Ordinal));
+        if (successCount == 0)
+        {
+            return new PrestashopProbeResult("Failed", $"Aucune ressource PrestaShop joignable. {string.Join("; ", resourceStatuses)}.");
+        }
+
+        var status = successCount == resourceStatuses.Count ? "Completed" : "CompletedWithWarnings";
+        return new PrestashopProbeResult(status, $"Connexion PrestaShop OK sur {successCount}/{resourceStatuses.Count} ressources. {string.Join("; ", resourceStatuses)}.");
     }
 
     private static string GetApiBaseUrl(string shopUrl)
@@ -94,7 +98,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             : $"{normalized}/api";
     }
 
-    private async Task EnsureSuccessfulPrestashopRequestAsync(string url, string label, CancellationToken cancellationToken)
+    private async Task<string> ProbeResourceAsync(string url, string label, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -102,7 +106,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         using var response = await httpClient.SendAsync(request, cancellationToken);
         if (response.IsSuccessStatusCode)
         {
-            return;
+            return $"{label}: OK";
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -112,7 +116,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             detail = detail[..240];
         }
 
-        throw new InvalidOperationException($"PrestaShop {label}: HTTP {(int)response.StatusCode} {detail}");
+        return $"{label}: HTTP {(int)response.StatusCode} {detail}";
     }
 
     private async Task FailAsync(PrestashopSyncLog log, string message, CancellationToken cancellationToken)
@@ -123,4 +127,9 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         log.CompletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
     }
+
+    private static string TrimMessage(string message)
+        => message.Length > 1000 ? message[..1000] : message;
+
+    private sealed record PrestashopProbeResult(string Status, string Message);
 }
