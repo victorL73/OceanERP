@@ -259,6 +259,52 @@ h1 {
   line-height: 1.5;
 }
 
+.browser-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  border-bottom: 1px solid #d1d5db;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.browser-tabs button {
+  min-width: 132px;
+  min-height: 42px;
+  border: 1px solid #d1d5db;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: #eef2f7;
+  color: #475569;
+  padding: 0 16px;
+  font-weight: 800;
+}
+
+.browser-tabs button.active {
+  position: relative;
+  top: 1px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.browser-tabs.sub-tabs {
+  margin-top: 2px;
+}
+
+.browser-tabs.sub-tabs button {
+  min-width: 116px;
+  min-height: 38px;
+  font-size: 13px;
+}
+
+.tab-page {
+  min-width: 0;
+}
+
+.tab-page.inner {
+  padding-top: 0;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

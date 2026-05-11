@@ -4,11 +4,10 @@ import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, Lay
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
-type ViewKey = 'dashboard' | 'settings' | 'users' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'invoices' | 'stock' | 'emails' | 'prestashop';
+type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
   { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
-  { key: 'users', label: 'Utilisateurs/Roles', icon: ShieldCheck, permission: 'auth.users.read' },
   { key: 'customers', label: 'Clients', icon: Users, permission: 'customers.read' },
   { key: 'products', label: 'Produits', icon: Package, permission: 'products.read' },
   { key: 'quotes', label: 'Devis', icon: FileText, permission: 'quotes.read' },
@@ -24,7 +23,6 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
 const viewLabels: Record<ViewKey, string> = {
   dashboard: 'Tableau de bord',
   settings: 'Parametres',
-  users: 'Utilisateurs/Roles',
   customers: 'Clients',
   products: 'Produits',
   quotes: 'Devis',
@@ -87,15 +85,15 @@ export default function App() {
       if (target === 'settings') {
         const user = await api.me();
         setCurrentUser(user);
+        if (hasPermission(user, 'auth.users.read')) {
+          const [nextUsers, nextRoles, nextPermissions] = await Promise.all([api.users(), api.roles(), api.permissions()]);
+          setUsers(nextUsers);
+          setRoles(nextRoles);
+          setPermissions(nextPermissions);
+        }
         if (hasPermission(user, 'prestashop.read') && hasPermission(user, 'prestashop.write')) {
           setPrestashopConnections(await api.prestashopConnections());
         }
-      }
-      if (target === 'users') {
-        const [nextUsers, nextRoles, nextPermissions] = await Promise.all([api.users(), api.roles(), api.permissions()]);
-        setUsers(nextUsers);
-        setRoles(nextRoles);
-        setPermissions(nextPermissions);
       }
       if (target === 'customers') {
         setCustomers(await api.customers());
@@ -275,7 +273,11 @@ export default function App() {
         {!loading && view === 'settings' && (
           <Settings
             currentUser={currentUser}
+            users={users}
+            roles={roles}
+            permissions={permissions}
             prestashopConnections={prestashopConnections}
+            onUsersRolesChanged={() => load('settings')}
             onPrestashopChanged={() => load('settings')}
             onUserChanged={setCurrentUser}
             onSignedOut={() => {
@@ -285,7 +287,6 @@ export default function App() {
             }}
           />
         )}
-        {!loading && view === 'users' && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={() => load('users')} />}
         {!loading && view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
         {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('quotes')} />}
@@ -376,17 +377,28 @@ function Dashboard({ summary }: { summary: DashboardSummary | null }) {
 
 function Settings({
   currentUser,
+  users,
+  roles,
+  permissions,
   prestashopConnections,
+  onUsersRolesChanged,
   onPrestashopChanged,
   onUserChanged,
   onSignedOut
 }: {
   currentUser: User | null;
+  users: User[];
+  roles: Role[];
+  permissions: Permission[];
   prestashopConnections: PrestashopConnection[];
+  onUsersRolesChanged: () => Promise<void>;
   onPrestashopChanged: () => Promise<void>;
   onUserChanged: (user: User) => void;
   onSignedOut: () => void;
 }) {
+  const canManageUsers = hasPermission(currentUser, 'auth.users.read') && hasPermission(currentUser, 'auth.users.write');
+  const canManagePrestashop = hasPermission(currentUser, 'prestashop.read') && hasPermission(currentUser, 'prestashop.write');
+  const [activeTab, setActiveTab] = useState<'account' | 'access' | 'prestashop'>('account');
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -399,6 +411,12 @@ function Settings({
     setEmail(currentUser?.email ?? '');
     setDisplayName(currentUser?.displayName ?? '');
   }, [currentUser]);
+
+  useEffect(() => {
+    if ((activeTab === 'access' && !canManageUsers) || (activeTab === 'prestashop' && !canManagePrestashop)) {
+      setActiveTab('account');
+    }
+  }, [activeTab, canManagePrestashop, canManageUsers]);
 
   async function updateProfile(event: FormEvent) {
     event.preventDefault();
@@ -432,35 +450,56 @@ function Settings({
     }
   }
 
+  const tabs = [
+    { key: 'account' as const, label: 'Compte' },
+    ...(canManageUsers ? [{ key: 'access' as const, label: 'Utilisateurs/Roles' }] : []),
+    ...(canManagePrestashop ? [{ key: 'prestashop' as const, label: 'PrestaShop' }] : [])
+  ];
+
   return (
     <>
-      <Panel title="Compte personnel">
-        <form className="form-grid" onSubmit={updateProfile}>
-          <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          <input readOnly value={currentUser?.roles.join(', ') ?? ''} aria-label="Roles" />
-          <button className="primary" type="submit">
-            <SettingsIcon size={16} />
-            Enregistrer
+      <div className="browser-tabs" role="tablist" aria-label="Parametres">
+        {tabs.map((tab) => (
+          <button key={tab.key} className={activeTab === tab.key ? 'active' : ''} onClick={() => setActiveTab(tab.key)} type="button">
+            {tab.label}
           </button>
-        </form>
-        {profileMessage && <div className="inline-message">{profileMessage}</div>}
-      </Panel>
+        ))}
+      </div>
 
-      <Panel title="Mot de passe">
-        <form className="form-grid" onSubmit={changePassword}>
-          <input required type="password" autoComplete="current-password" placeholder="Mot de passe actuel" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
-          <input required type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
-          <input required type="password" autoComplete="new-password" placeholder="Confirmation" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
-          <button className="primary" type="submit">
-            <KeyRound size={16} />
-            Modifier
-          </button>
-        </form>
-        {passwordMessage && <div className="inline-message">{passwordMessage}</div>}
-      </Panel>
+      <section className="tab-page">
+        {activeTab === 'account' && (
+          <>
+            <Panel title="Compte personnel">
+              <form className="form-grid" onSubmit={updateProfile}>
+                <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
+                <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                <input readOnly value={currentUser?.roles.join(', ') ?? ''} aria-label="Roles" />
+                <button className="primary" type="submit">
+                  <SettingsIcon size={16} />
+                  Enregistrer
+                </button>
+              </form>
+              {profileMessage && <div className="inline-message">{profileMessage}</div>}
+            </Panel>
 
-      {hasPermission(currentUser, 'prestashop.read') && hasPermission(currentUser, 'prestashop.write') && <PrestashopSettings connections={prestashopConnections} onChanged={onPrestashopChanged} />}
+            <Panel title="Mot de passe">
+              <form className="form-grid" onSubmit={changePassword}>
+                <input required type="password" autoComplete="current-password" placeholder="Mot de passe actuel" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+                <input required type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+                <input required type="password" autoComplete="new-password" placeholder="Confirmation" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+                <button className="primary" type="submit">
+                  <KeyRound size={16} />
+                  Modifier
+                </button>
+              </form>
+              {passwordMessage && <div className="inline-message">{passwordMessage}</div>}
+            </Panel>
+          </>
+        )}
+
+        {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
+        {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettings connections={prestashopConnections} onChanged={onPrestashopChanged} />}
+      </section>
     </>
   );
 }
@@ -544,6 +583,7 @@ function PrestashopSettings({ connections, onChanged }: { connections: Prestasho
 }
 
 function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; roles: Role[]; permissions: Permission[]; onChanged: () => Promise<void> }) {
+  const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -622,74 +662,94 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
 
   return (
     <>
-      <Panel title="Nouvel utilisateur">
-        <form className="form-grid" onSubmit={createUser}>
-          <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          <input required type="password" placeholder="Mot de passe provisoire" value={password} onChange={(event) => setPassword(event.target.value)} />
-          <MultiSelect label="Roles" values={newUserRoles} options={roles.map((role) => role.name)} onChange={setNewUserRoles} />
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Creer
-          </button>
-        </form>
-      </Panel>
+      <div className="browser-tabs sub-tabs" role="tablist" aria-label="Utilisateurs et roles">
+        <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')} type="button">
+          Utilisateurs
+        </button>
+        <button className={activeTab === 'roles' ? 'active' : ''} onClick={() => setActiveTab('roles')} type="button">
+          Roles
+        </button>
+      </div>
 
-      <Panel title="Affectation utilisateur">
-        <form className="form-grid" onSubmit={updateUser}>
-          <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
-            <option value="">Utilisateur</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.email}
-              </option>
-            ))}
-          </select>
-          <MultiSelect label="Roles" values={selectedUserRoles} options={roles.map((role) => role.name)} onChange={setSelectedUserRoles} />
-          <label className="check-field">
-            <input type="checkbox" checked={selectedUserActive} onChange={(event) => setSelectedUserActive(event.target.checked)} />
-            Actif
-          </label>
-          <button className="primary" type="submit">
-            <ShieldCheck size={16} />
-            Enregistrer
-          </button>
-        </form>
-      </Panel>
+      <section className="tab-page inner">
+        {activeTab === 'users' && (
+          <>
+            <Panel title="Nouvel utilisateur">
+              <form className="form-grid" onSubmit={createUser}>
+                <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
+                <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                <input required type="password" placeholder="Mot de passe provisoire" value={password} onChange={(event) => setPassword(event.target.value)} />
+                <MultiSelect label="Roles" values={newUserRoles} options={roles.map((role) => role.name)} onChange={setNewUserRoles} />
+                <button className="primary" type="submit">
+                  <Plus size={16} />
+                  Creer
+                </button>
+              </form>
+            </Panel>
 
-      <Panel title="Nouveau role">
-        <form className="form-grid" onSubmit={createRole}>
-          <input required placeholder="Nom du role" value={roleName} onChange={(event) => setRoleName(event.target.value)} />
-          <input placeholder="Description" value={roleDescription} onChange={(event) => setRoleDescription(event.target.value)} />
-          <PermissionPicker groupedPermissions={groupedPermissions} selected={rolePermissions} onChange={setRolePermissions} />
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Creer
-          </button>
-        </form>
-      </Panel>
+            <Panel title="Affectation utilisateur">
+              <form className="form-grid" onSubmit={updateUser}>
+                <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+                  <option value="">Utilisateur</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.email}
+                    </option>
+                  ))}
+                </select>
+                <MultiSelect label="Roles" values={selectedUserRoles} options={roles.map((role) => role.name)} onChange={setSelectedUserRoles} />
+                <label className="check-field">
+                  <input type="checkbox" checked={selectedUserActive} onChange={(event) => setSelectedUserActive(event.target.checked)} />
+                  Actif
+                </label>
+                <button className="primary" type="submit">
+                  <ShieldCheck size={16} />
+                  Enregistrer
+                </button>
+              </form>
+            </Panel>
 
-      <Panel title="Permissions du role">
-        <form className="form-grid" onSubmit={updateRole}>
-          <select value={editRoleId} onChange={(event) => setEditRoleId(event.target.value)}>
-            <option value="">Role</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </select>
-          <input placeholder="Description" value={editRoleDescription} onChange={(event) => setEditRoleDescription(event.target.value)} />
-          <PermissionPicker groupedPermissions={groupedPermissions} selected={editRolePermissions} onChange={setEditRolePermissions} />
-          <button className="primary" type="submit">
-            <ShieldCheck size={16} />
-            Mettre a jour
-          </button>
-        </form>
-      </Panel>
+            <DataTable columns={['Email', 'Nom', 'Roles', 'Statut']} rows={users.map((user) => [user.email, user.displayName, user.roles.join(', '), user.isActive ? 'Actif' : 'Inactif'])} />
+          </>
+        )}
 
-      <DataTable columns={['Email', 'Nom', 'Roles', 'Statut']} rows={users.map((user) => [user.email, user.displayName, user.roles.join(', '), user.isActive ? 'Actif' : 'Inactif'])} />
-      <DataTable columns={['Role', 'Description', 'Permissions']} rows={roles.map((role) => [role.name, role.description, role.permissions.length])} />
+        {activeTab === 'roles' && (
+          <>
+            <Panel title="Nouveau role">
+              <form className="form-grid" onSubmit={createRole}>
+                <input required placeholder="Nom du role" value={roleName} onChange={(event) => setRoleName(event.target.value)} />
+                <input placeholder="Description" value={roleDescription} onChange={(event) => setRoleDescription(event.target.value)} />
+                <PermissionPicker groupedPermissions={groupedPermissions} selected={rolePermissions} onChange={setRolePermissions} />
+                <button className="primary" type="submit">
+                  <Plus size={16} />
+                  Creer
+                </button>
+              </form>
+            </Panel>
+
+            <Panel title="Permissions du role">
+              <form className="form-grid" onSubmit={updateRole}>
+                <select value={editRoleId} onChange={(event) => setEditRoleId(event.target.value)}>
+                  <option value="">Role</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
+                <input placeholder="Description" value={editRoleDescription} onChange={(event) => setEditRoleDescription(event.target.value)} />
+                <PermissionPicker groupedPermissions={groupedPermissions} selected={editRolePermissions} onChange={setEditRolePermissions} />
+                <button className="primary" type="submit">
+                  <ShieldCheck size={16} />
+                  Mettre a jour
+                </button>
+              </form>
+            </Panel>
+
+            <DataTable columns={['Role', 'Description', 'Permissions']} rows={roles.map((role) => [role.name, role.description, role.permissions.length])} />
+          </>
+        )}
+      </section>
     </>
   );
 }
