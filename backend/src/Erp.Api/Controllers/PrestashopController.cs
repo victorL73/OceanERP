@@ -22,6 +22,14 @@ public sealed class PrestashopController(IPrestashopService prestashop) : Contro
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPut("connections/{id:guid}")]
+    [Authorize(Policy = "prestashop.write")]
+    public async Task<ActionResult<PrestashopConnectionDto>> UpdateConnection(Guid id, UpdatePrestashopConnectionRequest request, CancellationToken cancellationToken)
+    {
+        var result = await prestashop.UpdateConnectionAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpGet("sync-logs")]
     [Authorize(Policy = "prestashop.read")]
     public async Task<ActionResult<IReadOnlyList<PrestashopSyncLogDto>>> Logs(CancellationToken cancellationToken)
@@ -35,4 +43,3 @@ public sealed class PrestashopController(IPrestashopService prestashop) : Contro
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 }
-

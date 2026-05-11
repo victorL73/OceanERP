@@ -9,6 +9,7 @@
 - Gestion admin des comptes, roles et permissions par module.
 - Espace utilisateur pour modifier email, nom affiche et mot de passe.
 - Revocation des refresh tokens actifs apres changement de mot de passe.
+- Cle API PrestaShop configurable uniquement depuis `Parametres` par un compte ayant `prestashop.write`, avec stockage chiffre en base via `Secrets:EncryptionKey`.
 - Audit logs de connexion.
 - Middleware centralisé d'erreurs.
 - CORS configurable.
@@ -23,7 +24,7 @@
 - Activer HTTPS via Nginx et Certbot ou un reverse proxy TLS managé.
 - Définir une politique de rotation des refresh tokens.
 - Ajouter verrouillage de compte et 2FA.
-- Ajouter chiffrement applicatif des secrets SMTP/IMAP/API keys.
+- Etendre le stockage chiffre aux secrets SMTP/IMAP/API keys externes qui ne sont pas encore en coffre applicatif.
 - Compléter les permissions Drive par dossier/fichier.
 - Ajouter antivirus ou sandbox d'analyse documentaire si nécessaire.
 

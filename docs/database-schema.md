@@ -50,3 +50,7 @@ La migration `Phase2Workflows` complete ce socle :
 - `InvoiceDocuments` recoit les metadonnees completes des PDF facture.
 - `MailAccounts` recoit les ports SMTP/IMAP, SSL, utilisateur et nom de secret.
 - `EmailMessages` recoit corps, direction, statut, lu/non lu et date d'envoi.
+
+La migration `PrestashopProtectedApiKey` ajoute :
+
+- `PrestashopConnections.ApiKeyProtectedValue` pour stocker la cle API PrestaShop sous forme protegee, sans exposer la valeur en clair dans les listes API.

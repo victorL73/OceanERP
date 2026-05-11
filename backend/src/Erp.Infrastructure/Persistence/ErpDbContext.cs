@@ -330,6 +330,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         {
             entity.Property(x => x.ShopUrl).HasMaxLength(500);
             entity.Property(x => x.ApiKeySecretName).HasMaxLength(160);
+            entity.Property(x => x.ApiKeyProtectedValue).HasMaxLength(2000);
         });
 
         modelBuilder.Entity<PrestashopSyncLog>(entity =>

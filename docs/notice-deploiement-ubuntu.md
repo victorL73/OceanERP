@@ -89,6 +89,7 @@ Variables minimales a changer avant production :
 
 - `POSTGRES_PASSWORD`
 - `JWT_SIGNING_KEY`
+- `SECRETS_ENCRYPTION_KEY`
 - `ERP_ADMIN_EMAIL`
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
@@ -96,6 +97,8 @@ Variables minimales a changer avant production :
 - `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
 
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
+
+`SECRETS_ENCRYPTION_KEY` doit rester stable entre les redeploiements : elle sert a relire les cles API PrestaShop chiffrees en base.
 
 Pour activer un compte SMTP plus tard, creer le compte dans l'ERP avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis ajouter dans `.env` :
 

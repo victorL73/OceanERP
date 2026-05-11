@@ -221,6 +221,7 @@ export type PrestashopConnection = {
   id: string;
   shopUrl: string;
   apiKeySecretName: string;
+  hasApiKey: boolean;
   isActive: boolean;
 };
 

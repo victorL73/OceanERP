@@ -57,6 +57,7 @@ Swagger est activé en environnement `Development`.
 - `POST /api/emails/send`
 - `GET /api/prestashop/connections`
 - `POST /api/prestashop/connections`
+- `PUT /api/prestashop/connections/{id}`
 - `GET /api/prestashop/sync-logs`
 - `POST /api/prestashop/connections/{id}/sync`
 
@@ -80,3 +81,4 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Une facture ne peut etre creee que depuis une commande `Shipped` ou `Completed`.
 - `POST /api/invoices/{id}/pdf` genere un PDF facture via QuestPDF et stocke uniquement ses metadonnees en PostgreSQL.
 - Le module email journalise les envois. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true` et si le secret du mot de passe SMTP est present en configuration.
+- La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations.

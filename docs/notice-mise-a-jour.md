@@ -22,6 +22,14 @@ cd ~/OceanERP
 git pull
 ```
 
+Si `.env` ne contient pas encore de cle de chiffrement applicatif, l'ajouter avant de redeployer :
+
+```env
+SECRETS_ENCRYPTION_KEY=une-valeur-aleatoire-longue-et-stable
+```
+
+Cette valeur doit rester identique apres les mises a jour pour relire les cles API PrestaShop chiffrees.
+
 Si `git pull` indique qu'un fichier local serait ecrase, lire la difference :
 
 ```bash

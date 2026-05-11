@@ -38,7 +38,7 @@ const viewLabels: Record<ViewKey, string> = {
 };
 
 function hasPermission(user: User | null, permission?: string) {
-  return !permission || !user || user.roles.includes('Administrator') || user.permissions.includes(permission);
+  return !permission || Boolean(user && (user.roles.includes('Administrator') || user.permissions.includes(permission)));
 }
 
 export default function App() {
@@ -85,7 +85,11 @@ export default function App() {
         setSummary(await api.summary());
       }
       if (target === 'settings') {
-        setCurrentUser(await api.me());
+        const user = await api.me();
+        setCurrentUser(user);
+        if (hasPermission(user, 'prestashop.read') && hasPermission(user, 'prestashop.write')) {
+          setPrestashopConnections(await api.prestashopConnections());
+        }
       }
       if (target === 'users') {
         const [nextUsers, nextRoles, nextPermissions] = await Promise.all([api.users(), api.roles(), api.permissions()]);
@@ -268,7 +272,19 @@ export default function App() {
         {loading && <div className="loading">Chargement...</div>}
 
         {!loading && view === 'dashboard' && <Dashboard summary={summary} />}
-        {!loading && view === 'settings' && <Settings currentUser={currentUser} onUserChanged={setCurrentUser} onSignedOut={() => { api.logout(); setCurrentUser(null); setAuthenticated(false); }} />}
+        {!loading && view === 'settings' && (
+          <Settings
+            currentUser={currentUser}
+            prestashopConnections={prestashopConnections}
+            onPrestashopChanged={() => load('settings')}
+            onUserChanged={setCurrentUser}
+            onSignedOut={() => {
+              api.logout();
+              setCurrentUser(null);
+              setAuthenticated(false);
+            }}
+          />
+        )}
         {!loading && view === 'users' && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={() => load('users')} />}
         {!loading && view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
         {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
@@ -358,7 +374,19 @@ function Dashboard({ summary }: { summary: DashboardSummary | null }) {
   );
 }
 
-function Settings({ currentUser, onUserChanged, onSignedOut }: { currentUser: User | null; onUserChanged: (user: User) => void; onSignedOut: () => void }) {
+function Settings({
+  currentUser,
+  prestashopConnections,
+  onPrestashopChanged,
+  onUserChanged,
+  onSignedOut
+}: {
+  currentUser: User | null;
+  prestashopConnections: PrestashopConnection[];
+  onPrestashopChanged: () => Promise<void>;
+  onUserChanged: (user: User) => void;
+  onSignedOut: () => void;
+}) {
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -431,6 +459,86 @@ function Settings({ currentUser, onUserChanged, onSignedOut }: { currentUser: Us
         </form>
         {passwordMessage && <div className="inline-message">{passwordMessage}</div>}
       </Panel>
+
+      {hasPermission(currentUser, 'prestashop.read') && hasPermission(currentUser, 'prestashop.write') && <PrestashopSettings connections={prestashopConnections} onChanged={onPrestashopChanged} />}
+    </>
+  );
+}
+
+function PrestashopSettings({ connections, onChanged }: { connections: PrestashopConnection[]; onChanged: () => Promise<void> }) {
+  const [selectedId, setSelectedId] = useState('');
+  const [shopUrl, setShopUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  const [clearApiKey, setClearApiKey] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const selectedConnection = connections.find((connection) => connection.id === selectedId);
+
+  useEffect(() => {
+    if (selectedConnection) {
+      setShopUrl(selectedConnection.shopUrl);
+      setIsActive(selectedConnection.isActive);
+      setApiKey('');
+      setClearApiKey(false);
+    }
+  }, [selectedConnection]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    try {
+      if (selectedConnection) {
+        await api.updatePrestashopConnection(selectedConnection.id, { shopUrl, apiKey: apiKey || undefined, isActive, clearApiKey });
+        setMessage('Connexion PrestaShop mise a jour.');
+      } else {
+        await api.createPrestashopConnection({ shopUrl, apiKey: apiKey || undefined });
+        setMessage('Connexion PrestaShop creee.');
+      }
+
+      setSelectedId('');
+      setShopUrl('');
+      setApiKey('');
+      setIsActive(true);
+      setClearApiKey(false);
+      await onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Configuration PrestaShop impossible');
+    }
+  }
+
+  return (
+    <>
+      <Panel title="Configuration PrestaShop">
+        <form className="form-grid" onSubmit={submit}>
+          <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+            <option value="">Nouvelle connexion</option>
+            {connections.map((connection) => (
+              <option key={connection.id} value={connection.id}>
+                {connection.shopUrl}
+              </option>
+            ))}
+          </select>
+          <input required placeholder="URL boutique" value={shopUrl} onChange={(event) => setShopUrl(event.target.value)} />
+          <input type="password" placeholder={selectedConnection?.hasApiKey ? 'Nouvelle cle API, vide = conserver' : 'Cle API PrestaShop'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
+          <label className="check-field">
+            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
+            Actif
+          </label>
+          {selectedConnection && (
+            <label className="check-field">
+              <input type="checkbox" checked={clearApiKey} onChange={(event) => setClearApiKey(event.target.checked)} />
+              Effacer la cle
+            </label>
+          )}
+          <button className="primary" type="submit">
+            <Store size={16} />
+            {selectedConnection ? 'Mettre a jour' : 'Ajouter'}
+          </button>
+        </form>
+        {message && <div className="inline-message">{message}</div>}
+      </Panel>
+      <DataTable columns={['Boutique', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
     </>
   );
 }
@@ -1129,16 +1237,6 @@ function Emails({ accounts, messages, onChanged }: { accounts: MailAccount[]; me
 }
 
 function Prestashop({ connections, logs, onChanged }: { connections: PrestashopConnection[]; logs: PrestashopSyncLog[]; onChanged: () => Promise<void> }) {
-  const [shopUrl, setShopUrl] = useState('');
-  const [apiKeySecretName, setApiKeySecretName] = useState('PRESTASHOP_API_KEY');
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    await api.createPrestashopConnection({ shopUrl, apiKeySecretName });
-    setShopUrl('');
-    await onChanged();
-  }
-
   async function sync(connection: PrestashopConnection) {
     await api.runPrestashopSync(connection.id);
     await onChanged();
@@ -1146,23 +1244,16 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
 
   return (
     <>
-      <Panel title="Connexion PrestaShop">
-        <form className="form-grid" onSubmit={submit}>
-          <input required placeholder="URL boutique" value={shopUrl} onChange={(event) => setShopUrl(event.target.value)} />
-          <input required placeholder="Nom secret cle API" value={apiKeySecretName} onChange={(event) => setApiKeySecretName(event.target.value)} />
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Ajouter
-          </button>
-        </form>
+      <Panel title="Synchronisation PrestaShop">
+        <p className="panel-note">La configuration des boutiques et des cles API se fait dans Parametres avec un compte administrateur.</p>
       </Panel>
       <DataTable
-        columns={['Boutique', 'Secret', 'Statut', 'Sync']}
+        columns={['Boutique', 'Cle API', 'Statut', 'Sync']}
         rows={connections.map((item) => [
           item.shopUrl,
-          item.apiKeySecretName,
+          item.hasApiKey ? 'Configuree' : 'Manquante',
           item.isActive ? 'Actif' : 'Inactif',
-          <button className="secondary" type="button" onClick={() => sync(item)}>
+          <button className="secondary" type="button" disabled={!item.isActive || !item.hasApiKey} onClick={() => sync(item)}>
             Synchroniser
           </button>
         ])}

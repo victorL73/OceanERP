@@ -253,6 +253,12 @@ h1 {
   font-size: 16px;
 }
 
+.panel-note {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

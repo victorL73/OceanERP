@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using Erp.Application.Auth;
 using Erp.Application.Customers;
 using Erp.Application.Invoices;
+using Erp.Application.Prestashop;
 using Erp.Application.Products;
 using Erp.Application.Sales;
 using Erp.Application.Stock;
@@ -88,6 +89,30 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(HttpStatusCode.OK, documentResponse.StatusCode);
         var document = await documentResponse.Content.ReadFromJsonAsync<InvoiceDocumentDto>();
         Assert.EndsWith(".pdf", document!.FileName);
+    }
+
+    [Fact]
+    public async Task Prestashop_AdminCanCreateAndUpdateProtectedApiKey()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/prestashop/connections", new CreatePrestashopConnectionRequest("https://shop.example.com", "prestashop-key-1"));
+
+        Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
+        var connection = await createResponse.Content.ReadFromJsonAsync<PrestashopConnectionDto>();
+        Assert.True(connection!.HasApiKey);
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/prestashop/connections/{connection.Id}", new UpdatePrestashopConnectionRequest("https://shop.example.com/fr", "prestashop-key-2", true, false));
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<PrestashopConnectionDto>();
+        Assert.Equal("https://shop.example.com/fr", updated!.ShopUrl);
+        Assert.True(updated.HasApiKey);
+
+        var clearResponse = await client.PutAsJsonAsync($"/api/prestashop/connections/{connection.Id}", new UpdatePrestashopConnectionRequest("https://shop.example.com/fr", null, true, true));
+        Assert.Equal(HttpStatusCode.OK, clearResponse.StatusCode);
+        var cleared = await clearResponse.Content.ReadFromJsonAsync<PrestashopConnectionDto>();
+        Assert.False(cleared!.HasApiKey);
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()

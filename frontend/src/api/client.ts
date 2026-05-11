@@ -263,8 +263,12 @@ export class ApiClient {
     return this.request<PrestashopSyncLog[]>('/api/prestashop/sync-logs', { auth: true });
   }
 
-  createPrestashopConnection(payload: { shopUrl: string; apiKeySecretName: string }) {
+  createPrestashopConnection(payload: { shopUrl: string; apiKey?: string }) {
     return this.request<PrestashopConnection>('/api/prestashop/connections', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updatePrestashopConnection(connectionId: string, payload: { shopUrl: string; apiKey?: string; isActive: boolean; clearApiKey: boolean }) {
+    return this.request<PrestashopConnection>(`/api/prestashop/connections/${connectionId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
   runPrestashopSync(connectionId: string) {
