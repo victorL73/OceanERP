@@ -184,7 +184,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             product.CategoryId = product.Category?.Id;
             product.Brand = await ResolveProductBrandAsync(apiBaseUrl, item, cancellationToken);
             product.BrandId = product.Brand?.Id;
-            product.MainSupplier = await ResolveProductSupplierAsync(apiBaseUrl, item, cancellationToken);
+            product.MainSupplier = await ResolveProductSupplierAsync(apiBaseUrl, item, externalId, cancellationToken);
             product.MainSupplierId = product.MainSupplier?.Id;
         }
 
@@ -448,9 +448,24 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         return brand;
     }
 
-    private async Task<ProductSupplier?> ResolveProductSupplierAsync(string apiBaseUrl, JsonElement product, CancellationToken cancellationToken)
+    private async Task<ProductSupplier?> ResolveProductSupplierAsync(string apiBaseUrl, JsonElement product, string productExternalId, CancellationToken cancellationToken)
     {
-        var supplierExternalId = FirstNonEmpty(GetPrestashopResourceId(product, "id_supplier"), GetFirstAssociationId(product, "suppliers"));
+        var productSupplierExternalId = GetFirstAssociationId(product, "product_suppliers");
+        var supplierExternalId = FirstNonEmpty(
+            GetPrestashopResourceId(product, "id_supplier"),
+            GetFirstAssociationValue(product, "product_suppliers", "id_supplier"),
+            GetFirstAssociationId(product, "suppliers"));
+
+        if ((string.IsNullOrWhiteSpace(supplierExternalId) || supplierExternalId is "0") && !string.IsNullOrWhiteSpace(productSupplierExternalId))
+        {
+            supplierExternalId = await FetchSupplierIdFromProductSupplierAsync(apiBaseUrl, productSupplierExternalId, cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(supplierExternalId) || supplierExternalId is "0")
+        {
+            supplierExternalId = await FetchDefaultProductSupplierIdAsync(apiBaseUrl, productExternalId, cancellationToken);
+        }
+
         if (string.IsNullOrWhiteSpace(supplierExternalId) || supplierExternalId is "0")
         {
             return null;
@@ -475,6 +490,42 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
         supplierCache[supplierExternalId] = supplier;
         return supplier;
+    }
+
+    private async Task<string?> FetchSupplierIdFromProductSupplierAsync(string apiBaseUrl, string productSupplierExternalId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = await GetJsonAsync($"{apiBaseUrl}/product_suppliers/{productSupplierExternalId}?display=full&output_format=JSON", "product_suppliers", cancellationToken);
+            var productSupplier = FindFirstItem(document, "product_supplier", "product_suppliers");
+            return productSupplier is null ? null : GetPrestashopResourceId(productSupplier.Value, "id_supplier") ?? GetString(productSupplier.Value, "id_supplier");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<string?> FetchDefaultProductSupplierIdAsync(string apiBaseUrl, string productExternalId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = await GetJsonAsync($"{apiBaseUrl}/product_suppliers?display=full&filter[id_product]=[{productExternalId}]&output_format=JSON", "product_suppliers", cancellationToken);
+            foreach (var productSupplier in EnumerateItems(document, "product_suppliers"))
+            {
+                var supplierExternalId = GetPrestashopResourceId(productSupplier, "id_supplier") ?? GetString(productSupplier, "id_supplier");
+                if (!string.IsNullOrWhiteSpace(supplierExternalId) && supplierExternalId is not "0")
+                {
+                    return supplierExternalId;
+                }
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
     }
 
     private async Task<ProductCategory?> FindCategoryByExternalIdAsync(string externalId, CancellationToken cancellationToken)
@@ -1009,6 +1060,28 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             if (!string.IsNullOrWhiteSpace(id))
             {
                 return id;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? GetFirstAssociationValue(JsonElement item, string associationName, string propertyName)
+    {
+        if (item.ValueKind != JsonValueKind.Object
+            || !item.TryGetProperty("associations", out var associations)
+            || associations.ValueKind != JsonValueKind.Object
+            || !associations.TryGetProperty(associationName, out var association))
+        {
+            return null;
+        }
+
+        foreach (var associationItem in EnumerateCollection(association, x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty(propertyName, out _)))
+        {
+            var value = GetPrestashopResourceId(associationItem, propertyName) ?? GetString(associationItem, propertyName);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
             }
         }
 
