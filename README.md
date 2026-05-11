@@ -106,4 +106,4 @@ cd deploy/windows
 ```
 
 Le script prepare l'installateur via `electron-builder`; il ne cree un `.exe` que lorsque les dependances Node sont installees et que la commande aboutit.
-L'URL serveur est embarquee dans l'application et peut ensuite etre modifiee depuis `OceanERP > Configurer le serveur`.
+L'URL serveur est seulement une valeur pre-remplie : l'application Windows demande l'adresse serveur au demarrage et permet de la changer via `OceanERP > Changer de serveur`.

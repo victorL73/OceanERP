@@ -26,14 +26,23 @@ cd deploy/windows
 
 Le resultat est genere par `electron-builder` dans le dossier `desktop/dist`.
 
-## Connexion
+## Connexion et choix du serveur
 
-L'application Electron charge l'URL serveur fournie par `-ServerUrl`. Cette URL est embarquee dans `desktop/config/default-server.json` au moment du build.
+Au demarrage, l'application Windows affiche d'abord un ecran local `Connexion au serveur`.
+L'utilisateur saisit l'adresse du serveur OceanERP, par exemple :
+
+```text
+http://192.168.68.70:8080
+```
+
+Ensuite seulement, l'application charge l'ecran d'identification du serveur choisi.
+
+L'URL fournie par `-ServerUrl` sert uniquement de valeur pre-remplie par defaut. Elle est embarquee dans `desktop/config/default-server.json` au moment du build, mais l'utilisateur peut la changer sans reconstruire le `.exe`.
 
 L'utilisateur peut ensuite changer l'URL depuis le menu :
 
 ```text
-OceanERP > Configurer le serveur
+OceanERP > Changer de serveur
 ```
 
 Le reglage est conserve dans le profil utilisateur Windows de l'application.
@@ -50,8 +59,10 @@ cd deploy/windows
 Verifier :
 
 - la fenetre OceanERP s'ouvre ;
-- l'ecran de connexion charge le serveur Ubuntu ;
-- le menu `OceanERP > Configurer le serveur` permet de changer l'URL ;
+- l'ecran `Connexion au serveur` apparait avant la connexion utilisateur ;
+- l'adresse du serveur peut etre modifiee sans rebuild ;
+- l'ecran de connexion ERP charge le serveur Ubuntu apres validation ;
+- le menu `OceanERP > Changer de serveur` permet de revenir au choix serveur ;
 - une URL invalide affiche une page de diagnostic ;
 - les notifications Windows sont autorisees par le systeme.
 

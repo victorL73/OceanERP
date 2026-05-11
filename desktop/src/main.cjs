@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -7,7 +7,6 @@ const defaultSettings = {
 };
 
 let mainWindow;
-let settingsWindow;
 let tray;
 
 function readPackagedServerUrl() {
@@ -25,7 +24,7 @@ function readPackagedServerUrl() {
         }
       }
     } catch {
-      // Ignore invalid packaged config and fall back to localhost.
+      // Ignore invalid packaged config and keep the app usable.
     }
   }
 
@@ -37,7 +36,7 @@ function getSettingsPath() {
 }
 
 function normalizeServerUrl(value) {
-  const parsed = new URL(value.trim());
+  const parsed = new URL(String(value || '').trim());
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('URL serveur invalide.');
   }
@@ -74,37 +73,154 @@ function getIconPath() {
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
 
-function loadServerUrl() {
-  const settings = readSettings();
-  mainWindow.loadURL(settings.serverUrl);
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
 
-function showConnectionError(url, errorDescription) {
-  const message = `Impossible de joindre le serveur OceanERP.\n\n${url}\n\n${errorDescription || ''}`;
-  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+function loadLauncher(errorMessage = '') {
+  const settings = readSettings();
+  const html = `
     <!doctype html>
     <html lang="fr">
       <head>
         <meta charset="utf-8" />
         <title>OceanERP</title>
         <style>
-          body { margin: 0; font-family: Segoe UI, Arial, sans-serif; background: #f4f7fb; color: #102033; display: grid; min-height: 100vh; place-items: center; }
-          main { width: min(560px, calc(100vw - 48px)); background: white; border: 1px solid #d9e2ef; border-radius: 8px; padding: 28px; box-shadow: 0 12px 32px rgba(16, 32, 51, .08); }
-          h1 { margin: 0 0 12px; font-size: 22px; }
-          p { line-height: 1.5; color: #52627a; white-space: pre-line; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Segoe UI, Arial, sans-serif;
+            background: #f4f7fb;
+            color: #102033;
+            display: grid;
+            grid-template-columns: 420px 1fr;
+          }
+          aside {
+            background: #111c2f;
+            color: white;
+            padding: 42px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+          }
+          .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-weight: 800;
+            font-size: 22px;
+          }
+          .mark {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            background: #0f7f73;
+            display: grid;
+            place-items: center;
+            font-size: 17px;
+          }
+          aside p { color: #b7c4d9; line-height: 1.6; margin: 24px 0 0; }
+          main { display: grid; place-items: center; padding: 42px; }
+          form {
+            width: min(560px, 100%);
+            background: white;
+            border: 1px solid #d9e2ef;
+            border-radius: 8px;
+            padding: 28px;
+            box-shadow: 0 12px 32px rgba(16, 32, 51, .08);
+            display: grid;
+            gap: 18px;
+          }
+          h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
+          .hint { margin: 0; color: #52627a; line-height: 1.5; }
+          label { display: grid; gap: 8px; font-weight: 700; color: #26364d; }
+          input {
+            width: 100%;
+            height: 44px;
+            border: 1px solid #cdd7e5;
+            border-radius: 6px;
+            padding: 0 12px;
+            font: inherit;
+          }
+          input:focus { outline: 2px solid rgba(15, 127, 115, .22); border-color: #0f7f73; }
+          button {
+            height: 44px;
+            border: 0;
+            border-radius: 6px;
+            background: #0f7f73;
+            color: white;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+          }
+          button.secondary { background: #e8eef7; color: #102033; }
+          .actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+          .error {
+            min-height: 22px;
+            color: #b42318;
+            background: #fff0f0;
+            border: 1px solid #ffd2d2;
+            border-radius: 6px;
+            padding: 10px 12px;
+          }
+          .error:empty { display: none; }
+          code { color: #0f7f73; }
+          @media (max-width: 860px) {
+            body { grid-template-columns: 1fr; }
+            aside { display: none; }
+          }
         </style>
       </head>
-      <body><main><h1>Connexion impossible</h1><p>${escapeHtml(message)}</p><p>Utilisez le menu OceanERP > Configurer le serveur, puis rechargez l'application.</p></main></body>
-    </html>
-  `)}`);
+      <body>
+        <aside>
+          <div>
+            <div class="brand"><div class="mark">OE</div><span>OceanERP</span></div>
+            <p>Choisissez le serveur ERP avant de vous connecter. Cette adresse peut etre changee sans reconstruire l'installateur Windows.</p>
+          </div>
+          <p>Derniere adresse connue<br><code>${escapeHtml(settings.serverUrl)}</code></p>
+        </aside>
+        <main>
+          <form id="form">
+            <h1>Connexion au serveur</h1>
+            <p class="hint">Entrez l'adresse du serveur OceanERP. L'ecran d'identification s'ouvrira ensuite depuis ce serveur.</p>
+            <label>
+              Adresse du serveur
+              <input id="serverUrl" type="url" required placeholder="http://192.168.68.70:8080" value="${escapeHtml(settings.serverUrl)}" />
+            </label>
+            <div id="error" class="error">${escapeHtml(errorMessage)}</div>
+            <div class="actions">
+              <button type="submit">Continuer vers la connexion</button>
+              <button type="button" class="secondary" id="quit">Quitter</button>
+            </div>
+          </form>
+        </main>
+        <script>
+          const form = document.getElementById('form');
+          const input = document.getElementById('serverUrl');
+          const error = document.getElementById('error');
+          document.getElementById('quit').addEventListener('click', () => window.oceanErpDesktop.quit());
+          form.addEventListener('submit', async event => {
+            event.preventDefault();
+            error.textContent = '';
+            const result = await window.oceanErpDesktop.connectServer(input.value);
+            if (!result.ok) {
+              error.textContent = result.error || 'URL invalide';
+            }
+          });
+        </script>
+      </body>
+    </html>`;
+
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 }
 
-function escapeHtml(value) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+function loadServerUrl(serverUrl) {
+  mainWindow.loadURL(serverUrl || readSettings().serverUrl);
 }
 
 function createWindow() {
@@ -130,11 +246,11 @@ function createWindow() {
 
   mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedUrl) => {
     if (errorCode !== -3) {
-      showConnectionError(validatedUrl, errorDescription);
+      loadLauncher(`Impossible de joindre le serveur ${validatedUrl}. ${errorDescription || ''}`);
     }
   });
 
-  loadServerUrl();
+  loadLauncher();
 }
 
 function createMenu() {
@@ -142,10 +258,7 @@ function createMenu() {
     {
       label: 'OceanERP',
       submenu: [
-        {
-          label: 'Configurer le serveur',
-          click: openSettingsWindow
-        },
+        { label: 'Changer de serveur', click: () => loadLauncher() },
         { type: 'separator' },
         { role: 'reload', label: 'Recharger' },
         { role: 'quit', label: 'Quitter' }
@@ -153,75 +266,6 @@ function createMenu() {
     }
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-function openSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus();
-    return;
-  }
-
-  settingsWindow = new BrowserWindow({
-    width: 560,
-    height: 260,
-    parent: mainWindow,
-    modal: true,
-    resizable: false,
-    title: 'Configurer OceanERP',
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
-  });
-
-  settingsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
-    <!doctype html>
-    <html lang="fr">
-      <head>
-        <meta charset="utf-8" />
-        <title>Configurer OceanERP</title>
-        <style>
-          body { margin: 0; font-family: Segoe UI, Arial, sans-serif; background: #f7f9fc; color: #102033; }
-          form { display: grid; gap: 14px; padding: 24px; }
-          label { display: grid; gap: 8px; font-weight: 600; }
-          input { height: 38px; border: 1px solid #cdd7e5; border-radius: 6px; padding: 0 10px; font: inherit; }
-          footer { display: flex; justify-content: flex-end; gap: 10px; }
-          button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 700; cursor: pointer; }
-          .primary { background: #0f7f73; color: white; }
-          .secondary { background: #e8eef7; color: #102033; }
-          .error { color: #b42318; min-height: 20px; }
-        </style>
-      </head>
-      <body>
-        <form id="form">
-          <label>URL du serveur ERP<input id="serverUrl" type="url" required /></label>
-          <div class="error" id="error"></div>
-          <footer>
-            <button type="button" class="secondary" id="cancel">Annuler</button>
-            <button type="submit" class="primary">Enregistrer</button>
-          </footer>
-        </form>
-        <script>
-          const { ipcRenderer } = require('electron');
-          const input = document.getElementById('serverUrl');
-          const error = document.getElementById('error');
-          ipcRenderer.invoke('settings:get').then(settings => { input.value = settings.serverUrl || ''; });
-          document.getElementById('cancel').addEventListener('click', () => window.close());
-          document.getElementById('form').addEventListener('submit', event => {
-            event.preventDefault();
-            error.textContent = '';
-            ipcRenderer.invoke('settings:save', { serverUrl: input.value }).then(result => {
-              if (!result.ok) {
-                error.textContent = result.error || 'URL invalide';
-                return;
-              }
-              window.close();
-            });
-          });
-        </script>
-      </body>
-    </html>
-  `)}`);
 }
 
 function createTray() {
@@ -239,7 +283,7 @@ function createTray() {
   tray.setToolTip('OceanERP');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Ouvrir OceanERP', click: () => mainWindow?.show() },
-    { label: 'Configurer le serveur', click: openSettingsWindow },
+    { label: 'Changer de serveur', click: () => loadLauncher() },
     { type: 'separator' },
     { label: 'Quitter', click: () => app.quit() }
   ]));
@@ -247,16 +291,29 @@ function createTray() {
 
 ipcMain.handle('settings:get', () => readSettings());
 
-ipcMain.handle('settings:save', (_, payload) => {
+ipcMain.handle('settings:connect', (_, payload) => {
   try {
     const serverUrl = normalizeServerUrl(payload?.serverUrl || '');
-    const settings = writeSettings({ serverUrl });
-    mainWindow?.loadURL(settings.serverUrl);
+    writeSettings({ serverUrl });
+    loadServerUrl(serverUrl);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'URL invalide' };
   }
 });
+
+ipcMain.handle('settings:save', (_, payload) => {
+  try {
+    const serverUrl = normalizeServerUrl(payload?.serverUrl || '');
+    writeSettings({ serverUrl });
+    loadServerUrl(serverUrl);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'URL invalide' };
+  }
+});
+
+ipcMain.on('app:quit', () => app.quit());
 
 ipcMain.on('notify', (_, payload) => {
   if (Notification.isSupported()) {
