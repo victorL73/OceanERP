@@ -54,22 +54,21 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         try
         {
             var result = await ProbePrestashopAsync(connection, apiKeyResult.Value!, cancellationToken);
-            log.Status = result.Status;
-            log.Message = TrimMessage(result.Message);
+            db.ChangeTracker.Clear();
+            var completedLog = await db.PrestashopSyncLogs.FirstAsync(x => x.Id == syncLogId, cancellationToken);
+            completedLog.Status = result.Status;
+            completedLog.Message = TrimMessage(result.Message);
+            completedLog.CompletedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            log.Status = "Failed";
-            log.Message = "Synchronisation interrompue ou delai depasse.";
+            await FailByIdAsync(syncLogId, "Synchronisation interrompue ou delai depasse.", cancellationToken);
         }
         catch (Exception ex)
         {
-            log.Status = "Failed";
-            log.Message = ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message;
+            await FailByIdAsync(syncLogId, TrimMessage(ex.Message), cancellationToken);
         }
-
-        log.CompletedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<PrestashopProbeResult> ProbePrestashopAsync(PrestashopConnection connection, string apiKey, CancellationToken cancellationToken)
@@ -81,15 +80,10 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
 
         var summaries = new List<ImportSummary>();
-        summaries.Add(await RunImportAsync("products", () => ImportProductsAsync(apiBaseUrl, cancellationToken)));
-        await db.SaveChangesAsync(cancellationToken);
-
-        summaries.Add(await RunImportAsync("customers", () => ImportCustomersAsync(apiBaseUrl, cancellationToken)));
-        await db.SaveChangesAsync(cancellationToken);
-
-        summaries.Add(await RunImportAsync("stock_availables", () => ImportStockAsync(apiBaseUrl, cancellationToken)));
-        summaries.Add(await RunImportAsync("orders", () => ImportOrdersAsync(apiBaseUrl, cancellationToken)));
-        await db.SaveChangesAsync(cancellationToken);
+        summaries.Add(await RunImportAsync("products", () => ImportProductsAsync(apiBaseUrl, cancellationToken), cancellationToken));
+        summaries.Add(await RunImportAsync("customers", () => ImportCustomersAsync(apiBaseUrl, cancellationToken), cancellationToken));
+        summaries.Add(await RunImportAsync("stock_availables", () => ImportStockAsync(apiBaseUrl, cancellationToken), cancellationToken));
+        summaries.Add(await RunImportAsync("orders", () => ImportOrdersAsync(apiBaseUrl, cancellationToken), cancellationToken));
 
         var successCount = summaries.Count(x => x.IsSuccess);
         if (successCount == 0)
@@ -125,11 +119,14 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         return JsonDocument.Parse(body);
     }
 
-    private async Task<ImportSummary> RunImportAsync(string resource, Func<Task<ImportSummary>> import)
+    private async Task<ImportSummary> RunImportAsync(string resource, Func<Task<ImportSummary>> import, CancellationToken cancellationToken)
     {
         try
         {
-            return await import();
+            var summary = await import();
+            await db.SaveChangesAsync(cancellationToken);
+            db.ChangeTracker.Clear();
+            return summary;
         }
         catch (OperationCanceledException)
         {
@@ -137,6 +134,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         }
         catch (Exception ex)
         {
+            db.ChangeTracker.Clear();
             return ImportSummary.Failed(resource, TrimDetail(ex.Message));
         }
     }
@@ -496,6 +494,22 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     {
         log.Status = "Failed";
         log.Message = message;
+        log.StartedAt ??= DateTimeOffset.UtcNow;
+        log.CompletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task FailByIdAsync(Guid syncLogId, string message, CancellationToken cancellationToken)
+    {
+        db.ChangeTracker.Clear();
+        var log = await db.PrestashopSyncLogs.FirstOrDefaultAsync(x => x.Id == syncLogId, cancellationToken);
+        if (log is null)
+        {
+            return;
+        }
+
+        log.Status = "Failed";
+        log.Message = TrimMessage(message);
         log.StartedAt ??= DateTimeOffset.UtcNow;
         log.CompletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
