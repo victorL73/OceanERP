@@ -478,6 +478,46 @@ th {
   text-transform: uppercase;
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover,
+.clickable-row:focus,
+.clickable-row.selected {
+  background: #f8fafc;
+  outline: none;
+}
+
+.clickable-row.selected td {
+  border-bottom-color: #99f6e4;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.detail-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.detail-item span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.detail-item strong {
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 14px;
+}
+
 .drive-list,
 .notification-list {
   display: grid;

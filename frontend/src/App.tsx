@@ -833,6 +833,18 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
   const [salePrice, setSalePrice] = useState('0');
   const [purchasePrice, setPurchasePrice] = useState('0');
   const [vatRate, setVatRate] = useState('20');
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const selectedProduct = items.find((item) => item.id === selectedProductId) ?? null;
+
+  useEffect(() => {
+    if (selectedProductId && !items.some((item) => item.id === selectedProductId)) {
+      setSelectedProductId(null);
+    }
+  }, [items, selectedProductId]);
+
+  function formatAmount(value: number) {
+    return `${value.toFixed(2)} EUR`;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -881,7 +893,28 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Reference', 'Designation', 'Prix vente', 'TVA']} rows={items.map((item) => [item.reference, item.name, `${item.salePrice.toFixed(2)} EUR`, `${item.vatRate}%`])} />
+      <DataTable
+        columns={['Reference', 'Designation', 'Prix vente', 'TVA', 'Statut']}
+        rows={items.map((item) => [item.reference, item.name, formatAmount(item.salePrice), `${item.vatRate}%`, item.isActive ? 'Actif' : 'Inactif'])}
+        onRowClick={(index) => setSelectedProductId(items[index]?.id ?? null)}
+        selectedRowIndex={selectedProduct ? items.findIndex((item) => item.id === selectedProduct.id) : undefined}
+      />
+      {selectedProduct && (
+        <Panel title="Fiche article">
+          <div className="detail-grid">
+            <DetailItem label="Reference" value={selectedProduct.reference} />
+            <DetailItem label="Designation" value={selectedProduct.name} />
+            <DetailItem label="Description" value={selectedProduct.description || '-'} />
+            <DetailItem label="Prix achat HT" value={formatAmount(selectedProduct.purchasePrice)} />
+            <DetailItem label="Prix vente HT" value={formatAmount(selectedProduct.salePrice)} />
+            <DetailItem label="TVA" value={`${selectedProduct.vatRate}%`} />
+            <DetailItem label="Categorie" value={selectedProduct.categoryName || '-'} />
+            <DetailItem label="Fournisseur principal" value={selectedProduct.mainSupplierName || '-'} />
+            <DetailItem label="Statut" value={selectedProduct.isActive ? 'Actif' : 'Inactif'} />
+            <DetailItem label="Identifiant interne" value={selectedProduct.id} />
+          </div>
+        </Panel>
+      )}
     </>
   );
 }
@@ -1505,7 +1538,26 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function DataTable({ columns, rows }: { columns: string[]; rows: Array<Array<ReactNode>> }) {
+function DetailItem({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="detail-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function DataTable({
+  columns,
+  rows,
+  onRowClick,
+  selectedRowIndex
+}: {
+  columns: string[];
+  rows: Array<Array<ReactNode>>;
+  onRowClick?: (index: number) => void;
+  selectedRowIndex?: number;
+}) {
   return (
     <section className="table-surface">
       <table>
@@ -1518,7 +1570,22 @@ function DataTable({ columns, rows }: { columns: string[]; rows: Array<Array<Rea
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={index}>
+            <tr
+              key={index}
+              className={`${onRowClick ? 'clickable-row' : ''}${selectedRowIndex === index ? ' selected' : ''}`}
+              onClick={onRowClick ? () => onRowClick(index) : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onRowClick(index);
+                      }
+                    }
+                  : undefined
+              }
+              tabIndex={onRowClick ? 0 : undefined}
+            >
               {row.map((cell, cellIndex) => (
                 <td key={cellIndex}>{cell}</td>
               ))}
