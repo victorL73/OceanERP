@@ -9,12 +9,9 @@
     "build": "electron-builder --config ../deploy/windows/electron-builder.yml",
     "dist:win": "electron-builder --win nsis --config ../deploy/windows/electron-builder.yml"
   },
-  "dependencies": {
-    "electron-store": "^10.1.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "electron": "^39.2.4",
     "electron-builder": "^26.0.12"
   }
 }
-

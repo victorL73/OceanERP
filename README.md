@@ -102,7 +102,8 @@ docker compose --env-file .env -f docker-compose.yml up -d
 
 ```powershell
 cd deploy/windows
-.\build-installer.ps1 -ServerUrl "https://erp.example.com"
+.\build-installer.ps1 -ServerUrl "http://192.168.68.70:8080"
 ```
 
 Le script prepare l'installateur via `electron-builder`; il ne cree un `.exe` que lorsque les dependances Node sont installees et que la commande aboutit.
+L'URL serveur est embarquee dans l'application et peut ensuite etre modifiee depuis `OceanERP > Configurer le serveur`.

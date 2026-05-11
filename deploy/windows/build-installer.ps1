@@ -5,9 +5,20 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $desktop = Join-Path $root "desktop"
+$configDir = Join-Path $desktop "config"
+$configFile = Join-Path $configDir "default-server.json"
+
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw "npm est introuvable. Installe Node.js LTS puis rouvre PowerShell : winget install OpenJS.NodeJS.LTS"
+}
 
 Write-Host "OceanERP Windows installer build"
 Write-Host "Server URL: $ServerUrl"
+
+New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+@{
+    serverUrl = $ServerUrl.TrimEnd("/")
+} | ConvertTo-Json | Set-Content -Path $configFile -Encoding UTF8
 
 Push-Location $desktop
 try {
@@ -18,4 +29,3 @@ try {
 finally {
     Pop-Location
 }
-
