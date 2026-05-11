@@ -319,7 +319,7 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      const message = await response.text();
+      const message = await this.readError(response);
       throw new Error(message || `HTTP ${response.status}`);
     }
 
@@ -328,6 +328,20 @@ export class ApiClient {
     }
 
     return response.json() as Promise<T>;
+  }
+
+  private async readError(response: Response) {
+    const text = await response.text();
+    if (!text) {
+      return '';
+    }
+
+    try {
+      const payload = JSON.parse(text) as { error?: string; title?: string; detail?: string };
+      return payload.error || payload.detail || payload.title || text;
+    } catch {
+      return text;
+    }
   }
 
   private async refreshAuth() {

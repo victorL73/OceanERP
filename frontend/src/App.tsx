@@ -1297,9 +1297,27 @@ function Emails({ accounts, messages, onChanged }: { accounts: MailAccount[]; me
 }
 
 function Prestashop({ connections, logs, onChanged }: { connections: PrestashopConnection[]; logs: PrestashopSyncLog[]; onChanged: () => Promise<void> }) {
+  const [syncingConnectionId, setSyncingConnectionId] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncFailed, setSyncFailed] = useState(false);
+
   async function sync(connection: PrestashopConnection) {
-    await api.runPrestashopSync(connection.id);
-    await onChanged();
+    setSyncingConnectionId(connection.id);
+    setSyncFailed(false);
+    setSyncMessage(`Synchronisation PrestaShop lancee pour ${connection.shopUrl}.`);
+
+    try {
+      const result = await api.runPrestashopSync(connection.id);
+      setSyncFailed(result.status === 'Failed');
+      setSyncMessage(result.message || `Synchronisation ${result.status}.`);
+      await onChanged();
+    } catch (err) {
+      setSyncFailed(true);
+      setSyncMessage(err instanceof Error ? err.message : 'Synchronisation PrestaShop impossible.');
+      await onChanged();
+    } finally {
+      setSyncingConnectionId(null);
+    }
   }
 
   return (
@@ -1307,14 +1325,15 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
       <Panel title="Synchronisation PrestaShop">
         <p className="panel-note">La configuration des boutiques et des cles API se fait dans Parametres avec un compte administrateur.</p>
       </Panel>
+      {syncMessage && <div className={syncFailed ? 'alert' : 'loading'}>{syncMessage}</div>}
       <DataTable
         columns={['Boutique', 'Cle API', 'Statut', 'Sync']}
         rows={connections.map((item) => [
           item.shopUrl,
           item.hasApiKey ? 'Configuree' : 'Manquante',
           item.isActive ? 'Actif' : 'Inactif',
-          <button className="secondary" type="button" disabled={!item.isActive || !item.hasApiKey} onClick={() => sync(item)}>
-            Synchroniser
+          <button className="secondary" type="button" disabled={!item.isActive || !item.hasApiKey || Boolean(syncingConnectionId)} onClick={() => sync(item)}>
+            {syncingConnectionId === item.id ? 'Synchronisation...' : 'Synchroniser'}
           </button>
         ])}
       />
