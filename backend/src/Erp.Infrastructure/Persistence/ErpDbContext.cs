@@ -1,0 +1,237 @@
+using Erp.Domain.Auth;
+using Erp.Domain.Common;
+using Erp.Domain.Customers;
+using Erp.Domain.Documents;
+using Erp.Domain.Notifications;
+using Erp.Domain.Products;
+using Erp.Domain.Quotes;
+using Microsoft.EntityFrameworkCore;
+
+namespace Erp.Infrastructure.Persistence;
+
+public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbContext(options)
+{
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Role> Roles => Set<Role>();
+    public DbSet<Permission> Permissions => Set<Permission>();
+    public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<CustomerContact> CustomerContacts => Set<CustomerContact>();
+    public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
+
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
+    public DbSet<ProductSupplier> ProductSuppliers => Set<ProductSupplier>();
+
+    public DbSet<Quote> Quotes => Set<Quote>();
+    public DbSet<QuoteLine> QuoteLines => Set<QuoteLine>();
+    public DbSet<QuoteDocument> QuoteDocuments => Set<QuoteDocument>();
+    public DbSet<QuoteStatusHistory> QuoteStatusHistories => Set<QuoteStatusHistory>();
+
+    public DbSet<DriveFolder> DriveFolders => Set<DriveFolder>();
+    public DbSet<DriveItem> DriveItems => Set<DriveItem>();
+    public DbSet<DriveFileVersion> DriveFileVersions => Set<DriveFileVersion>();
+    public DbSet<DrivePermission> DrivePermissions => Set<DrivePermission>();
+    public DbSet<DriveShare> DriveShares => Set<DriveShare>();
+    public DbSet<DriveActivityLog> DriveActivityLogs => Set<DriveActivityLog>();
+    public DbSet<DocumentLink> DocumentLinks => Set<DocumentLink>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasIndex(x => x.Email).IsUnique();
+            entity.Property(x => x.Email).HasMaxLength(320);
+            entity.Property(x => x.DisplayName).HasMaxLength(160);
+            entity.Property(x => x.PasswordHash).HasMaxLength(1024);
+        });
+
+        modelBuilder.Entity<Role>(entity =>
+        {
+            entity.HasIndex(x => x.Name).IsUnique();
+            entity.Property(x => x.Name).HasMaxLength(120);
+            entity.Property(x => x.Description).HasMaxLength(300);
+            entity.HasMany(x => x.Permissions).WithMany(x => x.Roles);
+        });
+
+        modelBuilder.Entity<Permission>(entity =>
+        {
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Module).HasMaxLength(80);
+            entity.Property(x => x.Action).HasMaxLength(80);
+            entity.Property(x => x.Code).HasMaxLength(180);
+        });
+
+        modelBuilder.Entity<UserRole>(entity =>
+        {
+            entity.HasKey(x => new { x.UserId, x.RoleId });
+            entity.HasOne(x => x.User).WithMany(x => x.UserRoles).HasForeignKey(x => x.UserId);
+            entity.HasOne(x => x.Role).WithMany(x => x.UserRoles).HasForeignKey(x => x.RoleId);
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.Property(x => x.TokenHash).HasMaxLength(128);
+            entity.Property(x => x.ReplacedByTokenHash).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.HasIndex(x => x.CreatedAt);
+            entity.Property(x => x.Action).HasMaxLength(120);
+            entity.Property(x => x.EntityName).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<Customer>(entity =>
+        {
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(60);
+            entity.Property(x => x.CompanyName).HasMaxLength(240);
+            entity.Property(x => x.VatNumber).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<CustomerContact>(entity =>
+        {
+            entity.Property(x => x.FirstName).HasMaxLength(120);
+            entity.Property(x => x.LastName).HasMaxLength(120);
+            entity.Property(x => x.Email).HasMaxLength(320);
+        });
+
+        modelBuilder.Entity<CustomerAddress>(entity =>
+        {
+            entity.Property(x => x.Label).HasMaxLength(80);
+            entity.Property(x => x.Line1).HasMaxLength(240);
+            entity.Property(x => x.Line2).HasMaxLength(240);
+            entity.Property(x => x.PostalCode).HasMaxLength(40);
+            entity.Property(x => x.City).HasMaxLength(120);
+            entity.Property(x => x.Country).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<ProductCategory>(entity =>
+        {
+            entity.HasIndex(x => x.Name).IsUnique();
+            entity.Property(x => x.Name).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<ProductSupplier>(entity =>
+        {
+            entity.HasIndex(x => x.Name).IsUnique();
+            entity.Property(x => x.Name).HasMaxLength(200);
+            entity.Property(x => x.Email).HasMaxLength(320);
+        });
+
+        modelBuilder.Entity<Product>(entity =>
+        {
+            entity.HasIndex(x => x.Reference).IsUnique();
+            entity.Property(x => x.Reference).HasMaxLength(80);
+            entity.Property(x => x.Name).HasMaxLength(240);
+            entity.Property(x => x.PurchasePrice).HasPrecision(18, 2);
+            entity.Property(x => x.SalePrice).HasPrecision(18, 2);
+            entity.Property(x => x.VatRate).HasPrecision(5, 2);
+        });
+
+        modelBuilder.Entity<Quote>(entity =>
+        {
+            entity.HasIndex(x => x.Number).IsUnique();
+            entity.Property(x => x.Number).HasMaxLength(80);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(40);
+            entity.Property(x => x.Subtotal).HasPrecision(18, 2);
+            entity.Property(x => x.VatTotal).HasPrecision(18, 2);
+            entity.Property(x => x.Total).HasPrecision(18, 2);
+            entity.Property(x => x.Currency).HasMaxLength(3);
+        });
+
+        modelBuilder.Entity<QuoteLine>(entity =>
+        {
+            entity.Property(x => x.Description).HasMaxLength(500);
+            entity.Property(x => x.Quantity).HasPrecision(18, 3);
+            entity.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            entity.Property(x => x.DiscountRate).HasPrecision(5, 2);
+            entity.Property(x => x.VatRate).HasPrecision(5, 2);
+            entity.Property(x => x.LineNetTotal).HasPrecision(18, 2);
+            entity.Property(x => x.LineVatTotal).HasPrecision(18, 2);
+            entity.Property(x => x.LineTotal).HasPrecision(18, 2);
+        });
+
+        modelBuilder.Entity<QuoteStatusHistory>(entity =>
+        {
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(40);
+        });
+
+        modelBuilder.Entity<QuoteDocument>(entity =>
+        {
+            entity.Property(x => x.FileName).HasMaxLength(260);
+            entity.Property(x => x.MimeType).HasMaxLength(120);
+            entity.Property(x => x.StoragePath).HasMaxLength(1024);
+        });
+
+        modelBuilder.Entity<DriveFolder>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(260);
+            entity.HasOne(x => x.ParentFolder).WithMany(x => x.Children).HasForeignKey(x => x.ParentFolderId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<DriveItem>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(260);
+            entity.Property(x => x.MimeType).HasMaxLength(120);
+            entity.Property(x => x.StoragePath).HasMaxLength(1024);
+        });
+
+        modelBuilder.Entity<DriveFileVersion>(entity =>
+        {
+            entity.HasIndex(x => new { x.DriveItemId, x.Version }).IsUnique();
+            entity.Property(x => x.StoragePath).HasMaxLength(1024);
+            entity.Property(x => x.Sha256).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<DocumentLink>(entity =>
+        {
+            entity.HasIndex(x => new { x.Module, x.EntityId });
+            entity.Property(x => x.Module).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasIndex(x => new { x.UserId, x.IsRead });
+            entity.Property(x => x.Type).HasMaxLength(120);
+            entity.Property(x => x.Title).HasMaxLength(180);
+        });
+
+        modelBuilder.Entity<NotificationPreference>(entity =>
+        {
+            entity.HasIndex(x => new { x.UserId, x.NotificationType }).IsUnique();
+            entity.Property(x => x.NotificationType).HasMaxLength(120);
+        });
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
+        {
+            if (entry.State == EntityState.Added)
+            {
+                entry.Entity.CreatedAt = now;
+            }
+
+            if (entry.State == EntityState.Modified)
+            {
+                entry.Entity.UpdatedAt = now;
+            }
+        }
+
+        return base.SaveChangesAsync(cancellationToken);
+    }
+}
+

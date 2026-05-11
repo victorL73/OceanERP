@@ -1,0 +1,22 @@
+appId: fr.oceanerp.desktop
+productName: OceanERP
+directories:
+  output: dist
+files:
+  - "src/**/*"
+  - "assets/**/*"
+  - "package.json"
+asar: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OceanERP
+  uninstallDisplayName: OceanERP

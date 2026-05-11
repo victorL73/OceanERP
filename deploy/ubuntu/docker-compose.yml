@@ -1,0 +1,87 @@
+services:
+  erp-api:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    container_name: oceanerp-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-oceanerp};Username=${POSTGRES_USER:-oceanerp};Password=${POSTGRES_PASSWORD:-change-me}
+      Jwt__Issuer: ${JWT_ISSUER:-OceanERP}
+      Jwt__Audience: ${JWT_AUDIENCE:-OceanERP}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-CHANGE_ME_WITH_64_RANDOM_CHARACTERS_MINIMUM_FOR_PROD}
+      Storage__RootPath: /var/lib/oceanerp/documents
+      Seed__AdminEmail: ${ERP_ADMIN_EMAIL:-admin@oceanerp.local}
+      Seed__AdminPassword: ${ERP_ADMIN_PASSWORD:-ChangeMe!12345}
+      Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost}
+    volumes:
+      - oceanerp_documents:/var/lib/oceanerp/documents
+      - oceanerp_api_logs:/var/log/oceanerp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - oceanerp
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: oceanerp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-oceanerp}
+      POSTGRES_USER: ${POSTGRES_USER:-oceanerp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - oceanerp_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oceanerp} -d ${POSTGRES_DB:-oceanerp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - oceanerp
+
+  nginx:
+    build:
+      context: ../..
+      dockerfile: docker/nginx/Dockerfile
+    container_name: oceanerp-nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    depends_on:
+      - erp-api
+      - onlyoffice
+    networks:
+      - oceanerp
+
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: oceanerp-onlyoffice
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
+    volumes:
+      - oceanerp_onlyoffice_data:/var/www/onlyoffice/Data
+      - oceanerp_onlyoffice_logs:/var/log/onlyoffice
+    networks:
+      - oceanerp
+
+networks:
+  oceanerp:
+    driver: bridge
+
+volumes:
+  oceanerp_postgres:
+    name: oceanerp_postgres
+  oceanerp_documents:
+    name: oceanerp_documents
+  oceanerp_api_logs:
+    name: oceanerp_api_logs
+  oceanerp_onlyoffice_data:
+    name: oceanerp_onlyoffice_data
+  oceanerp_onlyoffice_logs:
+    name: oceanerp_onlyoffice_logs
+

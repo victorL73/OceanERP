@@ -1,0 +1,62 @@
+using Erp.Application.Quotes;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Erp.Api.Controllers;
+
+[ApiController]
+[Route("api/quotes")]
+[Authorize]
+public sealed class QuotesController(IQuoteService quotes) : ControllerBase
+{
+    [HttpGet]
+    [Authorize(Policy = "quotes.read")]
+    public async Task<ActionResult> Search([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
+        => Ok(await quotes.SearchAsync(search, page, pageSize, cancellationToken));
+
+    [HttpGet("{id:guid}")]
+    [Authorize(Policy = "quotes.read")]
+    public async Task<ActionResult<QuoteDto>> Get(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await quotes.GetAsync(id, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : NotFound(new { error = result.Error });
+    }
+
+    [HttpPost]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteDto>> Create(CreateQuoteRequest request, CancellationToken cancellationToken)
+    {
+        var result = await quotes.CreateAsync(request, cancellationToken);
+        return result.Succeeded ? CreatedAtAction(nameof(Get), new { id = result.Value!.Id }, result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("{id:guid}/status")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteDto>> ChangeStatus(Guid id, UpdateQuoteStatusRequest request, CancellationToken cancellationToken)
+    {
+        var result = await quotes.ChangeStatusAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("{id:guid}/pdf")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteDocumentDto>> GeneratePdf(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await quotes.GeneratePdfAsync(id, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpGet("{id:guid}/documents/{documentId:guid}/download")]
+    [Authorize(Policy = "quotes.read")]
+    public async Task<IActionResult> DownloadDocument(Guid id, Guid documentId, CancellationToken cancellationToken)
+    {
+        var result = await quotes.OpenDocumentAsync(id, documentId, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return NotFound(new { error = result.Error });
+        }
+
+        var file = result.Value!;
+        return File(file.Content, file.MimeType, file.FileName);
+    }
+}

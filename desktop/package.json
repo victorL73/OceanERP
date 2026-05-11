@@ -1,0 +1,20 @@
+{
+  "name": "oceanerp-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OceanERP Windows desktop shell",
+  "main": "src/main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder --config ../deploy/windows/electron-builder.yml",
+    "dist:win": "electron-builder --win nsis --config ../deploy/windows/electron-builder.yml"
+  },
+  "dependencies": {
+    "electron-store": "^10.1.0"
+  },
+  "devDependencies": {
+    "electron": "^39.2.4",
+    "electron-builder": "^26.0.12"
+  }
+}
+

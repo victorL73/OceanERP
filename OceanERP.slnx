@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/backend/" />
+  <Folder Name="/backend/src/">
+    <Project Path="backend/src/Erp.Api/Erp.Api.csproj" />
+    <Project Path="backend/src/Erp.Application/Erp.Application.csproj" />
+    <Project Path="backend/src/Erp.Domain/Erp.Domain.csproj" />
+    <Project Path="backend/src/Erp.Infrastructure/Erp.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/backend/tests/">
+    <Project Path="backend/tests/Erp.IntegrationTests/Erp.IntegrationTests.csproj" />
+    <Project Path="backend/tests/Erp.UnitTests/Erp.UnitTests.csproj" />
+  </Folder>
+</Solution>
