@@ -135,7 +135,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         catch (Exception ex)
         {
             db.ChangeTracker.Clear();
-            return ImportSummary.Failed(resource, TrimDetail(ex.Message));
+            return ImportSummary.Failed(resource, TrimDetail(FullExceptionMessage(ex)));
         }
     }
 
@@ -153,10 +153,10 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 continue;
             }
 
-            var reference = Truncate(FirstNonEmpty(GetString(item, "reference"), $"PS-{externalId}"), 80);
-            var product = await FindProductAsync(externalId, reference, cancellationToken);
+            var product = await FindProductByExternalIdAsync(externalId, cancellationToken);
             if (product is null)
             {
+                var reference = await BuildUniqueProductReferenceAsync(FirstNonEmpty(GetString(item, "reference"), $"PS-{externalId}"), externalId, cancellationToken);
                 product = new Product { Reference = reference };
                 db.Products.Add(product);
                 db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("products", externalId), Module = "products", EntityId = product.Id });
@@ -167,14 +167,14 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 updated += 1;
             }
 
-            product.Name = Truncate(FirstNonEmpty(GetLocalizedString(item, "name"), reference), 240);
+            product.Name = Truncate(FirstNonEmpty(GetLocalizedString(item, "name"), product.Reference), 240);
             product.Description = FirstNonEmpty(StripHtml(GetLocalizedString(item, "description_short")), StripHtml(GetLocalizedString(item, "description")));
             product.SalePrice = GetDecimal(item, "price") ?? product.SalePrice;
             product.PurchasePrice = GetDecimal(item, "wholesale_price") ?? product.PurchasePrice;
             product.IsActive = GetBool(item, "active") ?? product.IsActive;
         }
 
-            return ImportSummary.Ok("products", created, updated);
+        return ImportSummary.Ok("products", created, updated);
     }
 
     private async Task<ImportSummary> ImportCustomersAsync(string apiBaseUrl, CancellationToken cancellationToken)
@@ -203,7 +203,6 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             else
             {
                 updated += 1;
-                await db.Entry(customer).Collection(x => x.Contacts).LoadAsync(cancellationToken);
             }
 
             var firstName = GetString(item, "firstname");
@@ -212,21 +211,22 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             customer.CompanyName = Truncate(FirstNonEmpty(GetString(item, "company"), $"{firstName} {lastName}".Trim(), email, code), 240);
             customer.IsActive = GetBool(item, "active") ?? customer.IsActive;
 
-            foreach (var contact in customer.Contacts.Where(x => x.JobTitle == Provider).ToList())
-            {
-                db.CustomerContacts.Remove(contact);
-            }
-
             if (!string.IsNullOrWhiteSpace(firstName) || !string.IsNullOrWhiteSpace(lastName) || !string.IsNullOrWhiteSpace(email))
             {
-                customer.Contacts.Add(new CustomerContact
+                var contact = customer.Contacts.FirstOrDefault(x => x.JobTitle == Provider)
+                    ?? (!string.IsNullOrWhiteSpace(email) ? customer.Contacts.FirstOrDefault(x => x.Email == email) : null);
+
+                if (contact is null)
                 {
-                    FirstName = firstName ?? string.Empty,
-                    LastName = lastName ?? string.Empty,
-                    Email = email,
-                    JobTitle = Provider,
-                    IsPrimary = true
-                });
+                    contact = new CustomerContact();
+                    customer.Contacts.Add(contact);
+                }
+
+                contact.FirstName = firstName ?? string.Empty;
+                contact.LastName = lastName ?? string.Empty;
+                contact.Email = email;
+                contact.JobTitle = Provider;
+                contact.IsPrimary = true;
             }
         }
 
@@ -338,7 +338,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         return ImportSummary.Ok("orders", created, updated);
     }
 
-    private async Task<Product?> FindProductAsync(string externalId, string reference, CancellationToken cancellationToken)
+    private async Task<Product?> FindProductByExternalIdAsync(string externalId, CancellationToken cancellationToken)
     {
         var externalReference = await FindReferenceAsync("products", externalId, cancellationToken);
         if (externalReference is not null)
@@ -346,13 +346,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             return await db.Products.FirstOrDefaultAsync(x => x.Id == externalReference.EntityId, cancellationToken);
         }
 
-        var product = await db.Products.FirstOrDefaultAsync(x => x.Reference == reference, cancellationToken);
-        if (product is not null)
-        {
-            db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("products", externalId), Module = "products", EntityId = product.Id });
-        }
-
-        return product;
+        return null;
     }
 
     private async Task<Customer?> FindCustomerAsync(string externalId, string code, CancellationToken cancellationToken)
@@ -360,7 +354,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         var externalReference = await FindReferenceAsync("customers", externalId, cancellationToken);
         if (externalReference is not null)
         {
-            return await db.Customers.FirstOrDefaultAsync(x => x.Id == externalReference.EntityId, cancellationToken);
+            return await db.Customers.Include(x => x.Contacts).FirstOrDefaultAsync(x => x.Id == externalReference.EntityId, cancellationToken);
         }
 
         var customer = await db.Customers.Include(x => x.Contacts).FirstOrDefaultAsync(x => x.Code == code, cancellationToken);
@@ -452,17 +446,17 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private static IEnumerable<JsonElement> EnumerateOrderRows(JsonElement orderItem)
     {
-        if (!orderItem.TryGetProperty("associations", out var associations) || associations.ValueKind != JsonValueKind.Object)
+        if (orderItem.ValueKind != JsonValueKind.Object || !orderItem.TryGetProperty("associations", out var associations))
         {
             return [];
         }
 
-        if (!associations.TryGetProperty("order_rows", out var rows))
+        if (associations.ValueKind == JsonValueKind.Object && associations.TryGetProperty("order_rows", out var rows))
         {
-            return [];
+            return EnumerateCollection(rows, IsOrderRow);
         }
 
-        return EnumerateElements(rows);
+        return EnumerateCollection(associations, IsOrderRow);
     }
 
     private static IEnumerable<JsonElement> EnumerateItems(JsonDocument document, string propertyName)
@@ -472,19 +466,24 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             return [];
         }
 
-        return EnumerateElements(property);
+        return EnumerateCollection(property, item => item.ValueKind == JsonValueKind.Object && item.TryGetProperty("id", out _));
     }
 
-    private static IEnumerable<JsonElement> EnumerateElements(JsonElement property)
+    private static IEnumerable<JsonElement> EnumerateCollection(JsonElement property, Func<JsonElement, bool> isItem)
     {
+        if (property.ValueKind == JsonValueKind.Object && isItem(property))
+        {
+            return [property];
+        }
+
         if (property.ValueKind == JsonValueKind.Array)
         {
-            return property.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Object).ToList();
+            return property.EnumerateArray().SelectMany(x => EnumerateCollection(x, isItem)).ToList();
         }
 
         if (property.ValueKind == JsonValueKind.Object)
         {
-            return property.EnumerateObject().Select(x => x.Value).Where(x => x.ValueKind == JsonValueKind.Object).ToList();
+            return property.EnumerateObject().SelectMany(x => EnumerateCollection(x.Value, isItem)).ToList();
         }
 
         return [];
@@ -526,6 +525,11 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private static string? GetString(JsonElement item, params string[] propertyNames)
     {
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
         foreach (var propertyName in propertyNames)
         {
             if (item.TryGetProperty(propertyName, out var property))
@@ -542,7 +546,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     }
 
     private static string? GetLocalizedString(JsonElement item, string propertyName)
-        => item.TryGetProperty(propertyName, out var property) ? ReadText(property) : null;
+        => item.ValueKind == JsonValueKind.Object && item.TryGetProperty(propertyName, out var property) ? ReadText(property) : null;
 
     private static string? ReadText(JsonElement element)
     {
@@ -618,6 +622,60 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private static string? StripHtml(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : Regex.Replace(value, "<.*?>", " ").Replace("&nbsp;", " ").Trim();
+
+    private async Task<string> BuildUniqueProductReferenceAsync(string requestedReference, string externalId, CancellationToken cancellationToken)
+    {
+        var baseReference = Truncate(FirstNonEmpty(requestedReference, $"PS-{externalId}"), 80);
+        if (!await ProductReferenceExistsAsync(baseReference, cancellationToken))
+        {
+            return baseReference;
+        }
+
+        var suffix = Truncate($"-PS{externalId}", 24);
+        var prefixLength = Math.Max(1, 80 - suffix.Length);
+        var candidate = $"{Truncate(baseReference, prefixLength)}{suffix}";
+        if (!await ProductReferenceExistsAsync(candidate, cancellationToken))
+        {
+            return candidate;
+        }
+
+        for (var index = 2; index < 1000; index += 1)
+        {
+            var indexedSuffix = Truncate($"{suffix}-{index}", 30);
+            candidate = $"{Truncate(baseReference, Math.Max(1, 80 - indexedSuffix.Length))}{indexedSuffix}";
+            if (!await ProductReferenceExistsAsync(candidate, cancellationToken))
+            {
+                return candidate;
+            }
+        }
+
+        return Truncate($"{Guid.NewGuid():N}", 80);
+    }
+
+    private async Task<bool> ProductReferenceExistsAsync(string reference, CancellationToken cancellationToken)
+        => db.Products.Local.Any(x => x.Reference == reference)
+           || await db.Products.AnyAsync(x => x.Reference == reference, cancellationToken);
+
+    private static bool IsOrderRow(JsonElement item)
+        => item.ValueKind == JsonValueKind.Object
+           && (item.TryGetProperty("product_id", out _)
+               || item.TryGetProperty("id_product", out _)
+               || item.TryGetProperty("product_name", out _)
+               || item.TryGetProperty("product_reference", out _));
+
+    private static string FullExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                messages.Add(current.Message);
+            }
+        }
+
+        return string.Join(" | ", messages.Distinct());
+    }
 
     private static string ExternalKey(string module, string externalId)
         => $"{module}:{externalId}";
