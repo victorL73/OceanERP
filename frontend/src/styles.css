@@ -573,6 +573,48 @@ th {
   outline: none;
 }
 
+.modal-actions,
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-footer {
+  margin-top: 16px;
+}
+
+.product-edit-form {
+  display: grid;
+  gap: 14px;
+}
+
+.full-field {
+  grid-column: 1 / -1;
+}
+
+.field textarea {
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 12px;
+  color: #0f172a;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.error-message {
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

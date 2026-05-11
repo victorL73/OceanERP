@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Plus, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -907,7 +907,7 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
         selectedRowIndex={selectedProduct ? items.findIndex((item) => item.id === selectedProduct.id) : undefined}
       />
       {selectedProduct && (
-        <ProductDetailsModal product={selectedProduct} formatAmount={formatAmount} onClose={() => setSelectedProductId(null)} />
+        <ProductDetailsModal product={selectedProduct} formatAmount={formatAmount} onClose={() => setSelectedProductId(null)} onSaved={onChanged} />
       )}
     </>
   );
@@ -923,8 +923,21 @@ function ProductThumb({ product }: { product: Product }) {
   );
 }
 
-function ProductDetailsModal({ product, formatAmount, onClose }: { product: Product; formatAmount: (value: number) => string; onClose: () => void }) {
+function ProductDetailsModal({ product, formatAmount, onClose, onSaved }: { product: Product; formatAmount: (value: number) => string; onClose: () => void; onSaved: () => Promise<void> }) {
   const [imageFailed, setImageFailed] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    reference: product.reference,
+    name: product.name,
+    description: product.description ?? '',
+    imageUrl: product.imageUrl ?? '',
+    purchasePrice: product.purchasePrice.toString(),
+    salePrice: product.salePrice.toString(),
+    vatRate: product.vatRate.toString(),
+    isActive: product.isActive
+  });
   const hasImage = Boolean(product.imageUrl && !imageFailed);
   const descriptionHtml = useMemo(() => sanitizeRichText(product.description), [product.description]);
 
@@ -943,6 +956,52 @@ function ProductDetailsModal({ product, formatAmount, onClose }: { product: Prod
     setImageFailed(false);
   }, [product.imageUrl]);
 
+  useEffect(() => {
+    resetDraft();
+  }, [product]);
+
+  function resetDraft() {
+    setDraft({
+      reference: product.reference,
+      name: product.name,
+      description: product.description ?? '',
+      imageUrl: product.imageUrl ?? '',
+      purchasePrice: product.purchasePrice.toString(),
+      salePrice: product.salePrice.toString(),
+      vatRate: product.vatRate.toString(),
+      isActive: product.isActive
+    });
+    setError(null);
+  }
+
+  function updateDraft<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function saveProduct(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateProduct(product.id, {
+        reference: draft.reference,
+        name: draft.name,
+        description: draft.description || undefined,
+        imageUrl: draft.imageUrl || undefined,
+        purchasePrice: Number(draft.purchasePrice),
+        salePrice: Number(draft.salePrice),
+        vatRate: Number(draft.vatRate),
+        isActive: draft.isActive
+      });
+      await onSaved();
+      setEditMode(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Modification impossible.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <section className="modal-panel product-modal" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
@@ -951,10 +1010,68 @@ function ProductDetailsModal({ product, formatAmount, onClose }: { product: Prod
             <p className="eyebrow">Article</p>
             <h2 id="product-detail-title">{product.name}</h2>
           </div>
-          <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
-            <X size={18} />
-          </button>
+          <div className="modal-actions">
+            {!editMode && (
+              <button className="secondary" type="button" onClick={() => setEditMode(true)}>
+                <Pencil size={16} />
+                Modifier
+              </button>
+            )}
+            <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
         </header>
+
+        {editMode ? (
+          <form className="product-edit-form" onSubmit={saveProduct}>
+            <div className="form-grid">
+              <label className="field">
+                <span>Reference</span>
+                <input required value={draft.reference} onChange={(event) => updateDraft('reference', event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Designation</span>
+                <input required value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} />
+              </label>
+              <label className="field">
+                <span>URL image</span>
+                <input value={draft.imageUrl} onChange={(event) => updateDraft('imageUrl', event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Prix achat HT (EUR)</span>
+                <input required type="number" step="0.01" value={draft.purchasePrice} onChange={(event) => updateDraft('purchasePrice', event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Prix vente HT (EUR)</span>
+                <input required type="number" step="0.01" value={draft.salePrice} onChange={(event) => updateDraft('salePrice', event.target.value)} />
+              </label>
+              <label className="field">
+                <span>TVA (%)</span>
+                <input required type="number" step="0.01" value={draft.vatRate} onChange={(event) => updateDraft('vatRate', event.target.value)} />
+              </label>
+              <label className="check-field">
+                <input type="checkbox" checked={draft.isActive} onChange={(event) => updateDraft('isActive', event.target.checked)} />
+                Actif
+              </label>
+            </div>
+            <label className="field full-field">
+              <span>Description</span>
+              <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} />
+            </label>
+            {error && <div className="error-message">{error}</div>}
+            <div className="modal-footer">
+              <button className="secondary" type="button" disabled={saving} onClick={() => { resetDraft(); setEditMode(false); }}>
+                Annuler
+              </button>
+              <button className="primary" type="submit" disabled={saving}>
+                <Save size={16} />
+                {saving ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
 
         <div className="product-detail-hero">
           <div className="product-image-frame">
@@ -996,6 +1113,8 @@ function ProductDetailsModal({ product, formatAmount, onClose }: { product: Prod
           <DetailItem label="URL image" value={product.imageUrl ? <a href={product.imageUrl} target="_blank" rel="noreferrer">Ouvrir l'image</a> : '-'} />
           <DetailItem label="Identifiant interne" value={product.id} />
         </div>
+          </>
+        )}
       </section>
     </div>
   );

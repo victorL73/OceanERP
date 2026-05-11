@@ -104,6 +104,14 @@ export class ApiClient {
     });
   }
 
+  updateProduct(productId: string, payload: { reference: string; name: string; description?: string; imageUrl?: string; purchasePrice: number; salePrice: number; vatRate: number; isActive: boolean }) {
+    return this.request<Product>(`/api/products/${productId}`, {
+      method: 'PUT',
+      auth: true,
+      body: JSON.stringify({ ...payload, categoryId: null, mainSupplierId: null })
+    });
+  }
+
   quotes() {
     return this.request<PagedResult<Quote>>('/api/quotes', { auth: true });
   }

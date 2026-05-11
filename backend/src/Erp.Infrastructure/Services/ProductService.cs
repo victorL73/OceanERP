@@ -1,13 +1,23 @@
 using Erp.Application.Common;
 using Erp.Application.Products;
+using Erp.Domain.FutureModules;
 using Erp.Domain.Products;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class ProductService(ErpDbContext db) : IProductService
+public sealed class ProductService(ErpDbContext db, IConfiguration configuration, IHttpClientFactory httpClientFactory) : IProductService
 {
+    private const string PrestashopProvider = "PrestaShop";
+    private const string PrestashopProductModule = "products";
+
     public async Task<PagedResult<ProductDto>> SearchAsync(string? search, int page, int pageSize, CancellationToken cancellationToken)
     {
         page = Math.Max(1, page);
@@ -69,6 +79,19 @@ public sealed class ProductService(ErpDbContext db) : IProductService
             return Result<ProductDto>.Failure("Product not found.");
         }
 
+        var nextReference = NormalizeOptional(request.Reference) ?? product.Reference;
+        if (string.IsNullOrWhiteSpace(nextReference) || string.IsNullOrWhiteSpace(request.Name))
+        {
+            return Result<ProductDto>.Failure("Product reference and name are required.");
+        }
+
+        if (!nextReference.Equals(product.Reference, StringComparison.OrdinalIgnoreCase)
+            && await db.Products.AnyAsync(x => x.Id != id && x.Reference == nextReference, cancellationToken))
+        {
+            return Result<ProductDto>.Failure("Product reference already exists.");
+        }
+
+        product.Reference = nextReference;
         product.Name = request.Name.Trim();
         product.Description = request.Description;
         product.ImageUrl = NormalizeOptional(request.ImageUrl);
@@ -78,6 +101,13 @@ public sealed class ProductService(ErpDbContext db) : IProductService
         product.CategoryId = request.CategoryId;
         product.MainSupplierId = request.MainSupplierId;
         product.IsActive = request.IsActive;
+
+        var publishResult = await PublishPrestashopProductAsync(product, cancellationToken);
+        if (!publishResult.Succeeded)
+        {
+            return Result<ProductDto>.Failure(publishResult.Error!);
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         return Result<ProductDto>.Success(Map(product));
     }
@@ -132,4 +162,175 @@ public sealed class ProductService(ErpDbContext db) : IProductService
 
     private static string? NormalizeOptional(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task<Result> PublishPrestashopProductAsync(Product product, CancellationToken cancellationToken)
+    {
+        var externalReference = await db.ExternalReferences.FirstOrDefaultAsync(
+            x => x.Provider == PrestashopProvider && x.Module == PrestashopProductModule && x.EntityId == product.Id,
+            cancellationToken);
+        if (externalReference is null)
+        {
+            return Result.Success();
+        }
+
+        var externalProductId = ExtractPrestashopProductId(externalReference);
+        if (string.IsNullOrWhiteSpace(externalProductId))
+        {
+            return Result.Failure("Reference PrestaShop produit invalide.");
+        }
+
+        var connection = await db.PrestashopConnections
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (connection is null)
+        {
+            return Result.Failure("Aucune connexion PrestaShop active n'est configuree.");
+        }
+
+        var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
+        if (!apiKeyResult.Succeeded)
+        {
+            return Result.Failure(apiKeyResult.Error ?? "Cle API PrestaShop non configuree.");
+        }
+
+        try
+        {
+            var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
+            var document = await GetPrestashopXmlAsync(apiBaseUrl, externalProductId, apiKeyResult.Value!, cancellationToken);
+            var productElement = document.Root?.Element("product") ?? document.Descendants("product").FirstOrDefault();
+            if (productElement is null)
+            {
+                return Result.Failure("Reponse PrestaShop produit invalide.");
+            }
+
+            SetElementValue(productElement, "reference", product.Reference);
+            SetElementValue(productElement, "name", product.Name);
+            SetElementValue(productElement, "price", FormatDecimal(product.SalePrice));
+            SetElementValue(productElement, "wholesale_price", FormatDecimal(product.PurchasePrice));
+            SetElementValue(productElement, "active", product.IsActive ? "1" : "0");
+            SetElementValue(productElement, "description", product.Description ?? string.Empty);
+            SetElementValue(productElement, "description_short", BuildDescriptionShort(product.Description));
+
+            await PutPrestashopXmlAsync(apiBaseUrl, externalProductId, apiKeyResult.Value!, document, cancellationToken);
+            return Result.Success();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure($"Modification PrestaShop impossible: {TrimDetail(FullExceptionMessage(ex))}");
+        }
+    }
+
+    private async Task<XDocument> GetPrestashopXmlAsync(string apiBaseUrl, string externalProductId, string apiKey, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(ProductService));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}/products/{externalProductId}?display=full&output_format=XML");
+        AddPrestashopHeaders(request, apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"GET produit PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+
+        return XDocument.Parse(body, LoadOptions.PreserveWhitespace);
+    }
+
+    private async Task PutPrestashopXmlAsync(string apiBaseUrl, string externalProductId, string apiKey, XDocument document, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(ProductService));
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"{apiBaseUrl}/products/{externalProductId}");
+        AddPrestashopHeaders(request, apiKey);
+        request.Content = new StringContent(document.ToString(SaveOptions.DisableFormatting), Encoding.UTF8, "application/xml");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"PUT produit PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+    }
+
+    private static void AddPrestashopHeaders(HttpRequestMessage request, string apiKey)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml"));
+    }
+
+    private static void SetElementValue(XElement parent, string name, string value)
+    {
+        var element = parent.Element(name);
+        if (element is null)
+        {
+            element = new XElement(name);
+            parent.Add(element);
+        }
+
+        var languageElements = element.Elements("language").ToList();
+        if (languageElements.Count == 0)
+        {
+            element.Value = value;
+            return;
+        }
+
+        foreach (var languageElement in languageElements)
+        {
+            languageElement.Value = value;
+        }
+    }
+
+    private static string BuildDescriptionShort(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return string.Empty;
+        }
+
+        var plainText = Regex.Replace(description, "<.*?>", " ").Replace("&nbsp;", " ");
+        plainText = Regex.Replace(plainText, @"\s+", " ").Trim();
+        return plainText.Length <= 500 ? plainText : plainText[..500];
+    }
+
+    private static string? ExtractPrestashopProductId(ExternalReference externalReference)
+    {
+        var prefix = $"{PrestashopProductModule}:";
+        return externalReference.ExternalId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? externalReference.ExternalId[prefix.Length..]
+            : externalReference.ExternalId;
+    }
+
+    private static string GetApiBaseUrl(string shopUrl)
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : $"{normalized}/api";
+    }
+
+    private static string FormatDecimal(decimal value)
+        => value.ToString("0.######", CultureInfo.InvariantCulture);
+
+    private static string TrimDetail(string detail)
+        => detail.Length > 300 ? detail[..300] : detail;
+
+    private static string FullExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                messages.Add(current.Message);
+            }
+        }
+
+        return string.Join(" | ", messages.Distinct());
+    }
 }
