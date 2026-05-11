@@ -39,3 +39,14 @@ La migration `Phase2Core` ajoute le socle :
 - `Invoices`, `InvoiceLines`, `InvoicePayments`, `InvoiceDocuments`, `InvoiceStatusHistories`
 - `MailAccounts`, `EmailMessages`, `EmailAttachments`, `EmailLinks`, `EmailTemplates`
 - `PrestashopConnections`, `PrestashopSyncLogs`, `ExternalReferences`
+
+La migration `Phase2Workflows` complete ce socle :
+
+- `StockItems.QuantityReserved` pour distinguer stock physique et stock reserve.
+- `StockMovements.Type`, `ReferenceModule`, `ReferenceId` pour tracer ajustements, reservations, liberations et expeditions.
+- `SalesOrders.WarehouseId` et dates de workflow (`ConfirmedAt`, `ShippedAt`, `CompletedAt`, `CancelledAt`).
+- `SalesOrderLines.ProductId` pour relier les commandes au stock produit.
+- `Invoices.SalesOrderId`, `IssueDate`, `DueDate` et index unique pour eviter de facturer deux fois la meme commande.
+- `InvoiceDocuments` recoit les metadonnees completes des PDF facture.
+- `MailAccounts` recoit les ports SMTP/IMAP, SSL, utilisateur et nom de secret.
+- `EmailMessages` recoit corps, direction, statut, lu/non lu et date d'envoi.

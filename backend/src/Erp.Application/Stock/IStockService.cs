@@ -7,6 +7,6 @@ public interface IStockService
     Task<IReadOnlyList<WarehouseDto>> GetWarehousesAsync(CancellationToken cancellationToken);
     Task<Result<WarehouseDto>> CreateWarehouseAsync(CreateWarehouseRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyList<StockItemDto>> GetStockItemsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<StockMovementDto>> GetMovementsAsync(Guid? productId, CancellationToken cancellationToken);
     Task<Result<StockMovementDto>> AdjustAsync(AdjustStockRequest request, CancellationToken cancellationToken);
 }
-

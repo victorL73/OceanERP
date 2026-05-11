@@ -15,6 +15,8 @@ services:
       Seed__AdminEmail: ${ERP_ADMIN_EMAIL:-admin@oceanerp.local}
       Seed__AdminPassword: ${ERP_ADMIN_PASSWORD:-ChangeMe!12345}
       Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost}
+      Email__EnableSmtpSending: ${EMAIL_ENABLE_SMTP_SENDING:-false}
+      Secrets__SMTP_MAIN_PASSWORD: ${SMTP_MAIN_PASSWORD:-}
     volumes:
       - oceanerp_documents:/var/lib/oceanerp/documents
       - oceanerp_api_logs:/var/log/oceanerp

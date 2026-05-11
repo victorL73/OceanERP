@@ -62,7 +62,11 @@ Variables importantes :
 - `ERP_ADMIN_EMAIL`
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
+- `EMAIL_ENABLE_SMTP_SENDING`
+- `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
 - `BACKUP_RETENTION_DAYS`
+
+Par securite, `EMAIL_ENABLE_SMTP_SENDING=false` par defaut. Dans ce mode, les emails sont journalises dans l'ERP mais ne sont pas envoyes au serveur SMTP.
 
 ## Commandes utiles
 
@@ -117,4 +121,3 @@ docker compose --env-file .env -f docker-compose.yml down
 docker volume rm oceanerp_postgres
 ./deploy.sh
 ```
-

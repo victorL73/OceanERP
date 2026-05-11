@@ -79,6 +79,25 @@ gzip -t /opt/oceanerp/backups/YYYYMMDDTHHMMSSZ/postgres.sql.gz
 tar -tzf /opt/oceanerp/backups/YYYYMMDDTHHMMSSZ/documents.tar.gz
 ```
 
+## Phase 2 en cours
+
+La Phase 2 contient maintenant :
+
+- commandes avec produit, entrepot, reservation et expedition stock ;
+- factures depuis commandes expediees, paiements et PDF facture ;
+- stock avec quantite physique, reservee, disponible, seuil bas et mouvements ;
+- comptes email avec ports SMTP/IMAP, secret de mot de passe et journal d'envoi ;
+- PrestaShop avec connexions et journal de synchronisation manuelle.
+
+Apres `git pull`, redeployer sur Ubuntu :
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+./backup.sh
+docker compose --env-file .env -f docker-compose.yml build --no-cache nginx erp-api
+docker compose --env-file .env -f docker-compose.yml up -d
+```
+
 ## Windows Electron
 
 ```powershell
@@ -87,4 +106,3 @@ cd deploy/windows
 ```
 
 Le script prepare l'installateur via `electron-builder`; il ne cree un `.exe` que lorsque les dependances Node sont installees et que la commande aboutit.
-

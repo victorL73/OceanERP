@@ -2,7 +2,7 @@ import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, u
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, LayoutDashboard, LogOut, Mail, Package, Plus, Search, ShieldCheck, ShoppingCart, Store, Upload, Users, Warehouse as WarehouseIcon } from 'lucide-react';
 import { api } from './api/client';
-import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, PrestashopConnection, PrestashopSyncLog, Product, Quote, SalesOrder, StockItem, Warehouse } from './types';
+import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, PrestashopConnection, PrestashopSyncLog, Product, Quote, SalesOrder, StockItem, StockMovement, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
@@ -36,6 +36,7 @@ export default function App() {
   const [invoices, setInvoices] = useState<PagedResult<Invoice> | null>(null);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [mailAccounts, setMailAccounts] = useState<MailAccount[]>([]);
   const [emailMessages, setEmailMessages] = useState<PagedResult<EmailMessage> | null>(null);
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
@@ -65,9 +66,11 @@ export default function App() {
         setFiles(nextFiles);
       }
       if (target === 'orders') {
-        const [nextOrders, nextCustomers] = await Promise.all([api.orders(), api.customers()]);
+        const [nextOrders, nextCustomers, nextProducts, nextWarehouses] = await Promise.all([api.orders(), api.customers(), api.products(), api.warehouses()]);
         setOrders(nextOrders);
         setCustomers(nextCustomers);
+        setProducts(nextProducts);
+        setWarehouses(nextWarehouses);
       }
       if (target === 'invoices') {
         const [nextInvoices, nextOrders] = await Promise.all([api.invoices(), api.orders()]);
@@ -75,10 +78,11 @@ export default function App() {
         setOrders(nextOrders);
       }
       if (target === 'stock') {
-        const [nextWarehouses, nextStockItems, nextProducts] = await Promise.all([api.warehouses(), api.stockItems(), api.products()]);
+        const [nextWarehouses, nextStockItems, nextProducts, nextMovements] = await Promise.all([api.warehouses(), api.stockItems(), api.products(), api.stockMovements()]);
         setWarehouses(nextWarehouses);
         setStockItems(nextStockItems);
         setProducts(nextProducts);
+        setStockMovements(nextMovements);
       }
       if (target === 'emails') {
         const [nextAccounts, nextMessages] = await Promise.all([api.mailAccounts(), api.emailMessages()]);
@@ -191,9 +195,9 @@ export default function App() {
         {!loading && view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
         {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('quotes')} />}
-        {!loading && view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('orders')} />}
+        {!loading && view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
-        {!loading && view === 'stock' && <Stock items={stockItems} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('stock')} />}
+        {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('stock')} />}
         {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} onChanged={() => load('emails')} />}
         {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={() => load('prestashop')} />}
         {!loading && view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
@@ -436,26 +440,38 @@ function Quotes({ items, customers, onChanged }: { items: Quote[]; customers: Cu
   );
 }
 
-function Orders({ items, customers, onChanged }: { items: SalesOrder[]; customers: Customer[]; onChanged: () => Promise<void> }) {
+function Orders({ items, customers, products, warehouses, onChanged }: { items: SalesOrder[]; customers: Customer[]; products: Product[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [customerId, setCustomerId] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [productId, setProductId] = useState('');
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('0');
 
+  const selectedProduct = products.find((product) => product.id === productId);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const selectedCustomerId = customerId || customers[0]?.id;
+    const selectedWarehouseId = warehouseId || warehouses[0]?.id;
     if (!selectedCustomerId) {
       throw new Error('Creer un client avant de creer une commande.');
     }
 
     await api.createOrder({
       customerId: selectedCustomerId,
-      lines: [{ description, quantity: Number(quantity), unitPrice: Number(unitPrice) }]
+      warehouseId: selectedWarehouseId ?? null,
+      lines: [{ productId: productId || null, description: description || selectedProduct?.name || 'Ligne libre', quantity: Number(quantity), unitPrice: Number(unitPrice) }]
     });
+    setProductId('');
     setDescription('');
     setQuantity('1');
     setUnitPrice('0');
+    await onChanged();
+  }
+
+  async function changeStatus(order: SalesOrder, status: string) {
+    await api.changeOrderStatus(order.id, status);
     await onChanged();
   }
 
@@ -471,6 +487,32 @@ function Orders({ items, customers, onChanged }: { items: SalesOrder[]; customer
               </option>
             ))}
           </select>
+          <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+            <option value="">Entrepot</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={productId}
+            onChange={(event) => {
+              const nextProduct = products.find((product) => product.id === event.target.value);
+              setProductId(event.target.value);
+              if (nextProduct) {
+                setDescription(`${nextProduct.reference} - ${nextProduct.name}`);
+                setUnitPrice(String(nextProduct.salePrice));
+              }
+            }}
+          >
+            <option value="">Ligne libre</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.reference} - {product.name}
+              </option>
+            ))}
+          </select>
           <input required placeholder="Ligne" value={description} onChange={(event) => setDescription(event.target.value)} />
           <input required type="number" step="0.001" placeholder="Quantite" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
           <input required type="number" step="0.01" placeholder="Prix HT" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
@@ -480,17 +522,44 @@ function Orders({ items, customers, onChanged }: { items: SalesOrder[]; customer
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Numero', 'Client', 'Statut', 'Lignes']} rows={items.map((item) => [item.number, item.customerId, item.status, item.lines.length])} />
+      <DataTable
+        columns={['Numero', 'Client', 'Statut', 'Total', 'Actions']}
+        rows={items.map((item) => [
+          item.number,
+          item.customerId,
+          item.status,
+          `${item.total.toFixed(2)} EUR`,
+          <div className="table-actions">
+            {item.status === 'Draft' && (
+              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Confirmed')}>
+                Confirmer
+              </button>
+            )}
+            {(item.status === 'Confirmed' || item.status === 'Preparing') && (
+              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Shipped')}>
+                Expedier
+              </button>
+            )}
+            {item.status === 'Shipped' && (
+              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Completed')}>
+                Terminer
+              </button>
+            )}
+          </div>
+        ])}
+      />
     </>
   );
 }
 
 function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: SalesOrder[]; onChanged: () => Promise<void> }) {
   const [orderId, setOrderId] = useState('');
+  const [paymentInvoiceId, setPaymentInvoiceId] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('0');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const selectedOrderId = orderId || orders[0]?.id;
+    const selectedOrderId = orderId || orders.find((order) => order.status === 'Shipped' || order.status === 'Completed')?.id;
     if (!selectedOrderId) {
       throw new Error('Creer une commande avant de creer une facture.');
     }
@@ -500,17 +569,43 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
     await onChanged();
   }
 
+  async function addPayment(event: FormEvent) {
+    event.preventDefault();
+    const invoiceId = paymentInvoiceId || items.find((invoice) => invoice.balanceDue > 0)?.id;
+    if (!invoiceId) {
+      throw new Error('Aucune facture a regler.');
+    }
+
+    await api.addInvoicePayment(invoiceId, { amount: Number(paymentAmount), paidOn: new Date().toISOString().slice(0, 10) });
+    setPaymentAmount('0');
+    await onChanged();
+  }
+
+  async function generatePdf(invoice: Invoice) {
+    await api.generateInvoicePdf(invoice.id);
+    await onChanged();
+  }
+
+  async function downloadPdf(invoice: Invoice) {
+    const document = invoice.documents[0];
+    if (document) {
+      await api.downloadInvoiceDocument(invoice.id, document.id, document.fileName);
+    }
+  }
+
   return (
     <>
       <Panel title="Nouvelle facture depuis commande">
         <form className="form-grid" onSubmit={submit}>
           <select value={orderId} onChange={(event) => setOrderId(event.target.value)}>
             <option value="">Commande</option>
-            {orders.map((order) => (
-              <option key={order.id} value={order.id}>
-                {order.number}
-              </option>
-            ))}
+            {orders
+              .filter((order) => order.status === 'Shipped' || order.status === 'Completed')
+              .map((order) => (
+                <option key={order.id} value={order.id}>
+                  {order.number}
+                </option>
+              ))}
           </select>
           <button className="primary" type="submit">
             <Plus size={16} />
@@ -518,12 +613,50 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Numero', 'Client', 'Statut', 'Total']} rows={items.map((item) => [item.number, item.customerId, item.status, `${item.total.toFixed(2)} EUR`])} />
+      <Panel title="Paiement facture">
+        <form className="form-grid" onSubmit={addPayment}>
+          <select value={paymentInvoiceId} onChange={(event) => setPaymentInvoiceId(event.target.value)}>
+            <option value="">Facture</option>
+            {items
+              .filter((invoice) => invoice.balanceDue > 0)
+              .map((invoice) => (
+                <option key={invoice.id} value={invoice.id}>
+                  {invoice.number} - solde {invoice.balanceDue.toFixed(2)} EUR
+                </option>
+              ))}
+          </select>
+          <input required type="number" step="0.01" placeholder="Montant" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} />
+          <button className="primary" type="submit">
+            <Plus size={16} />
+            Regler
+          </button>
+        </form>
+      </Panel>
+      <DataTable
+        columns={['Numero', 'Client', 'Statut', 'Total', 'Solde', 'PDF']}
+        rows={items.map((item) => [
+          item.number,
+          item.customerId,
+          item.status,
+          `${item.total.toFixed(2)} EUR`,
+          `${item.balanceDue.toFixed(2)} EUR`,
+          <div className="table-actions">
+            <button className="secondary" onClick={() => generatePdf(item)} type="button">
+              <FileText size={15} />
+              Generer
+            </button>
+            <button className="secondary" disabled={item.documents.length === 0} onClick={() => downloadPdf(item)} type="button">
+              <Download size={15} />
+              PDF
+            </button>
+          </div>
+        ])}
+      />
     </>
   );
 }
 
-function Stock({ items, products, warehouses, onChanged }: { items: StockItem[]; products: Product[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
+function Stock({ items, movements, products, warehouses, onChanged }: { items: StockItem[]; movements: StockMovement[]; products: Product[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [productId, setProductId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [quantity, setQuantity] = useState('0');
@@ -576,7 +709,8 @@ function Stock({ items, products, warehouses, onChanged }: { items: StockItem[];
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Produit', 'Entrepot', 'Stock', 'Seuil']} rows={items.map((item) => [item.productId, item.warehouseId, item.quantityOnHand, item.alertThreshold])} />
+      <DataTable columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']} rows={items.map((item) => [item.productId, item.warehouseId, item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])} />
+      <DataTable columns={['Produit', 'Type', 'Quantite', 'Motif', 'Date']} rows={movements.map((item) => [item.productId, item.type, item.quantity, item.reason, item.createdAt])} />
     </>
   );
 }
@@ -585,6 +719,10 @@ function Emails({ accounts, messages, onChanged }: { accounts: MailAccount[]; me
   const [email, setEmail] = useState('');
   const [smtpHost, setSmtpHost] = useState('');
   const [imapHost, setImapHost] = useState('');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [to, setTo] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -592,6 +730,20 @@ function Emails({ accounts, messages, onChanged }: { accounts: MailAccount[]; me
     setEmail('');
     setSmtpHost('');
     setImapHost('');
+    await onChanged();
+  }
+
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const mailAccountId = selectedAccountId || accounts[0]?.id;
+    if (!mailAccountId) {
+      throw new Error('Creer un compte mail avant envoyer un email.');
+    }
+
+    await api.sendEmail({ mailAccountId, to, subject, body });
+    setTo('');
+    setSubject('');
+    setBody('');
     await onChanged();
   }
 
@@ -608,8 +760,27 @@ function Emails({ accounts, messages, onChanged }: { accounts: MailAccount[]; me
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Compte', 'SMTP', 'IMAP']} rows={accounts.map((item) => [item.email, item.smtpHost, item.imapHost])} />
-      <DataTable columns={['Sujet', 'De', 'A']} rows={messages.map((item) => [item.subject, item.from, item.to])} />
+      <Panel title="Envoyer un email">
+        <form className="form-grid" onSubmit={send}>
+          <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
+            <option value="">Compte</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.email}
+              </option>
+            ))}
+          </select>
+          <input required type="email" placeholder="Destinataire" value={to} onChange={(event) => setTo(event.target.value)} />
+          <input required placeholder="Sujet" value={subject} onChange={(event) => setSubject(event.target.value)} />
+          <input required placeholder="Message" value={body} onChange={(event) => setBody(event.target.value)} />
+          <button className="primary" type="submit">
+            <Mail size={16} />
+            Envoyer
+          </button>
+        </form>
+      </Panel>
+      <DataTable columns={['Compte', 'SMTP', 'IMAP', 'SSL']} rows={accounts.map((item) => [item.email, `${item.smtpHost}:${item.smtpPort}`, `${item.imapHost}:${item.imapPort}`, item.useSsl ? 'Oui' : 'Non'])} />
+      <DataTable columns={['Sujet', 'De', 'A', 'Statut']} rows={messages.map((item) => [item.subject, item.from, item.to, item.status])} />
     </>
   );
 }

@@ -93,8 +93,16 @@ Variables minimales a changer avant production :
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
 - `PUBLIC_URL`
+- `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
 
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
+
+Pour activer un compte SMTP plus tard, creer le compte dans l'ERP avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis ajouter dans `.env` :
+
+```env
+EMAIL_ENABLE_SMTP_SENDING=true
+SMTP_MAIN_PASSWORD=mot-de-passe-smtp
+```
 
 ## 5. Demarrer les services
 
@@ -188,4 +196,3 @@ ls -lh /opt/oceanerp/backups
 ```
 
 Verifier ensuite l'integrite comme decrit dans `docs/notice-sauvegarde-restauration.md`.
-

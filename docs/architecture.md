@@ -29,12 +29,15 @@ Les entités de vocabulaire des phases 2/3 sont placées dans `Erp.Domain/Future
 La Phase 2 dispose maintenant d'un socle backend/API pour :
 
 - commandes clients avec creation manuelle ou depuis devis
-- factures depuis commande et paiements
-- stock par entrepot avec mouvements d'ajustement
-- comptes email et journal de messages
+- workflow commande `Draft -> Confirmed -> Preparing/Shipped -> Completed/Cancelled`
+- reservation de stock a la confirmation et decrementation a l'expedition
+- factures depuis commande expediee, paiements et prevention des doubles facturations
+- PDF facture QuestPDF stocke hors base de donnees
+- stock par entrepot avec mouvements d'ajustement, reservation, liberation et expedition
+- comptes email, journal de messages et envoi SMTP optionnel via MailKit
 - connexions PrestaShop et journal de synchronisation manuelle
 
-Les workflows avances restent a enrichir : reservation/decrementation stock configurable, PDF facture, vrai envoi SMTP avec secrets chiffres, synchronisation IMAP, connecteur PrestaShop complet et erreurs detaillees.
+Les workflows avances restent a enrichir : achats fournisseurs, reception marchandise, synchronisation IMAP, connecteur PrestaShop complet, exports comptables, avoirs, Factur-X et parametrage fin des regles de stock.
 
 ## Règles importantes
 

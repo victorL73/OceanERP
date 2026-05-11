@@ -121,17 +121,34 @@ export type SalesOrder = {
   id: string;
   number: string;
   customerId: string;
+  warehouseId?: string;
   status: string;
-  lines: Array<{ id: string; description: string; quantity: number; unitPrice: number }>;
+  total: number;
+  lines: Array<{ id: string; productId?: string; description: string; quantity: number; unitPrice: number; lineTotal: number }>;
 };
 
 export type Invoice = {
   id: string;
   number: string;
   customerId: string;
+  salesOrderId?: string;
   status: string;
+  issueDate: string;
+  dueDate: string;
   total: number;
-  lines: Array<{ id: string; description: string; quantity: number; unitPrice: number }>;
+  paidTotal: number;
+  balanceDue: number;
+  lines: Array<{ id: string; description: string; quantity: number; unitPrice: number; lineTotal: number }>;
+  documents: InvoiceDocument[];
+};
+
+export type InvoiceDocument = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  version: number;
+  createdAt: string;
 };
 
 export type Warehouse = {
@@ -144,14 +161,34 @@ export type StockItem = {
   productId: string;
   warehouseId: string;
   quantityOnHand: number;
+  quantityReserved: number;
+  availableQuantity: number;
   alertThreshold: number;
+  isLowStock: boolean;
+};
+
+export type StockMovement = {
+  id: string;
+  productId: string;
+  warehouseId: string;
+  quantity: number;
+  type: string;
+  reason: string;
+  referenceModule?: string;
+  referenceId?: string;
+  createdAt: string;
 };
 
 export type MailAccount = {
   id: string;
   email: string;
   smtpHost: string;
+  smtpPort: number;
   imapHost: string;
+  imapPort: number;
+  useSsl: boolean;
+  userName?: string;
+  passwordSecretName?: string;
 };
 
 export type EmailMessage = {
@@ -159,7 +196,11 @@ export type EmailMessage = {
   subject: string;
   from: string;
   to: string;
+  direction: string;
+  status: string;
+  isRead: boolean;
   createdAt: string;
+  sentAt?: string;
 };
 
 export type PrestashopConnection = {

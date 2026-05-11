@@ -244,13 +244,16 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         {
             entity.HasIndex(x => new { x.ProductId, x.WarehouseId }).IsUnique();
             entity.Property(x => x.QuantityOnHand).HasPrecision(18, 3);
+            entity.Property(x => x.QuantityReserved).HasPrecision(18, 3);
             entity.Property(x => x.AlertThreshold).HasPrecision(18, 3);
         });
 
         modelBuilder.Entity<StockMovement>(entity =>
         {
             entity.Property(x => x.Quantity).HasPrecision(18, 3);
+            entity.Property(x => x.Type).HasMaxLength(80);
             entity.Property(x => x.Reason).HasMaxLength(240);
+            entity.Property(x => x.ReferenceModule).HasMaxLength(80);
         });
 
         modelBuilder.Entity<SalesOrder>(entity =>
@@ -270,6 +273,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         modelBuilder.Entity<Invoice>(entity =>
         {
             entity.HasIndex(x => x.Number).IsUnique();
+            entity.HasIndex(x => x.SalesOrderId).IsUnique().HasFilter("\"SalesOrderId\" IS NOT NULL");
             entity.Property(x => x.Number).HasMaxLength(80);
             entity.Property(x => x.Status).HasMaxLength(40);
         });
@@ -286,11 +290,20 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             entity.Property(x => x.Amount).HasPrecision(18, 2);
         });
 
+        modelBuilder.Entity<InvoiceDocument>(entity =>
+        {
+            entity.Property(x => x.FileName).HasMaxLength(260);
+            entity.Property(x => x.MimeType).HasMaxLength(120);
+            entity.Property(x => x.StoragePath).HasMaxLength(1024);
+        });
+
         modelBuilder.Entity<MailAccount>(entity =>
         {
             entity.Property(x => x.Email).HasMaxLength(320);
             entity.Property(x => x.SmtpHost).HasMaxLength(240);
             entity.Property(x => x.ImapHost).HasMaxLength(240);
+            entity.Property(x => x.UserName).HasMaxLength(320);
+            entity.Property(x => x.PasswordSecretName).HasMaxLength(160);
         });
 
         modelBuilder.Entity<EmailMessage>(entity =>
@@ -298,6 +311,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             entity.Property(x => x.Subject).HasMaxLength(300);
             entity.Property(x => x.From).HasMaxLength(320);
             entity.Property(x => x.To).HasMaxLength(1000);
+            entity.Property(x => x.Direction).HasMaxLength(40);
+            entity.Property(x => x.Status).HasMaxLength(80);
         });
 
         modelBuilder.Entity<EmailLink>(entity =>

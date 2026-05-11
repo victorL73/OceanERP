@@ -25,25 +25,69 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var movement = await response.Content.ReadFromJsonAsync<StockMovementDto>();
         Assert.Equal(5, movement!.Quantity);
+        Assert.Equal("Adjustment", movement.Type);
     }
 
     [Fact]
-    public async Task SalesOrderAndInvoice_CreateFromApi_ReturnsInvoice()
+    public async Task SalesOrderWorkflow_ReservesAndShipsStock()
     {
         using var client = await CreateAuthenticatedClientAsync();
         var customer = await CreateCustomerAsync(client);
+        var product = await CreateProductAsync(client);
+        var warehouses = await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses");
+        var warehouse = Assert.Single(warehouses!);
+        var stockResponse = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 5, "Initial stock", 2));
+        stockResponse.EnsureSuccessStatusCode();
 
         var orderResponse = await client.PostAsJsonAsync("/api/orders", new CreateSalesOrderRequest(
             customer.Id,
-            [new CreateSalesOrderLineRequest("Integration line", 2, 50)]));
+            warehouse.Id,
+            [new CreateSalesOrderLineRequest(product.Id, "Integration line", 2, 50)]));
         Assert.Equal(HttpStatusCode.Created, orderResponse.StatusCode);
         var order = await orderResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+
+        var confirmResponse = await client.PostAsJsonAsync($"/api/orders/{order!.Id}/status", new UpdateSalesOrderStatusRequest("Confirmed"));
+        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+        var reservedItems = await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items");
+        var reserved = Assert.Single(reservedItems!, x => x.ProductId == product.Id);
+        Assert.Equal(2, reserved.QuantityReserved);
+        Assert.Equal(3, reserved.AvailableQuantity);
+
+        var shipResponse = await client.PostAsJsonAsync($"/api/orders/{order.Id}/status", new UpdateSalesOrderStatusRequest("Shipped"));
+        Assert.Equal(HttpStatusCode.OK, shipResponse.StatusCode);
+        var shippedItems = await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items");
+        var shipped = Assert.Single(shippedItems!, x => x.ProductId == product.Id);
+        Assert.Equal(0, shipped.QuantityReserved);
+        Assert.Equal(3, shipped.QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task Invoice_CreateFromShippedOrderAndGeneratePdf_ReturnsDocument()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+        var product = await CreateProductAsync(client);
+        var warehouse = Assert.Single((await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!);
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 5, "Initial stock", 2))).EnsureSuccessStatusCode();
+        var orderResponse = await client.PostAsJsonAsync("/api/orders", new CreateSalesOrderRequest(
+            customer.Id,
+            warehouse.Id,
+            [new CreateSalesOrderLineRequest(product.Id, "Integration line", 2, 50)]));
+        var order = await orderResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+        (await client.PostAsJsonAsync($"/api/orders/{order!.Id}/status", new UpdateSalesOrderStatusRequest("Confirmed"))).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync($"/api/orders/{order.Id}/status", new UpdateSalesOrderStatusRequest("Shipped"))).EnsureSuccessStatusCode();
 
         var invoiceResponse = await client.PostAsJsonAsync("/api/invoices/from-order", new CreateInvoiceFromOrderRequest(order!.Id));
 
         Assert.Equal(HttpStatusCode.Created, invoiceResponse.StatusCode);
         var invoice = await invoiceResponse.Content.ReadFromJsonAsync<InvoiceDto>();
         Assert.Equal(100, invoice!.Total);
+        Assert.Equal(100, invoice.BalanceDue);
+
+        var documentResponse = await client.PostAsync($"/api/invoices/{invoice.Id}/pdf", null);
+        Assert.Equal(HttpStatusCode.OK, documentResponse.StatusCode);
+        var document = await documentResponse.Content.ReadFromJsonAsync<InvoiceDocumentDto>();
+        Assert.EndsWith(".pdf", document!.FileName);
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
@@ -84,4 +128,3 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         return (await response.Content.ReadFromJsonAsync<ProductDto>())!;
     }
 }
-

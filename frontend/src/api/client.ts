@@ -6,6 +6,7 @@ import type {
   DriveItem,
   EmailMessage,
   Invoice,
+  InvoiceDocument,
   MailAccount,
   NotificationItem,
   PagedResult,
@@ -16,6 +17,7 @@ import type {
   QuoteDocument,
   SalesOrder,
   StockItem,
+  StockMovement,
   Warehouse
 } from '../types';
 
@@ -138,8 +140,12 @@ export class ApiClient {
     return this.request<PagedResult<SalesOrder>>('/api/orders', { auth: true });
   }
 
-  createOrder(payload: { customerId: string; lines: Array<{ description: string; quantity: number; unitPrice: number }> }) {
+  createOrder(payload: { customerId: string; warehouseId?: string | null; lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number }> }) {
     return this.request<SalesOrder>('/api/orders', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  changeOrderStatus(orderId: string, status: string) {
+    return this.request<SalesOrder>(`/api/orders/${orderId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status }) });
   }
 
   invoices() {
@@ -150,12 +156,28 @@ export class ApiClient {
     return this.request<Invoice>('/api/invoices/from-order', { method: 'POST', auth: true, body: JSON.stringify({ salesOrderId }) });
   }
 
+  addInvoicePayment(invoiceId: string, payload: { amount: number; paidOn: string }) {
+    return this.request<Invoice>(`/api/invoices/${invoiceId}/payments`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  generateInvoicePdf(invoiceId: string) {
+    return this.request<InvoiceDocument>(`/api/invoices/${invoiceId}/pdf`, { method: 'POST', auth: true });
+  }
+
+  async downloadInvoiceDocument(invoiceId: string, documentId: string, fileName: string) {
+    await this.download(`/api/invoices/${invoiceId}/documents/${documentId}/download`, fileName);
+  }
+
   warehouses() {
     return this.request<Warehouse[]>('/api/stock/warehouses', { auth: true });
   }
 
   stockItems() {
     return this.request<StockItem[]>('/api/stock/items', { auth: true });
+  }
+
+  stockMovements() {
+    return this.request<StockMovement[]>('/api/stock/movements', { auth: true });
   }
 
   adjustStock(payload: { productId: string; warehouseId: string; quantity: number; reason: string; alertThreshold?: number }) {
@@ -170,8 +192,12 @@ export class ApiClient {
     return this.request<PagedResult<EmailMessage>>('/api/emails/messages', { auth: true });
   }
 
-  createMailAccount(payload: { email: string; smtpHost: string; imapHost: string }) {
+  createMailAccount(payload: { email: string; smtpHost: string; imapHost: string; smtpPort?: number; imapPort?: number; useSsl?: boolean; userName?: string; passwordSecretName?: string }) {
     return this.request<MailAccount>('/api/emails/accounts', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  sendEmail(payload: { mailAccountId: string; to: string; subject: string; body: string }) {
+    return this.request<EmailMessage>('/api/emails/send', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
   prestashopConnections() {

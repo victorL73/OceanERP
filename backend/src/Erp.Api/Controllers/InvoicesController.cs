@@ -37,5 +37,26 @@ public sealed class InvoicesController(IInvoiceService invoices) : ControllerBas
         var result = await invoices.AddPaymentAsync(id, request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
-}
 
+    [HttpPost("{id:guid}/pdf")]
+    [Authorize(Policy = "invoices.write")]
+    public async Task<ActionResult<InvoiceDocumentDto>> GeneratePdf(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await invoices.GeneratePdfAsync(id, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpGet("{invoiceId:guid}/documents/{documentId:guid}/download")]
+    [Authorize(Policy = "invoices.read")]
+    public async Task<IActionResult> DownloadDocument(Guid invoiceId, Guid documentId, CancellationToken cancellationToken)
+    {
+        var result = await invoices.OpenDocumentAsync(invoiceId, documentId, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return NotFound(new { error = result.Error });
+        }
+
+        var file = result.Value!;
+        return File(file.Content, file.MimeType, file.FileName);
+    }
+}

@@ -28,18 +28,21 @@ Si `git pull` indique qu'un fichier local serait ecrase, lire la difference :
 git diff chemin/du/fichier
 ```
 
-Si la modification locale etait uniquement un correctif manuel deja integre au depot distant :
+Si les modifications locales sont des droits d'execution ou des corrections temporaires de deploiement, les mettre de cote avant de tirer la mise a jour :
 
 ```bash
-git checkout -- chemin/du/fichier
-git pull
+git stash push -m "modifs locales avant mise a jour" -- deploy/ubuntu
+git pull --ff-only origin main
+chmod +x deploy/ubuntu/*.sh
+git config core.fileMode false
 ```
 
-Cas vu pendant l'installation :
+Cas utile pour diagnostiquer un serveur en retard :
 
 ```bash
-git checkout -- frontend/tsconfig.node.json
-git pull
+git fetch --all --prune
+git branch -vv
+git status --short --branch
 ```
 
 ## 3. Redemarrer avec reconstruction
@@ -52,7 +55,8 @@ cd ~/OceanERP/deploy/ubuntu
 Ou manuellement :
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml up -d --build
+docker compose --env-file .env -f docker-compose.yml build --no-cache nginx erp-api
+docker compose --env-file .env -f docker-compose.yml up -d
 ```
 
 ## 4. Verifier apres mise a jour
@@ -73,5 +77,6 @@ http://IP_DU_SERVEUR:8080
 - Ne pas supprimer `oceanerp_postgres` sur une installation contenant des donnees sans sauvegarde.
 - Ne pas supprimer `oceanerp_documents` sans sauvegarde valide.
 - Verifier les migrations EF Core lors des mises a jour majeures.
+- Pour la Phase 2, verifier que les menus `Commandes`, `Factures`, `Stock`, `Emails` et `PrestaShop` apparaissent apres reconstruction.
+- Si le navigateur garde l'ancien menu, forcer le rechargement avec `Ctrl+F5` ou vider le cache/service worker de la PWA.
 - Tester les restaurations sur preproduction avant une operation sensible.
-

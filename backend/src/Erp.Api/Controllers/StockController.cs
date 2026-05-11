@@ -27,6 +27,11 @@ public sealed class StockController(IStockService stock) : ControllerBase
     public async Task<ActionResult<IReadOnlyList<StockItemDto>>> Items(CancellationToken cancellationToken)
         => Ok(await stock.GetStockItemsAsync(cancellationToken));
 
+    [HttpGet("movements")]
+    [Authorize(Policy = "stock.read")]
+    public async Task<ActionResult<IReadOnlyList<StockMovementDto>>> Movements([FromQuery] Guid? productId, CancellationToken cancellationToken)
+        => Ok(await stock.GetMovementsAsync(productId, cancellationToken));
+
     [HttpPost("adjustments")]
     [Authorize(Policy = "stock.write")]
     public async Task<ActionResult<StockMovementDto>> Adjust(AdjustStockRequest request, CancellationToken cancellationToken)
@@ -35,4 +40,3 @@ public sealed class StockController(IStockService stock) : ControllerBase
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 }
-
