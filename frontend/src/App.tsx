@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Plus, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Upload, UserRound, Users, Warehouse as WarehouseIcon } from 'lucide-react';
+import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Plus, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -900,22 +900,50 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
         selectedRowIndex={selectedProduct ? items.findIndex((item) => item.id === selectedProduct.id) : undefined}
       />
       {selectedProduct && (
-        <Panel title="Fiche article">
-          <div className="detail-grid">
-            <DetailItem label="Reference" value={selectedProduct.reference} />
-            <DetailItem label="Designation" value={selectedProduct.name} />
-            <DetailItem label="Description" value={selectedProduct.description || '-'} />
-            <DetailItem label="Prix achat HT" value={formatAmount(selectedProduct.purchasePrice)} />
-            <DetailItem label="Prix vente HT" value={formatAmount(selectedProduct.salePrice)} />
-            <DetailItem label="TVA" value={`${selectedProduct.vatRate}%`} />
-            <DetailItem label="Categorie" value={selectedProduct.categoryName || '-'} />
-            <DetailItem label="Fournisseur principal" value={selectedProduct.mainSupplierName || '-'} />
-            <DetailItem label="Statut" value={selectedProduct.isActive ? 'Actif' : 'Inactif'} />
-            <DetailItem label="Identifiant interne" value={selectedProduct.id} />
-          </div>
-        </Panel>
+        <ProductDetailsModal product={selectedProduct} formatAmount={formatAmount} onClose={() => setSelectedProductId(null)} />
       )}
     </>
+  );
+}
+
+function ProductDetailsModal({ product, formatAmount, onClose }: { product: Product; formatAmount: (value: number) => string; onClose: () => void }) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-header">
+          <div>
+            <p className="eyebrow">Article</p>
+            <h2 id="product-detail-title">{product.reference}</h2>
+          </div>
+          <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+        <div className="detail-grid">
+          <DetailItem label="Reference" value={product.reference} />
+          <DetailItem label="Designation" value={product.name} />
+          <DetailItem label="Description" value={product.description || '-'} />
+          <DetailItem label="Prix achat HT" value={formatAmount(product.purchasePrice)} />
+          <DetailItem label="Prix vente HT" value={formatAmount(product.salePrice)} />
+          <DetailItem label="TVA" value={`${product.vatRate}%`} />
+          <DetailItem label="Categorie" value={product.categoryName || '-'} />
+          <DetailItem label="Fournisseur principal" value={product.mainSupplierName || '-'} />
+          <DetailItem label="Statut" value={product.isActive ? 'Actif' : 'Inactif'} />
+          <DetailItem label="Identifiant interne" value={product.id} />
+        </div>
+      </section>
+    </div>
   );
 }
 
