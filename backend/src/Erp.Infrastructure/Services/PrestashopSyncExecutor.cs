@@ -461,12 +461,13 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private static IEnumerable<JsonElement> EnumerateItems(JsonDocument document, string propertyName)
     {
-        if (!document.RootElement.TryGetProperty(propertyName, out var property))
+        var isItem = (JsonElement item) => item.ValueKind == JsonValueKind.Object && item.TryGetProperty("id", out _);
+        if (document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty(propertyName, out var property))
         {
-            return [];
+            return EnumerateCollection(property, isItem);
         }
 
-        return EnumerateCollection(property, item => item.ValueKind == JsonValueKind.Object && item.TryGetProperty("id", out _));
+        return EnumerateCollection(document.RootElement, isItem);
     }
 
     private static IEnumerable<JsonElement> EnumerateCollection(JsonElement property, Func<JsonElement, bool> isItem)
