@@ -25,7 +25,7 @@ services:
       - oceanerp
 
   postgres:
-    image: postgres:18-alpine
+    image: postgres:16-alpine
     container_name: oceanerp-postgres
     restart: unless-stopped
     environment:
@@ -84,4 +84,3 @@ volumes:
     name: oceanerp_onlyoffice_data
   oceanerp_onlyoffice_logs:
     name: oceanerp_onlyoffice_logs
-
