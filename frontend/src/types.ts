@@ -229,5 +229,8 @@ export type PrestashopSyncLog = {
   id: string;
   prestashopConnectionId: string;
   status: string;
+  message: string;
   createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
 };

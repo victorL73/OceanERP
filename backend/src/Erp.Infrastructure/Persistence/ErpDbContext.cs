@@ -336,6 +336,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         modelBuilder.Entity<PrestashopSyncLog>(entity =>
         {
             entity.Property(x => x.Status).HasMaxLength(120);
+            entity.Property(x => x.Message).HasMaxLength(1000);
         });
 
         modelBuilder.Entity<ExternalReference>(entity =>

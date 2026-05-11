@@ -54,3 +54,7 @@ La migration `Phase2Workflows` complete ce socle :
 La migration `PrestashopProtectedApiKey` ajoute :
 
 - `PrestashopConnections.ApiKeyProtectedValue` pour stocker la cle API PrestaShop sous forme protegee, sans exposer la valeur en clair dans les listes API.
+
+La migration `PrestashopSyncExecutionLog` ajoute :
+
+- `PrestashopSyncLogs.Message`, `StartedAt` et `CompletedAt` pour savoir si la synchronisation a vraiment execute un appel PrestaShop et pourquoi elle a echoue le cas echeant.

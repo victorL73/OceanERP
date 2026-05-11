@@ -1318,7 +1318,7 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
           </button>
         ])}
       />
-      <DataTable columns={['Connexion', 'Statut', 'Date']} rows={logs.map((item) => [item.prestashopConnectionId, item.status, item.createdAt])} />
+      <DataTable columns={['Connexion', 'Statut', 'Message', 'Fin']} rows={logs.map((item) => [item.prestashopConnectionId, item.status, item.message || '-', item.completedAt ?? item.createdAt])} />
     </>
   );
 }
