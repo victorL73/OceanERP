@@ -47,6 +47,7 @@ export class ApiClient {
     this.refreshToken = null;
     localStorage.removeItem('oceanerp.accessToken');
     localStorage.removeItem('oceanerp.refreshToken');
+    window.dispatchEvent(new Event('oceanerp.authChanged'));
   }
 
   summary() {
@@ -221,9 +222,10 @@ export class ApiClient {
     this.refreshToken = auth.refreshToken;
     localStorage.setItem('oceanerp.accessToken', auth.accessToken);
     localStorage.setItem('oceanerp.refreshToken', auth.refreshToken);
+    window.dispatchEvent(new Event('oceanerp.authChanged'));
   }
 
-  private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  private async request<T>(path: string, options: RequestOptions = {}, retryOnUnauthorized = true): Promise<T> {
     const headers = new Headers(options.headers);
     if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
@@ -234,6 +236,10 @@ export class ApiClient {
     }
 
     const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+    if (response.status === 401 && options.auth && retryOnUnauthorized && (await this.refreshAuth())) {
+      return this.request<T>(path, options, false);
+    }
+
     if (!response.ok) {
       const message = await response.text();
       throw new Error(message || `HTTP ${response.status}`);
@@ -246,13 +252,39 @@ export class ApiClient {
     return response.json() as Promise<T>;
   }
 
-  private async download(path: string, fileName: string) {
+  private async refreshAuth() {
+    if (!this.refreshToken) {
+      this.logout();
+      return false;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: this.refreshToken })
+    });
+
+    if (!response.ok) {
+      this.logout();
+      return false;
+    }
+
+    this.setAuth((await response.json()) as AuthResponse);
+    return true;
+  }
+
+  private async download(path: string, fileName: string, retryOnUnauthorized = true) {
     const headers = new Headers();
     if (this.accessToken) {
       headers.set('Authorization', `Bearer ${this.accessToken}`);
     }
 
     const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+    if (response.status === 401 && retryOnUnauthorized && (await this.refreshAuth())) {
+      await this.download(path, fileName, false);
+      return;
+    }
+
     if (!response.ok) {
       throw new Error(await response.text());
     }

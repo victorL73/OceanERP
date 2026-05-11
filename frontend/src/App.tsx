@@ -42,6 +42,12 @@ export default function App() {
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
 
+  useEffect(() => {
+    const syncAuthState = () => setAuthenticated(Boolean(api.token));
+    window.addEventListener('oceanerp.authChanged', syncAuthState);
+    return () => window.removeEventListener('oceanerp.authChanged', syncAuthState);
+  }, []);
+
   async function load(target: ViewKey) {
     setLoading(true);
     setError(null);
