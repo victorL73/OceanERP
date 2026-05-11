@@ -212,11 +212,71 @@ h1 {
 .table-surface,
 .drive-row,
 .notification,
-.login-panel {
+.login-panel,
+.panel {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+}
+
+.panel {
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.panel h2 {
+  margin: 0 0 14px;
+  font-size: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.inline-form,
+.module-actions,
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.form-grid input,
+.form-grid select,
+.inline-form input {
+  min-height: 40px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0 12px;
+}
+
+.secondary,
+.upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  padding: 0 11px;
+  font-weight: 700;
+}
+
+.secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.upload-button input {
+  display: none;
 }
 
 .metric-card {
@@ -277,6 +337,14 @@ th {
 .drive-row small {
   margin-left: auto;
   color: #64748b;
+}
+
+.drive-row .secondary {
+  margin-left: auto;
+}
+
+.drive-row .secondary + small {
+  margin-left: 0;
 }
 
 .notification.read {
@@ -367,4 +435,3 @@ th {
     width: calc(100vw - 92px);
   }
 }
-

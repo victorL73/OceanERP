@@ -117,3 +117,61 @@ export type DashboardSummary = {
   recentDocuments: number;
 };
 
+export type SalesOrder = {
+  id: string;
+  number: string;
+  customerId: string;
+  status: string;
+  lines: Array<{ id: string; description: string; quantity: number; unitPrice: number }>;
+};
+
+export type Invoice = {
+  id: string;
+  number: string;
+  customerId: string;
+  status: string;
+  total: number;
+  lines: Array<{ id: string; description: string; quantity: number; unitPrice: number }>;
+};
+
+export type Warehouse = {
+  id: string;
+  name: string;
+};
+
+export type StockItem = {
+  id: string;
+  productId: string;
+  warehouseId: string;
+  quantityOnHand: number;
+  alertThreshold: number;
+};
+
+export type MailAccount = {
+  id: string;
+  email: string;
+  smtpHost: string;
+  imapHost: string;
+};
+
+export type EmailMessage = {
+  id: string;
+  subject: string;
+  from: string;
+  to: string;
+  createdAt: string;
+};
+
+export type PrestashopConnection = {
+  id: string;
+  shopUrl: string;
+  apiKeySecretName: string;
+  isActive: boolean;
+};
+
+export type PrestashopSyncLog = {
+  id: string;
+  prestashopConnectionId: string;
+  status: string;
+  createdAt: string;
+};

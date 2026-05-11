@@ -29,7 +29,12 @@ public static class DataSeeder
             "quotes.read", "quotes.write",
             "drive.read", "drive.write",
             "notifications.read", "notifications.write",
-            "dashboard.read"
+            "dashboard.read",
+            "stock.read", "stock.write",
+            "orders.read", "orders.write",
+            "invoices.read", "invoices.write",
+            "emails.read", "emails.write",
+            "prestashop.read", "prestashop.write"
         };
 
         foreach (var code in permissionCodes)
@@ -100,7 +105,11 @@ public static class DataSeeder
             db.ProductSuppliers.Add(new ProductSupplier { Name = "Fournisseur principal" });
         }
 
+        if (!await db.Warehouses.AnyAsync(cancellationToken))
+        {
+            db.Warehouses.Add(new Erp.Domain.FutureModules.Warehouse { Name = "Entrepot principal" });
+        }
+
         await db.SaveChangesAsync(cancellationToken);
     }
 }
-

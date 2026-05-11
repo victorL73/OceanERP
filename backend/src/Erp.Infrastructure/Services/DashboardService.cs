@@ -11,16 +11,19 @@ public sealed class DashboardService(ErpDbContext db) : IDashboardService
         var pendingQuotes = await db.Quotes.CountAsync(x => x.Status == Erp.Domain.Quotes.QuoteStatus.Draft || x.Status == Erp.Domain.Quotes.QuoteStatus.Sent, cancellationToken);
         var recentDocuments = await db.DriveItems.CountAsync(x => !x.IsTrashed, cancellationToken);
         var newNotifications = await db.Notifications.CountAsync(x => !x.IsRead, cancellationToken);
+        var openOrders = await db.SalesOrders.CountAsync(x => x.Status != "Completed" && x.Status != "Cancelled", cancellationToken);
+        var unpaidInvoices = await db.Invoices.CountAsync(x => x.Status != "Paid" && x.Status != "Cancelled", cancellationToken);
+        var lowStock = await db.StockItems.CountAsync(x => x.QuantityOnHand <= x.AlertThreshold, cancellationToken);
+        var newEmails = await db.EmailMessages.CountAsync(cancellationToken);
 
         return new DashboardSummaryDto(
             MonthlyRevenue: 0,
             PendingQuotes: pendingQuotes,
-            UnpaidInvoices: 0,
-            OpenOrders: 0,
-            LowStockItems: 0,
+            UnpaidInvoices: unpaidInvoices,
+            OpenOrders: openOrders,
+            LowStockItems: lowStock,
             OpenServiceTickets: 0,
-            NewEmails: newNotifications,
+            NewEmails: newEmails + newNotifications,
             RecentDocuments: recentDocuments);
     }
 }
-

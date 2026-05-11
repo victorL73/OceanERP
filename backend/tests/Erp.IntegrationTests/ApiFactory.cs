@@ -18,9 +18,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Jwt:Issuer"] = "OceanERP.Tests",
-                ["Jwt:Audience"] = "OceanERP.Tests",
-                ["Jwt:SigningKey"] = "OCEANERP_TEST_SIGNING_KEY_32_CHARS_MINIMUM",
+                ["Jwt:Issuer"] = "OceanERP",
+                ["Jwt:Audience"] = "OceanERP",
+                ["Jwt:SigningKey"] = "CHANGE_ME_OCEANERP_DEVELOPMENT_KEY_32_CHARS_MINIMUM",
                 ["Seed:AdminEmail"] = "admin@oceanerp.local",
                 ["Seed:AdminPassword"] = "ChangeMe!12345",
                 ["Storage:RootPath"] = Path.Combine(Path.GetTempPath(), "oceanerp-tests", Guid.NewGuid().ToString("N"))

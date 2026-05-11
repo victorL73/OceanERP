@@ -2,9 +2,14 @@ using Erp.Application.Auth;
 using Erp.Application.Customers;
 using Erp.Application.Dashboard;
 using Erp.Application.Documents;
+using Erp.Application.Emails;
+using Erp.Application.Invoices;
 using Erp.Application.Notifications;
+using Erp.Application.Prestashop;
 using Erp.Application.Products;
 using Erp.Application.Quotes;
+using Erp.Application.Sales;
+using Erp.Application.Stock;
 using Erp.Domain.Auth;
 using Erp.Infrastructure.Files;
 using Erp.Infrastructure.Pdf;
@@ -43,8 +48,12 @@ public static class DependencyInjection
         services.AddScoped<IDriveService, DriveService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IStockService, StockService>();
+        services.AddScoped<ISalesOrderService, SalesOrderService>();
+        services.AddScoped<IInvoiceService, InvoiceService>();
+        services.AddScoped<IEmailService, EmailService>();
+        services.AddScoped<IPrestashopService, PrestashopService>();
 
         return services;
     }
 }
-

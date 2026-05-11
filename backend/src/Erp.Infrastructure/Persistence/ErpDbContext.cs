@@ -2,6 +2,7 @@ using Erp.Domain.Auth;
 using Erp.Domain.Common;
 using Erp.Domain.Customers;
 using Erp.Domain.Documents;
+using Erp.Domain.FutureModules;
 using Erp.Domain.Notifications;
 using Erp.Domain.Products;
 using Erp.Domain.Quotes;
@@ -41,6 +42,26 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
+
+    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<StockItem> StockItems => Set<StockItem>();
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
+    public DbSet<SalesOrderLine> SalesOrderLines => Set<SalesOrderLine>();
+    public DbSet<SalesOrderStatusHistory> SalesOrderStatusHistories => Set<SalesOrderStatusHistory>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceLine> InvoiceLines => Set<InvoiceLine>();
+    public DbSet<InvoicePayment> InvoicePayments => Set<InvoicePayment>();
+    public DbSet<InvoiceDocument> InvoiceDocuments => Set<InvoiceDocument>();
+    public DbSet<InvoiceStatusHistory> InvoiceStatusHistories => Set<InvoiceStatusHistory>();
+    public DbSet<MailAccount> MailAccounts => Set<MailAccount>();
+    public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
+    public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
+    public DbSet<EmailLink> EmailLinks => Set<EmailLink>();
+    public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
+    public DbSet<PrestashopConnection> PrestashopConnections => Set<PrestashopConnection>();
+    public DbSet<PrestashopSyncLog> PrestashopSyncLogs => Set<PrestashopSyncLog>();
+    public DbSet<ExternalReference> ExternalReferences => Set<ExternalReference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -212,6 +233,102 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             entity.HasIndex(x => new { x.UserId, x.NotificationType }).IsUnique();
             entity.Property(x => x.NotificationType).HasMaxLength(120);
         });
+
+        modelBuilder.Entity<Warehouse>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(160);
+            entity.HasIndex(x => x.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<StockItem>(entity =>
+        {
+            entity.HasIndex(x => new { x.ProductId, x.WarehouseId }).IsUnique();
+            entity.Property(x => x.QuantityOnHand).HasPrecision(18, 3);
+            entity.Property(x => x.AlertThreshold).HasPrecision(18, 3);
+        });
+
+        modelBuilder.Entity<StockMovement>(entity =>
+        {
+            entity.Property(x => x.Quantity).HasPrecision(18, 3);
+            entity.Property(x => x.Reason).HasMaxLength(240);
+        });
+
+        modelBuilder.Entity<SalesOrder>(entity =>
+        {
+            entity.HasIndex(x => x.Number).IsUnique();
+            entity.Property(x => x.Number).HasMaxLength(80);
+            entity.Property(x => x.Status).HasMaxLength(40);
+        });
+
+        modelBuilder.Entity<SalesOrderLine>(entity =>
+        {
+            entity.Property(x => x.Description).HasMaxLength(500);
+            entity.Property(x => x.Quantity).HasPrecision(18, 3);
+            entity.Property(x => x.UnitPrice).HasPrecision(18, 2);
+        });
+
+        modelBuilder.Entity<Invoice>(entity =>
+        {
+            entity.HasIndex(x => x.Number).IsUnique();
+            entity.Property(x => x.Number).HasMaxLength(80);
+            entity.Property(x => x.Status).HasMaxLength(40);
+        });
+
+        modelBuilder.Entity<InvoiceLine>(entity =>
+        {
+            entity.Property(x => x.Description).HasMaxLength(500);
+            entity.Property(x => x.Quantity).HasPrecision(18, 3);
+            entity.Property(x => x.UnitPrice).HasPrecision(18, 2);
+        });
+
+        modelBuilder.Entity<InvoicePayment>(entity =>
+        {
+            entity.Property(x => x.Amount).HasPrecision(18, 2);
+        });
+
+        modelBuilder.Entity<MailAccount>(entity =>
+        {
+            entity.Property(x => x.Email).HasMaxLength(320);
+            entity.Property(x => x.SmtpHost).HasMaxLength(240);
+            entity.Property(x => x.ImapHost).HasMaxLength(240);
+        });
+
+        modelBuilder.Entity<EmailMessage>(entity =>
+        {
+            entity.Property(x => x.Subject).HasMaxLength(300);
+            entity.Property(x => x.From).HasMaxLength(320);
+            entity.Property(x => x.To).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<EmailLink>(entity =>
+        {
+            entity.HasIndex(x => new { x.Module, x.EntityId });
+            entity.Property(x => x.Module).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<EmailTemplate>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<PrestashopConnection>(entity =>
+        {
+            entity.Property(x => x.ShopUrl).HasMaxLength(500);
+            entity.Property(x => x.ApiKeySecretName).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<PrestashopSyncLog>(entity =>
+        {
+            entity.Property(x => x.Status).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<ExternalReference>(entity =>
+        {
+            entity.HasIndex(x => new { x.Provider, x.ExternalId }).IsUnique();
+            entity.Property(x => x.Provider).HasMaxLength(80);
+            entity.Property(x => x.ExternalId).HasMaxLength(160);
+            entity.Property(x => x.Module).HasMaxLength(80);
+        });
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -234,4 +351,3 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         return base.SaveChangesAsync(cancellationToken);
     }
 }
-

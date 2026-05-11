@@ -1,4 +1,23 @@
-import type { AuthResponse, DashboardSummary, DriveFolder, DriveItem, NotificationItem, PagedResult, Product, Quote, Customer } from '../types';
+import type {
+  AuthResponse,
+  Customer,
+  DashboardSummary,
+  DriveFolder,
+  DriveItem,
+  EmailMessage,
+  Invoice,
+  MailAccount,
+  NotificationItem,
+  PagedResult,
+  PrestashopConnection,
+  PrestashopSyncLog,
+  Product,
+  Quote,
+  QuoteDocument,
+  SalesOrder,
+  StockItem,
+  Warehouse
+} from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -36,12 +55,44 @@ export class ApiClient {
     return this.request<PagedResult<Customer>>('/api/customers', { auth: true });
   }
 
+  createCustomer(payload: { code: string; companyName: string; vatNumber?: string; notes?: string }) {
+    return this.request<Customer>('/api/customers', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ ...payload, contacts: [], addresses: [] })
+    });
+  }
+
   products() {
     return this.request<PagedResult<Product>>('/api/products', { auth: true });
   }
 
+  createProduct(payload: { reference: string; name: string; description?: string; purchasePrice: number; salePrice: number; vatRate: number }) {
+    return this.request<Product>('/api/products', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ ...payload, categoryId: null, mainSupplierId: null })
+    });
+  }
+
   quotes() {
     return this.request<PagedResult<Quote>>('/api/quotes', { auth: true });
+  }
+
+  createQuote(payload: { customerId: string; validUntil: string; lines: Array<{ description: string; quantity: number; unitPrice: number; discountRate: number; vatRate: number }> }) {
+    return this.request<Quote>('/api/quotes', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(payload)
+    });
+  }
+
+  generateQuotePdf(quoteId: string) {
+    return this.request<QuoteDocument>(`/api/quotes/${quoteId}/pdf`, { method: 'POST', auth: true });
+  }
+
+  async downloadQuoteDocument(quoteId: string, documentId: string, fileName: string) {
+    await this.download(`/api/quotes/${quoteId}/documents/${documentId}/download`, fileName);
   }
 
   folders(parentFolderId?: string) {
@@ -49,13 +100,94 @@ export class ApiClient {
     return this.request<DriveFolder[]>(`/api/drive/folders${query}`, { auth: true });
   }
 
+  createFolder(payload: { parentFolderId?: string | null; name: string }) {
+    return this.request<DriveFolder>('/api/drive/folders', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(payload)
+    });
+  }
+
   files(folderId?: string) {
     const query = folderId ? `?folderId=${folderId}` : '';
     return this.request<DriveItem[]>(`/api/drive/files${query}`, { auth: true });
   }
 
+  uploadDriveFile(file: File, folderId?: string | null) {
+    const form = new FormData();
+    if (folderId) {
+      form.append('folderId', folderId);
+    }
+    form.append('file', file);
+    return this.request<{ item: DriveItem; sha256: string }>('/api/drive/files', {
+      method: 'POST',
+      auth: true,
+      body: form
+    });
+  }
+
+  async downloadDriveFile(fileId: string, fileName: string) {
+    await this.download(`/api/drive/files/${fileId}/download`, fileName);
+  }
+
   notifications() {
     return this.request<NotificationItem[]>('/api/notifications', { auth: true });
+  }
+
+  orders() {
+    return this.request<PagedResult<SalesOrder>>('/api/orders', { auth: true });
+  }
+
+  createOrder(payload: { customerId: string; lines: Array<{ description: string; quantity: number; unitPrice: number }> }) {
+    return this.request<SalesOrder>('/api/orders', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  invoices() {
+    return this.request<PagedResult<Invoice>>('/api/invoices', { auth: true });
+  }
+
+  createInvoiceFromOrder(salesOrderId: string) {
+    return this.request<Invoice>('/api/invoices/from-order', { method: 'POST', auth: true, body: JSON.stringify({ salesOrderId }) });
+  }
+
+  warehouses() {
+    return this.request<Warehouse[]>('/api/stock/warehouses', { auth: true });
+  }
+
+  stockItems() {
+    return this.request<StockItem[]>('/api/stock/items', { auth: true });
+  }
+
+  adjustStock(payload: { productId: string; warehouseId: string; quantity: number; reason: string; alertThreshold?: number }) {
+    return this.request('/api/stock/adjustments', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  mailAccounts() {
+    return this.request<MailAccount[]>('/api/emails/accounts', { auth: true });
+  }
+
+  emailMessages() {
+    return this.request<PagedResult<EmailMessage>>('/api/emails/messages', { auth: true });
+  }
+
+  createMailAccount(payload: { email: string; smtpHost: string; imapHost: string }) {
+    return this.request<MailAccount>('/api/emails/accounts', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  prestashopConnections() {
+    return this.request<PrestashopConnection[]>('/api/prestashop/connections', { auth: true });
+  }
+
+  prestashopLogs() {
+    return this.request<PrestashopSyncLog[]>('/api/prestashop/sync-logs', { auth: true });
+  }
+
+  createPrestashopConnection(payload: { shopUrl: string; apiKeySecretName: string }) {
+    return this.request<PrestashopConnection>('/api/prestashop/connections', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  runPrestashopSync(connectionId: string) {
+    return this.request<PrestashopSyncLog>(`/api/prestashop/connections/${connectionId}/sync`, { method: 'POST', auth: true });
   }
 
   private setAuth(auth: AuthResponse) {
@@ -67,7 +199,7 @@ export class ApiClient {
 
   private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const headers = new Headers(options.headers);
-    if (!headers.has('Content-Type') && options.body) {
+    if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
 
@@ -87,7 +219,28 @@ export class ApiClient {
 
     return response.json() as Promise<T>;
   }
+
+  private async download(path: string, fileName: string) {
+    const headers = new Headers();
+    if (this.accessToken) {
+      headers.set('Authorization', `Bearer ${this.accessToken}`);
+    }
+
+    const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
 }
 
 export const api = new ApiClient();
-

@@ -24,10 +24,21 @@ OceanERP suit une Clean Architecture stricte.
 
 Les entités de vocabulaire des phases 2/3 sont placées dans `Erp.Domain/FutureModules` comme placeholders structurés : commandes, factures, stock, achats, comptabilité, SAV, emails, agenda, signature interne, PrestaShop et API externe.
 
+## Phase 2 demarree
+
+La Phase 2 dispose maintenant d'un socle backend/API pour :
+
+- commandes clients avec creation manuelle ou depuis devis
+- factures depuis commande et paiements
+- stock par entrepot avec mouvements d'ajustement
+- comptes email et journal de messages
+- connexions PrestaShop et journal de synchronisation manuelle
+
+Les workflows avances restent a enrichir : reservation/decrementation stock configurable, PDF facture, vrai envoi SMTP avec secrets chiffres, synchronisation IMAP, connecteur PrestaShop complet et erreurs detaillees.
+
 ## Règles importantes
 
 - Les fichiers binaires ne sont jamais stockés dans PostgreSQL.
 - Les documents sont servis uniquement via API authentifiée.
 - Les controllers restent minces et délèguent aux services.
 - Les DTOs sont séparés des entités.
-

@@ -4,15 +4,15 @@ OceanERP est un socle ERP modulaire en Clean Architecture pour ASP.NET Core, Pos
 
 ## Structure
 
-- `backend/src/Erp.Domain` : entités métier et règles de domaine.
-- `backend/src/Erp.Application` : DTOs, contrats de services, cas applicatifs exposés.
+- `backend/src/Erp.Domain` : entites metier et regles de domaine.
+- `backend/src/Erp.Application` : DTOs, contrats de services, cas applicatifs exposes.
 - `backend/src/Erp.Infrastructure` : EF Core PostgreSQL, stockage fichiers, PDF, JWT, services.
 - `backend/src/Erp.Api` : REST API, JWT, SignalR, Swagger, middleware.
 - `frontend` : React TypeScript + Vite + PWA.
 - `desktop` : shell Electron Windows.
 - `docker` : Docker Compose, Nginx, PostgreSQL, ONLYOFFICE.
 - `deploy` : scripts Ubuntu et build Windows.
-- `docs` : documentation technique en français.
+- `docs` : documentation technique en francais.
 
 ## Lancement backend local
 
@@ -38,12 +38,45 @@ npm run dev
 
 ## Docker Ubuntu
 
+Chemin principal :
+
 ```bash
-cd deploy/ubuntu
+cd ~/OceanERP/deploy/ubuntu
+chmod +x *.sh
 cp .env.example .env
+nano .env
 ./install-prerequisites.sh
 ./setup-server.sh
 ./deploy.sh
+```
+
+Test apres deploiement :
+
+```bash
+docker compose --env-file .env -f docker-compose.yml ps
+curl http://localhost:8080/api/health
+```
+
+Acces navigateur :
+
+```text
+http://IP_DU_SERVEUR:8080
+```
+
+Documentation detaillee :
+
+- `docs/notice-deploiement-ubuntu.md`
+- `docs/notice-sauvegarde-restauration.md`
+- `docs/notice-mise-a-jour.md`
+
+## Sauvegarde
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+./backup.sh
+ls -lh /opt/oceanerp/backups
+gzip -t /opt/oceanerp/backups/YYYYMMDDTHHMMSSZ/postgres.sql.gz
+tar -tzf /opt/oceanerp/backups/YYYYMMDDTHHMMSSZ/documents.tar.gz
 ```
 
 ## Windows Electron
@@ -53,5 +86,5 @@ cd deploy/windows
 .\build-installer.ps1 -ServerUrl "https://erp.example.com"
 ```
 
-Le script prépare l'installateur via `electron-builder`; il ne crée un `.exe` que lorsque les dépendances Node sont installées et que la commande aboutit.
+Le script prepare l'installateur via `electron-builder`; il ne cree un `.exe` que lorsque les dependances Node sont installees et que la commande aboutit.
 

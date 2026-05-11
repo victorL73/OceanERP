@@ -39,10 +39,9 @@ public sealed class SignatureRecipient : Entity { public Guid SignatureRequestId
 public sealed class SignatureOtp : Entity { public Guid SignatureRecipientId { get; set; } public string OtpHash { get; set; } = string.Empty; public DateTimeOffset ExpiresAt { get; set; } }
 public sealed class SignatureEvidence : Entity { public Guid SignatureRequestId { get; set; } public string DocumentSha256 { get; set; } = string.Empty; public string? IpAddress { get; set; } public string? UserAgent { get; set; } }
 public sealed class SignedDocument : Entity { public Guid SignatureRequestId { get; set; } public string StoragePath { get; set; } = string.Empty; }
-public sealed class PrestashopConnection : AuditableEntity { public string ShopUrl { get; set; } = string.Empty; public string ApiKeySecretName { get; set; } = string.Empty; }
+public sealed class PrestashopConnection : AuditableEntity { public string ShopUrl { get; set; } = string.Empty; public string ApiKeySecretName { get; set; } = string.Empty; public bool IsActive { get; set; } = true; }
 public sealed class PrestashopSyncLog : Entity { public Guid PrestashopConnectionId { get; set; } public string Status { get; set; } = string.Empty; public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow; }
 public sealed class ExternalReference : Entity { public string Provider { get; set; } = string.Empty; public string ExternalId { get; set; } = string.Empty; public string Module { get; set; } = string.Empty; public Guid EntityId { get; set; } }
 public sealed class ApiClient : AuditableEntity { public string Name { get; set; } = string.Empty; public bool IsActive { get; set; } = true; }
 public sealed class ApiKey : Entity { public Guid ApiClientId { get; set; } public string KeyHash { get; set; } = string.Empty; public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow; }
 public sealed class ApiRequestLog : Entity { public Guid? ApiClientId { get; set; } public string Path { get; set; } = string.Empty; public int StatusCode { get; set; } public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow; }
-

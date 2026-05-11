@@ -28,6 +28,28 @@ Swagger est activé en environnement `Development`.
 - `GET /api/dashboard/summary`
 - `GET /api/health`
 
+## Endpoints Phase 2 ajoutes
+
+- `GET /api/orders`
+- `POST /api/orders`
+- `POST /api/orders/from-quote`
+- `POST /api/orders/{id}/status`
+- `GET /api/invoices`
+- `POST /api/invoices/from-order`
+- `POST /api/invoices/{id}/payments`
+- `GET /api/stock/warehouses`
+- `POST /api/stock/warehouses`
+- `GET /api/stock/items`
+- `POST /api/stock/adjustments`
+- `GET /api/emails/accounts`
+- `POST /api/emails/accounts`
+- `GET /api/emails/messages`
+- `POST /api/emails/send`
+- `GET /api/prestashop/connections`
+- `POST /api/prestashop/connections`
+- `GET /api/prestashop/sync-logs`
+- `POST /api/prestashop/connections/{id}/sync`
+
 ## SignalR
 
 Hub : `/hubs/notifications`
@@ -38,3 +60,4 @@ Hub : `/hubs/notifications`
 
 Les routes métier exigent un JWT. Les politiques d'autorisation utilisent les claims `permission`, par exemple `customers.read` ou `quotes.write`.
 
+La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*` et `prestashop.*`.

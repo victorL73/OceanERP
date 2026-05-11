@@ -83,7 +83,12 @@ var permissionCodes = new[]
     "quotes.read", "quotes.write",
     "drive.read", "drive.write",
     "notifications.read", "notifications.write",
-    "dashboard.read"
+    "dashboard.read",
+    "stock.read", "stock.write",
+    "orders.read", "orders.write",
+    "invoices.read", "invoices.write",
+    "emails.read", "emails.write",
+    "prestashop.read", "prestashop.write"
 };
 
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
