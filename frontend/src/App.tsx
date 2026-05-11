@@ -855,11 +855,26 @@ function Products({ items, onChanged }: { items: Product[]; onChanged: () => Pro
     <>
       <Panel title="Nouveau produit">
         <form className="form-grid" onSubmit={submit}>
-          <input required placeholder="Reference" value={reference} onChange={(event) => setReference(event.target.value)} />
-          <input required placeholder="Designation" value={name} onChange={(event) => setName(event.target.value)} />
-          <input required type="number" step="0.01" placeholder="Prix achat" value={purchasePrice} onChange={(event) => setPurchasePrice(event.target.value)} />
-          <input required type="number" step="0.01" placeholder="Prix vente" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} />
-          <input required type="number" step="0.01" placeholder="TVA" value={vatRate} onChange={(event) => setVatRate(event.target.value)} />
+          <label className="field">
+            <span>Reference</span>
+            <input required placeholder="REF-001" value={reference} onChange={(event) => setReference(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Designation</span>
+            <input required placeholder="Nom du produit" value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Prix achat HT (€)</span>
+            <input required type="number" step="0.01" placeholder="0,00" value={purchasePrice} onChange={(event) => setPurchasePrice(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Prix vente HT (€)</span>
+            <input required type="number" step="0.01" placeholder="0,00" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>TVA (%)</span>
+            <input required type="number" step="0.01" placeholder="20" value={vatRate} onChange={(event) => setVatRate(event.target.value)} />
+          </label>
           <button className="primary" type="submit">
             <Plus size={16} />
             Creer

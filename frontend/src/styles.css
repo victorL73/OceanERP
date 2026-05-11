@@ -317,6 +317,15 @@ h1 {
   align-items: end;
 }
 
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .inline-form,
 .module-actions,
 .table-actions {
