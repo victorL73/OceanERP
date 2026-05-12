@@ -275,9 +275,18 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         (await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Ordered"))).EnsureSuccessStatusCode();
         (await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Received"))).EnsureSuccessStatusCode();
 
-        var receiveResponse = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/receive-to-stock", new ReceivePurchaseOrderToStockRequest(warehouse.Id));
+        var missingWarehouseResponse = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/receive-to-stock", new ReceivePurchaseOrderToStockRequest());
+        Assert.Equal(HttpStatusCode.BadRequest, missingWarehouseResponse.StatusCode);
+
+        var warehouseResponse = await client.PutAsJsonAsync($"/api/purchases/orders/{order.Id}/warehouse", new UpdatePurchaseOrderWarehouseRequest(warehouse.Id));
+        Assert.Equal(HttpStatusCode.OK, warehouseResponse.StatusCode);
+        var warehouseOrder = await warehouseResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+        Assert.Equal(warehouse.Id, warehouseOrder!.WarehouseId);
+
+        var receiveResponse = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/receive-to-stock", new ReceivePurchaseOrderToStockRequest());
         Assert.Equal(HttpStatusCode.OK, receiveResponse.StatusCode);
         var receivedOrder = await receiveResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+        Assert.Equal(warehouse.Id, receivedOrder!.WarehouseId);
         var receivedLine = Assert.Single(receivedOrder!.Lines);
         Assert.Equal(4, receivedLine.ReceivedQuantity);
 

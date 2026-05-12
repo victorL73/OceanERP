@@ -46,6 +46,14 @@ public sealed class PurchaseOrdersController(IPurchaseOrderService purchaseOrder
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPut("{id:guid}/warehouse")]
+    [Authorize(Policy = "purchases.write")]
+    public async Task<ActionResult<PurchaseOrderDto>> UpdateWarehouse(Guid id, UpdatePurchaseOrderWarehouseRequest request, CancellationToken cancellationToken)
+    {
+        var result = await purchaseOrders.UpdateWarehouseAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpPost("{id:guid}/receive-to-stock")]
     [Authorize(Policy = "purchases.write")]
     public async Task<ActionResult<PurchaseOrderDto>> ReceiveToStock(Guid id, ReceivePurchaseOrderToStockRequest request, CancellationToken cancellationToken)

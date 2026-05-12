@@ -90,6 +90,11 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             return Result.Failure("Impossible de supprimer cet entrepot car il est utilise par des commandes.");
         }
 
+        if (await db.PurchaseOrders.AnyAsync(x => x.WarehouseId == warehouseId, cancellationToken))
+        {
+            return Result.Failure("Impossible de supprimer cet entrepot car il est utilise par des commandes fournisseurs.");
+        }
+
         if (await db.PrestashopConnections.AnyAsync(x => x.WarehouseId == warehouseId, cancellationToken))
         {
             return Result.Failure("Impossible de supprimer cet entrepot car il est rattache a une connexion PrestaShop.");

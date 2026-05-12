@@ -183,6 +183,8 @@ export type PurchaseOrder = {
   number: string;
   supplierId: string;
   supplierName?: string;
+  warehouseId?: string;
+  warehouseName?: string;
   status: string;
   expectedAt?: string;
   comment?: string;

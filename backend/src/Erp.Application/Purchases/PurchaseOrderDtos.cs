@@ -7,6 +7,8 @@ public sealed record PurchaseOrderDto(
     string Number,
     Guid SupplierId,
     string? SupplierName,
+    Guid? WarehouseId,
+    string? WarehouseName,
     string Status,
     DateOnly? ExpectedAt,
     string? Comment,
@@ -34,12 +36,13 @@ public sealed record PurchaseOrderLineDto(
 
 public sealed record PurchaseOrderChargeDto(Guid Id, string Label, decimal Amount, decimal VatRate, decimal VatTotal, decimal Total);
 
-public sealed record CreatePurchaseOrderRequest(Guid SupplierId, DateOnly? ExpectedAt, IReadOnlyList<CreatePurchaseOrderLineRequest> Lines, string? Comment = null, IReadOnlyList<CreatePurchaseOrderChargeRequest>? Charges = null);
+public sealed record CreatePurchaseOrderRequest(Guid SupplierId, DateOnly? ExpectedAt, IReadOnlyList<CreatePurchaseOrderLineRequest> Lines, string? Comment = null, IReadOnlyList<CreatePurchaseOrderChargeRequest>? Charges = null, Guid? WarehouseId = null);
 public sealed record CreatePurchaseOrderLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice, decimal? VatRate = null);
 public sealed record CreatePurchaseOrderChargeRequest(string Label, decimal Amount, decimal VatRate);
 public sealed record UpdatePurchaseOrderStatusRequest(string Status);
 public sealed record UpdatePurchaseOrderExpectedAtRequest(DateOnly? ExpectedAt);
-public sealed record ReceivePurchaseOrderToStockRequest(Guid WarehouseId);
+public sealed record UpdatePurchaseOrderWarehouseRequest(Guid? WarehouseId);
+public sealed record ReceivePurchaseOrderToStockRequest(Guid? WarehouseId = null);
 
 public interface IPurchaseOrderService
 {
@@ -48,5 +51,6 @@ public interface IPurchaseOrderService
     Task<Result<PurchaseOrderDto>> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> ChangeStatusAsync(Guid id, UpdatePurchaseOrderStatusRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> UpdateExpectedAtAsync(Guid id, UpdatePurchaseOrderExpectedAtRequest request, CancellationToken cancellationToken);
+    Task<Result<PurchaseOrderDto>> UpdateWarehouseAsync(Guid id, UpdatePurchaseOrderWarehouseRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> ReceiveToStockAsync(Guid id, ReceivePurchaseOrderToStockRequest request, CancellationToken cancellationToken);
 }

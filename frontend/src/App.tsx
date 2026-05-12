@@ -1674,18 +1674,25 @@ function purchaseAmount(value?: number | null) {
 
 function Purchases({ items, suppliers, products, warehouses, onChanged }: { items: PurchaseOrder[]; suppliers: ProductSupplier[]; products: Product[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [supplierId, setSupplierId] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
   const [expectedAt, setExpectedAt] = useState('');
   const [comment, setComment] = useState('');
   const [lines, setLines] = useState<PurchaseDraftLine[]>(() => [createPurchaseDraftLine()]);
   const [charges, setCharges] = useState<PurchaseDraftCharge[]>([]);
   const [dateOrderId, setDateOrderId] = useState('');
   const [dateValue, setDateValue] = useState('');
-  const [receiveWarehouseIds, setReceiveWarehouseIds] = useState<Record<string, string>>({});
+  const [warehouseOrderId, setWarehouseOrderId] = useState('');
+  const [warehouseValue, setWarehouseValue] = useState('');
   const selectedDateOrder = items.find((item) => item.id === dateOrderId);
+  const selectedWarehouseOrder = items.find((item) => item.id === warehouseOrderId);
 
   useEffect(() => {
     setDateValue(selectedDateOrder?.expectedAt ?? '');
   }, [selectedDateOrder]);
+
+  useEffect(() => {
+    setWarehouseValue(selectedWarehouseOrder?.warehouseId ?? '');
+  }, [selectedWarehouseOrder]);
 
   function updateLine(lineId: string, patch: Partial<PurchaseDraftLine>) {
     setLines((current) => current.map((line) => (line.id === lineId ? { ...line, ...patch } : line)));
@@ -1735,6 +1742,7 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
 
     await api.createPurchaseOrder({
       supplierId: selectedSupplierId,
+      warehouseId: warehouseId || null,
       expectedAt: expectedAt || null,
       comment: comment || null,
       lines: lines.map((line) => ({
@@ -1752,6 +1760,7 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
     setCharges([]);
     setComment('');
     setExpectedAt('');
+    setWarehouseId('');
     await onChanged();
   }
 
@@ -1764,17 +1773,12 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
     return (order.lines ?? []).some((line) => line.productId && line.quantity > line.receivedQuantity);
   }
 
-  function selectedReceiveWarehouse(order: PurchaseOrder) {
-    return receiveWarehouseIds[order.id] || warehouses[0]?.id || '';
-  }
-
   async function receiveToStock(order: PurchaseOrder) {
-    const warehouseId = selectedReceiveWarehouse(order);
-    if (!warehouseId) {
-      throw new Error('Creer un entrepot avant ajout au stock.');
+    if (!order.warehouseId) {
+      throw new Error("Selectionner l'entrepot de reception de la commande avant ajout au stock.");
     }
 
-    await api.receivePurchaseOrderToStock(order.id, warehouseId);
+    await api.receivePurchaseOrderToStock(order.id, order.warehouseId);
     await onChanged();
   }
 
@@ -1785,6 +1789,20 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
     }
 
     await api.updatePurchaseOrderExpectedAt(dateOrderId, dateValue || null);
+    await onChanged();
+  }
+
+  async function updateOrderWarehouse(event: FormEvent) {
+    event.preventDefault();
+    if (!warehouseOrderId) {
+      throw new Error('Selectionner une commande fournisseur.');
+    }
+
+    if (!warehouseValue) {
+      throw new Error("Selectionner l'entrepot de reception.");
+    }
+
+    await api.updatePurchaseOrderWarehouse(warehouseOrderId, warehouseValue);
     await onChanged();
   }
 
@@ -1807,6 +1825,17 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
             <label className="field">
               <span>Date reception prevue</span>
               <input type="date" value={expectedAt} onChange={(event) => setExpectedAt(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Entrepot de reception</span>
+              <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+                <option value="">A definir</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="field wide-field">
               <span>Commentaires</span>
@@ -1953,8 +1982,36 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
         </form>
       </Panel>
 
+      <Panel title="Entrepot de reception">
+        <form className="form-grid" onSubmit={updateOrderWarehouse}>
+          <select value={warehouseOrderId} onChange={(event) => setWarehouseOrderId(event.target.value)}>
+            <option value="">Commande fournisseur</option>
+            {items
+              .filter((item) => !item.lines.some((line) => line.receivedQuantity > 0))
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.number} - {item.supplierName ?? item.supplierId}
+                </option>
+              ))}
+          </select>
+          <select value={warehouseValue} onChange={(event) => setWarehouseValue(event.target.value)}>
+            <option value="">Entrepot</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name}
+              </option>
+            ))}
+          </select>
+          <button className="primary" type="submit">
+            <Save size={16} />
+            Enregistrer
+          </button>
+        </form>
+        <p className="panel-note">La reception stock utilise uniquement cet entrepot. Aucun entrepot n'est choisi automatiquement.</p>
+      </Panel>
+
       <DataTable
-        columns={['Numero', 'Fournisseur', 'Statut', 'Reception prevue', 'HT', 'TVA', 'Total TTC', 'Lignes', 'Actions']}
+        columns={['Numero', 'Fournisseur', 'Entrepot', 'Statut', 'Reception prevue', 'HT', 'TVA', 'Total TTC', 'Lignes', 'Actions']}
         rows={items.map((item) => {
           const orderLines = item.lines ?? [];
           const lineNet = item.linesNetTotal ?? orderLines.reduce((sum, line) => sum + (line.lineNetTotal ?? line.quantity * line.unitPrice), 0);
@@ -1965,6 +2022,7 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
           return [
             item.number,
             item.supplierName ?? item.supplierId,
+            item.warehouseName ?? 'A definir',
             purchaseStatusLabel(item.status),
             item.expectedAt || '-',
             purchaseAmount(lineNet + chargesNet),
@@ -2004,16 +2062,15 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
               )}
               {item.status === 'Received' && stockPending && (
                 <>
-                  <select className="compact-select" value={selectedReceiveWarehouse(item)} onChange={(event) => setReceiveWarehouseIds((current) => ({ ...current, [item.id]: event.target.value }))}>
-                    {warehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button className="primary" type="button" onClick={() => receiveToStock(item)}>
-                    Ajouter au stock
-                  </button>
+                  {item.warehouseId ? (
+                    <button className="primary" type="button" onClick={() => receiveToStock(item)}>
+                      Ajouter au stock
+                    </button>
+                  ) : (
+                    <button className="secondary" type="button" onClick={() => setWarehouseOrderId(item.id)}>
+                      Choisir entrepot
+                    </button>
+                  )}
                 </>
               )}
               {item.status !== 'Received' && item.status !== 'Cancelled' && (

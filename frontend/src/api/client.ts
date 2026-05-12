@@ -227,6 +227,7 @@ export class ApiClient {
 
   createPurchaseOrder(payload: {
     supplierId: string;
+    warehouseId?: string | null;
     expectedAt?: string | null;
     comment?: string | null;
     lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number; vatRate?: number | null }>;
@@ -243,7 +244,11 @@ export class ApiClient {
     return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/expected-date`, { method: 'PUT', auth: true, body: JSON.stringify({ expectedAt }) });
   }
 
-  receivePurchaseOrderToStock(orderId: string, warehouseId: string) {
+  updatePurchaseOrderWarehouse(orderId: string, warehouseId?: string | null) {
+    return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/warehouse`, { method: 'PUT', auth: true, body: JSON.stringify({ warehouseId }) });
+  }
+
+  receivePurchaseOrderToStock(orderId: string, warehouseId?: string | null) {
     return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/receive-to-stock`, { method: 'POST', auth: true, body: JSON.stringify({ warehouseId }) });
   }
 

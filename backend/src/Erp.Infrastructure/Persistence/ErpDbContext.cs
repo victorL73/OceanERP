@@ -322,10 +322,12 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         {
             entity.HasIndex(x => x.Number).IsUnique();
             entity.HasIndex(x => x.SupplierId);
+            entity.HasIndex(x => x.WarehouseId);
             entity.Property(x => x.Number).HasMaxLength(80);
             entity.Property(x => x.Status).HasMaxLength(40);
             entity.Property(x => x.Comment).HasMaxLength(2000);
             entity.HasOne<ProductSupplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Warehouse>().WithMany().HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<PurchaseOrderLine>(entity =>

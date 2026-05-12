@@ -53,10 +53,16 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             return Result<PurchaseOrderDto>.Failure("Une commande fournisseur requiert au moins une ligne.");
         }
 
+        if (request.WarehouseId.HasValue && !await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
+        }
+
         var order = new PurchaseOrder
         {
             Number = await NextNumberAsync(cancellationToken),
             SupplierId = request.SupplierId,
+            WarehouseId = request.WarehouseId,
             ExpectedAt = request.ExpectedAt,
             Comment = NormalizeOptional(request.Comment),
             Status = "Draft"
@@ -145,6 +151,29 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         return Result<PurchaseOrderDto>.Success(await MapAsync(order, cancellationToken));
     }
 
+    public async Task<Result<PurchaseOrderDto>> UpdateWarehouseAsync(Guid id, UpdatePurchaseOrderWarehouseRequest request, CancellationToken cancellationToken)
+    {
+        var order = await db.PurchaseOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (order is null)
+        {
+            return Result<PurchaseOrderDto>.Failure("Commande fournisseur introuvable.");
+        }
+
+        if (await db.PurchaseOrderLines.AnyAsync(x => x.PurchaseOrderId == id && x.ReceivedQuantity > 0, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("L'entrepot ne peut plus etre modifie apres ajout au stock.");
+        }
+
+        if (request.WarehouseId.HasValue && !await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
+        }
+
+        order.WarehouseId = request.WarehouseId;
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<PurchaseOrderDto>.Success(await MapAsync(order, cancellationToken));
+    }
+
     public async Task<Result<PurchaseOrderDto>> ReceiveToStockAsync(Guid id, ReceivePurchaseOrderToStockRequest request, CancellationToken cancellationToken)
     {
         var order = await db.PurchaseOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
@@ -157,6 +186,19 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         {
             return Result<PurchaseOrderDto>.Failure("La commande doit etre au statut recue avant ajout au stock.");
         }
+
+        var warehouseId = request.WarehouseId ?? order.WarehouseId;
+        if (!warehouseId.HasValue)
+        {
+            return Result<PurchaseOrderDto>.Failure("Selectionnez l'entrepot de reception de la commande fournisseur avant ajout au stock.");
+        }
+
+        if (!await db.Warehouses.AnyAsync(x => x.Id == warehouseId.Value, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
+        }
+
+        order.WarehouseId = warehouseId.Value;
 
         var lines = await db.PurchaseOrderLines
             .Where(x => x.PurchaseOrderId == id && x.ProductId.HasValue && x.Quantity > x.ReceivedQuantity)
@@ -175,7 +217,7 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
                 var quantity = line.Quantity - line.ReceivedQuantity;
                 var result = await stock.AdjustAsync(new AdjustStockRequest(
                     line.ProductId!.Value,
-                    request.WarehouseId,
+                    warehouseId.Value,
                     quantity,
                     $"Reception commande fournisseur {order.Number}",
                     null,
@@ -314,6 +356,13 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             .Select(x => x.Name)
             .FirstOrDefaultAsync(cancellationToken);
 
+        var warehouseName = order.WarehouseId.HasValue
+            ? await db.Warehouses
+                .Where(x => x.Id == order.WarehouseId.Value)
+                .Select(x => x.Name)
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
+
         var lines = await db.PurchaseOrderLines
             .Where(x => x.PurchaseOrderId == order.Id)
             .GroupJoin(db.Products, line => line.ProductId, product => product.Id, (line, products) => new { line, product = products.FirstOrDefault() })
@@ -373,6 +422,8 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             order.Number,
             order.SupplierId,
             supplierName,
+            order.WarehouseId,
+            warehouseName,
             order.Status,
             order.ExpectedAt,
             order.Comment,
