@@ -1730,6 +1730,7 @@ function Stock({
   const [movementFilterWarehouseId, setMovementFilterWarehouseId] = useState('');
   const [movementFilterType, setMovementFilterType] = useState('');
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null);
+  const [selectedMovementId, setSelectedMovementId] = useState<string | null>(null);
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
   const activePrestashopConnections = useMemo(() => prestashopConnections.filter((connection) => connection.isActive), [prestashopConnections]);
@@ -1739,6 +1740,7 @@ function Stock({
     [activePrestashopConnections]
   );
   const selectedStock = selectedStockId ? items.find((item) => item.id === selectedStockId) ?? null : null;
+  const selectedMovement = selectedMovementId ? movements.find((item) => item.id === selectedMovementId) ?? null : null;
   const movementTypes = useMemo(() => Array.from(new Set(movements.map((movement) => movement.type))).sort(), [movements]);
 
   function productLabel(id: string) {
@@ -1748,6 +1750,10 @@ function Stock({
 
   function warehouseLabel(id: string) {
     return warehouseById.get(id)?.name ?? id;
+  }
+
+  function movementAuthor(item: StockMovement) {
+    return item.createdByDisplayName || item.createdByEmail || item.createdByUserId || 'Systeme / inconnu';
   }
 
   function stockColumnText(item: StockItem, column: string) {
@@ -1769,7 +1775,8 @@ function Stock({
       type: item.type,
       quantity: item.quantity.toString(),
       reason: item.reason,
-      date: item.createdAt
+      date: item.createdAt,
+      author: movementAuthor(item)
     };
     return column === 'all' ? Object.values(values).join(' ') : values[column] ?? '';
   }
@@ -1903,6 +1910,7 @@ function Stock({
                 <option value="quantity">Quantite</option>
                 <option value="reason">Motif</option>
                 <option value="date">Date</option>
+                <option value="author">Auteur</option>
               </select>
               <select value={movementFilterWarehouseId} onChange={(event) => setMovementFilterWarehouseId(event.target.value)}>
                 <option value="">Tous les entrepots</option>
@@ -1925,7 +1933,12 @@ function Stock({
               </button>
             </form>
           </Panel>
-          <DataTable columns={['Produit', 'Entrepot', 'Type', 'Quantite', 'Motif', 'Date']} rows={filteredMovements.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.type, item.quantity, item.reason, item.createdAt])} />
+          <DataTable
+            columns={['Produit', 'Entrepot', 'Type', 'Quantite', 'Motif', 'Date']}
+            rows={filteredMovements.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.type, item.quantity, item.reason, item.createdAt])}
+            onRowClick={(index) => setSelectedMovementId(filteredMovements[index]?.id ?? null)}
+            selectedRowIndex={selectedMovement ? filteredMovements.findIndex((item) => item.id === selectedMovement.id) : undefined}
+          />
         </section>
       )}
       {selectedStock && (
@@ -1942,6 +1955,14 @@ function Stock({
             await onChanged();
             setSelectedStockId(null);
           }}
+        />
+      )}
+      {selectedMovement && (
+        <StockMovementDetailsModal
+          movement={selectedMovement}
+          productLabel={productLabel(selectedMovement.productId)}
+          warehouseLabel={warehouseLabel(selectedMovement.warehouseId)}
+          onClose={() => setSelectedMovementId(null)}
         />
       )}
     </>
@@ -2093,6 +2114,54 @@ function StockDetailsModal({
             {warehouseInfoOpen && currentWarehouse && <WarehouseInfoBubble warehouse={currentWarehouse} onClose={() => setWarehouseInfoOpen(false)} />}
           </>
         )}
+      </section>
+    </div>
+  );
+}
+
+function StockMovementDetailsModal({
+  movement,
+  productLabel,
+  warehouseLabel,
+  onClose
+}: {
+  movement: StockMovement;
+  productLabel: string;
+  warehouseLabel: string;
+  onClose: () => void;
+}) {
+  const author = movement.createdByDisplayName || movement.createdByEmail || movement.createdByUserId || 'Systeme / inconnu';
+  const createdAt = Number.isNaN(new Date(movement.createdAt).getTime())
+    ? movement.createdAt
+    : new Date(movement.createdAt).toLocaleString('fr-FR');
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="modal-panel stock-modal" role="dialog" aria-modal="true" aria-labelledby="stock-movement-title" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-header">
+          <div>
+            <p className="eyebrow">Mouvement stock</p>
+            <h2 id="stock-movement-title">{productLabel}</h2>
+          </div>
+          <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="detail-grid stock-detail-grid">
+          <DetailItem label="Produit" value={productLabel} />
+          <DetailItem label="Entrepot" value={warehouseLabel} />
+          <DetailItem label="Type" value={movement.type} />
+          <DetailItem label="Quantite" value={movement.quantity} />
+          <DetailItem label="Motif" value={movement.reason || '-'} />
+          <DetailItem label="Date" value={createdAt} />
+          <DetailItem label="Modifie par" value={author} />
+          <DetailItem label="Email utilisateur" value={movement.createdByEmail || '-'} />
+          <DetailItem label="Utilisateur interne" value={movement.createdByUserId || '-'} />
+          <DetailItem label="Module source" value={movement.referenceModule || '-'} />
+          <DetailItem label="Reference source" value={movement.referenceId || '-'} />
+          <DetailItem label="Identifiant mouvement" value={movement.id} />
+        </div>
       </section>
     </div>
   );

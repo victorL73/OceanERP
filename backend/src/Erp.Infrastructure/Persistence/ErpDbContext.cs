@@ -1,3 +1,4 @@
+using Erp.Application.Common;
 using Erp.Domain.Auth;
 using Erp.Domain.Common;
 using Erp.Domain.Customers;
@@ -10,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Persistence;
 
-public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbContext(options)
+public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurrentUserService? currentUser = null) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
@@ -375,11 +376,13 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             if (entry.State == EntityState.Added)
             {
                 entry.Entity.CreatedAt = now;
+                entry.Entity.CreatedByUserId ??= currentUser?.UserId;
             }
 
             if (entry.State == EntityState.Modified)
             {
                 entry.Entity.UpdatedAt = now;
+                entry.Entity.UpdatedByUserId = currentUser?.UserId;
             }
         }
 

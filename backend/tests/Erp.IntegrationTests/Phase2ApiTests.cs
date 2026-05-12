@@ -27,6 +27,12 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var movement = await response.Content.ReadFromJsonAsync<StockMovementDto>();
         Assert.Equal(5, movement!.Quantity);
         Assert.Equal("Adjustment", movement.Type);
+
+        var movements = await client.GetFromJsonAsync<IReadOnlyList<StockMovementDto>>("/api/stock/movements");
+        var savedMovement = Assert.Single(movements!, x => x.Id == movement.Id);
+        Assert.NotNull(savedMovement.CreatedByUserId);
+        Assert.Equal("OceanERP Admin", savedMovement.CreatedByDisplayName);
+        Assert.Equal("admin@oceanerp.local", savedMovement.CreatedByEmail);
     }
 
     [Fact]

@@ -202,6 +202,9 @@ export type StockMovement = {
   referenceModule?: string;
   referenceId?: string;
   createdAt: string;
+  createdByUserId?: string;
+  createdByDisplayName?: string;
+  createdByEmail?: string;
 };
 
 export type MailAccount = {

@@ -117,17 +117,36 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
 
     public async Task<IReadOnlyList<StockMovementDto>> GetMovementsAsync(Guid? productId, CancellationToken cancellationToken)
     {
-        var query = db.StockMovements.AsQueryable();
+        var query = db.StockMovements.AsNoTracking();
         if (productId.HasValue)
         {
             query = query.Where(x => x.ProductId == productId.Value);
         }
 
-        return await query
+        var movements = await query
             .OrderByDescending(x => x.CreatedAt)
             .Take(100)
-            .Select(x => new StockMovementDto(x.Id, x.ProductId, x.WarehouseId, x.Quantity, x.Type, x.Reason, x.ReferenceModule, x.ReferenceId, x.CreatedAt))
             .ToListAsync(cancellationToken);
+
+        var userIds = movements
+            .Where(x => x.CreatedByUserId.HasValue)
+            .Select(x => x.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+
+        var users = userIds.Count == 0
+            ? new Dictionary<Guid, MovementUser>()
+            : await db.Users
+                .AsNoTracking()
+                .Where(x => userIds.Contains(x.Id))
+                .Select(x => new MovementUser(x.Id, x.DisplayName, x.Email))
+                .ToDictionaryAsync(x => x.Id, cancellationToken);
+
+        return movements
+            .Select(x => users.TryGetValue(x.CreatedByUserId ?? Guid.Empty, out var user)
+                ? Map(x, user.DisplayName, user.Email)
+                : Map(x))
+            .ToList();
     }
 
     public async Task<Result<StockMovementDto>> AdjustAsync(AdjustStockRequest request, CancellationToken cancellationToken)
@@ -655,6 +674,20 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
     private static StockItemDto Map(StockItem item)
         => new(item.Id, item.ProductId, item.WarehouseId, item.QuantityOnHand, item.QuantityReserved, item.QuantityOnHand - item.QuantityReserved, item.AlertThreshold, item.AlertThreshold > 0 && item.QuantityOnHand - item.QuantityReserved <= item.AlertThreshold);
 
-    private static StockMovementDto Map(StockMovement movement)
-        => new(movement.Id, movement.ProductId, movement.WarehouseId, movement.Quantity, movement.Type, movement.Reason, movement.ReferenceModule, movement.ReferenceId, movement.CreatedAt);
+    private static StockMovementDto Map(StockMovement movement, string? createdByDisplayName = null, string? createdByEmail = null)
+        => new(
+            movement.Id,
+            movement.ProductId,
+            movement.WarehouseId,
+            movement.Quantity,
+            movement.Type,
+            movement.Reason,
+            movement.ReferenceModule,
+            movement.ReferenceId,
+            movement.CreatedAt,
+            movement.CreatedByUserId,
+            createdByDisplayName,
+            createdByEmail);
+
+    private sealed record MovementUser(Guid Id, string DisplayName, string Email);
 }
