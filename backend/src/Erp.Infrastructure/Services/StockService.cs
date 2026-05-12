@@ -405,11 +405,10 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             return Result<PrestashopConnection?>.Success(null);
         }
 
-        var unassignedConnections = activeConnections.Where(x => x.WarehouseId is null).ToList();
-        if (activeConnections.Count == 1 && unassignedConnections.Count == 1)
+        var globalConnection = activeConnections.FirstOrDefault(x => x.WarehouseId is null);
+        if (globalConnection is not null)
         {
-            unassignedConnections[0].WarehouseId = warehouseId;
-            return Result<PrestashopConnection?>.Success(unassignedConnections[0]);
+            return Result<PrestashopConnection?>.Success(globalConnection);
         }
 
         return Result<PrestashopConnection?>.Success(null);

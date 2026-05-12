@@ -798,7 +798,7 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
           <input required placeholder="URL boutique" value={shopUrl} onChange={(event) => setShopUrl(event.target.value)} />
           <input type="password" placeholder={selectedConnection?.hasApiKey ? 'Nouvelle cle API, vide = conserver' : 'Cle API PrestaShop'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
           <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
-            <option value="">Entrepot ERP a synchroniser</option>
+            <option value="">Tous les entrepots ERP</option>
             {warehouses.map((warehouse) => (
               <option key={warehouse.id} value={warehouse.id}>
                 {warehouse.name}
@@ -821,8 +821,9 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
           </button>
         </form>
         {message && <div className="inline-message">{message}</div>}
+        <p className="panel-note">Par defaut, une connexion PrestaShop sans entrepot selectionne publie le stock depuis tous les entrepots ERP.</p>
       </Panel>
-      <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : '-', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
+      <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : 'Tous les entrepots', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
     </>
   );
 }
@@ -1724,6 +1725,7 @@ function Stock({
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
   const activePrestashopConnections = useMemo(() => prestashopConnections.filter((connection) => connection.isActive), [prestashopConnections]);
+  const globalPrestashopConnection = useMemo(() => activePrestashopConnections.find((connection) => !connection.warehouseId), [activePrestashopConnections]);
   const prestashopConnectionByWarehouseId = useMemo(
     () => new Map(activePrestashopConnections.filter((connection) => connection.warehouseId).map((connection) => [connection.warehouseId as string, connection])),
     [activePrestashopConnections]
@@ -1799,7 +1801,8 @@ function Stock({
           productLabel={productLabel(selectedStock.productId)}
           warehouseLabel={warehouseLabel(selectedStock.warehouseId)}
           warehouses={warehouses}
-          prestashopConnection={prestashopConnectionByWarehouseId.get(selectedStock.warehouseId)}
+          prestashopConnection={prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) ?? globalPrestashopConnection}
+          prestashopConnectionIsGlobal={!prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) && Boolean(globalPrestashopConnection)}
           activePrestashopConnections={activePrestashopConnections}
           onClose={() => setSelectedStockIndex(null)}
           onSaved={async () => {
@@ -1818,6 +1821,7 @@ function StockDetailsModal({
   warehouseLabel,
   warehouses,
   prestashopConnection,
+  prestashopConnectionIsGlobal,
   activePrestashopConnections,
   onClose,
   onSaved
@@ -1827,6 +1831,7 @@ function StockDetailsModal({
   warehouseLabel: string;
   warehouses: Warehouse[];
   prestashopConnection?: PrestashopConnection;
+  prestashopConnectionIsGlobal: boolean;
   activePrestashopConnections: PrestashopConnection[];
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -1850,14 +1855,11 @@ function StockDetailsModal({
     setError(null);
   }, [item]);
 
-  const unassignedPrestashopConnection = activePrestashopConnections.length === 1 && !activePrestashopConnections[0].warehouseId ? activePrestashopConnections[0] : null;
   const prestashopStatus = prestashopConnection
-    ? `Lie a ${prestashopConnection.shopUrl}. Emplacement stock publie: ${warehouseLabel}`
-    : unassignedPrestashopConnection
-      ? `Connexion active non rattachee: ${unassignedPrestashopConnection.shopUrl}. Elle sera rattachee a cet entrepot au prochain enregistrement et publiera l'emplacement ${warehouseLabel}.`
-      : activePrestashopConnections.length > 0
-        ? "Non rattache a PrestaShop. Choisir cet entrepot dans Parametres > PrestaShop."
-        : "Aucune connexion PrestaShop active.";
+    ? `${prestashopConnectionIsGlobal ? 'Tous les entrepots lies' : 'Entrepot lie'} a ${prestashopConnection.shopUrl}. Emplacement stock publie: ${warehouseLabel}`
+    : activePrestashopConnections.length > 0
+      ? "Non rattache a PrestaShop. La connexion active est limitee a un autre entrepot."
+      : "Aucune connexion PrestaShop active.";
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -1950,10 +1952,10 @@ function StockDetailsModal({
               <DetailItem label="Seuil alerte" value={item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold} />
               <DetailItem label="PrestaShop" value={prestashopStatus} />
             </div>
-            <p className={prestashopConnection || unassignedPrestashopConnection ? 'sync-note sync-note-ok' : 'sync-note sync-note-warning'}>
-              {prestashopConnection || unassignedPrestashopConnection
+            <p className={prestashopConnection ? 'sync-note sync-note-ok' : 'sync-note sync-note-warning'}>
+              {prestashopConnection
                 ? "L'enregistrement publiera la quantite et le nom de l'entrepot dans le champ Emplacement du stock PrestaShop."
-                : "Le stock ERP sera modifie, mais PrestaShop ne sera pas mis a jour tant que l'entrepot n'est pas rattache a une connexion active."}
+                : "Le stock ERP sera modifie, mais PrestaShop ne sera pas mis a jour tant que la connexion active ne couvre pas cet entrepot."}
             </p>
             {warehouseInfoOpen && currentWarehouse && <WarehouseInfoBubble warehouse={currentWarehouse} onClose={() => setWarehouseInfoOpen(false)} />}
           </>
