@@ -58,6 +58,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<InvoiceStatusHistory> InvoiceStatusHistories => Set<InvoiceStatusHistory>();
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
+    public DbSet<PurchaseOrderCharge> PurchaseOrderCharges => Set<PurchaseOrderCharge>();
     public DbSet<MailAccount> MailAccounts => Set<MailAccount>();
     public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
     public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
@@ -323,6 +324,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasIndex(x => x.SupplierId);
             entity.Property(x => x.Number).HasMaxLength(80);
             entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.Comment).HasMaxLength(2000);
             entity.HasOne<ProductSupplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -331,9 +333,18 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.Description).HasMaxLength(500);
             entity.Property(x => x.Quantity).HasPrecision(18, 3);
             entity.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            entity.Property(x => x.VatRate).HasPrecision(5, 2);
             entity.Property(x => x.ReceivedQuantity).HasPrecision(18, 3);
             entity.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => x.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PurchaseOrderCharge>(entity =>
+        {
+            entity.Property(x => x.Label).HasMaxLength(160);
+            entity.Property(x => x.Amount).HasPrecision(18, 2);
+            entity.Property(x => x.VatRate).HasPrecision(5, 2);
+            entity.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => x.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<MailAccount>(entity =>

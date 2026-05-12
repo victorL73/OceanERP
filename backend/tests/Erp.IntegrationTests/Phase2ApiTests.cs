@@ -218,6 +218,37 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.DoesNotContain(afterPurchase!, x => x.Type == "stock.low.summary" && !x.IsRead && x.Message.Contains(product.Reference));
     }
 
+    [Fact]
+    public async Task PurchaseOrder_CalculatesLinesVatChargesAndComment()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var firstProduct = await CreateProductAsync(client);
+        var secondProduct = await CreateProductAsync(client);
+        var supplier = (await client.GetFromJsonAsync<IReadOnlyList<ProductSupplierDto>>("/api/products/suppliers"))!.First();
+
+        var response = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
+            supplier.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(12)),
+            [
+                new CreatePurchaseOrderLineRequest(firstProduct.Id, $"{firstProduct.Reference} - achat", 2, 10, 20),
+                new CreatePurchaseOrderLineRequest(secondProduct.Id, $"{secondProduct.Reference} - achat", 3, 5, 5)
+            ],
+            "Commande test avec frais",
+            [new CreatePurchaseOrderChargeRequest("Livraison", 12, 20), new CreatePurchaseOrderChargeRequest("Douane", 8, 0)]));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var order = await response.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+
+        Assert.Equal("Commande test avec frais", order!.Comment);
+        Assert.Equal(2, order.Lines.Count);
+        Assert.Equal(2, order.Charges.Count);
+        Assert.Equal(35m, order.LinesNetTotal);
+        Assert.Equal(4.75m, order.LinesVatTotal);
+        Assert.Equal(20m, order.ChargesNetTotal);
+        Assert.Equal(2.4m, order.ChargesVatTotal);
+        Assert.Equal(62.15m, order.Total);
+    }
+
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
     {
         var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });

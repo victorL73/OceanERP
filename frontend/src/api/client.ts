@@ -225,7 +225,13 @@ export class ApiClient {
     return this.request<PagedResult<PurchaseOrder>>('/api/purchases/orders?pageSize=100', { auth: true });
   }
 
-  createPurchaseOrder(payload: { supplierId: string; expectedAt?: string | null; lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number }> }) {
+  createPurchaseOrder(payload: {
+    supplierId: string;
+    expectedAt?: string | null;
+    comment?: string | null;
+    lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number; vatRate?: number | null }>;
+    charges?: Array<{ label: string; amount: number; vatRate: number }>;
+  }) {
     return this.request<PurchaseOrder>('/api/purchases/orders', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 

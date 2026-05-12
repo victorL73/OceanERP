@@ -58,6 +58,7 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             Number = await NextNumberAsync(cancellationToken),
             SupplierId = request.SupplierId,
             ExpectedAt = request.ExpectedAt,
+            Comment = NormalizeOptional(request.Comment),
             Status = "Draft"
         };
         db.PurchaseOrders.Add(order);
@@ -71,6 +72,17 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             }
 
             db.PurchaseOrderLines.Add(built.Value!);
+        }
+
+        foreach (var charge in request.Charges ?? [])
+        {
+            var built = BuildCharge(order.Id, charge);
+            if (!built.Succeeded)
+            {
+                return Result<PurchaseOrderDto>.Failure(built.Error!);
+            }
+
+            db.PurchaseOrderCharges.Add(built.Value!);
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -144,6 +156,7 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         }
 
         var description = request.Description.Trim();
+        var vatRate = request.VatRate;
         if (request.ProductId.HasValue)
         {
             var product = await db.Products.FirstOrDefaultAsync(x => x.Id == request.ProductId.Value, cancellationToken);
@@ -156,11 +169,18 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             {
                 description = $"{product.Reference} - {product.Name}";
             }
+
+            vatRate ??= product.VatRate;
         }
 
         if (string.IsNullOrWhiteSpace(description))
         {
             return Result<PurchaseOrderLine>.Failure("La description est obligatoire.");
+        }
+
+        if (vatRate is < 0 or > 100)
+        {
+            return Result<PurchaseOrderLine>.Failure("Le taux de TVA doit etre compris entre 0 et 100.");
         }
 
         return Result<PurchaseOrderLine>.Success(new PurchaseOrderLine
@@ -169,7 +189,34 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             ProductId = request.ProductId,
             Description = description,
             Quantity = request.Quantity,
-            UnitPrice = request.UnitPrice
+            UnitPrice = request.UnitPrice,
+            VatRate = vatRate ?? 20m
+        });
+    }
+
+    private static Result<PurchaseOrderCharge> BuildCharge(Guid orderId, CreatePurchaseOrderChargeRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Label))
+        {
+            return Result<PurchaseOrderCharge>.Failure("Le libelle du frais annexe est obligatoire.");
+        }
+
+        if (request.Amount < 0)
+        {
+            return Result<PurchaseOrderCharge>.Failure("Le montant d'un frais annexe ne peut pas etre negatif.");
+        }
+
+        if (request.VatRate is < 0 or > 100)
+        {
+            return Result<PurchaseOrderCharge>.Failure("Le taux de TVA d'un frais annexe doit etre compris entre 0 et 100.");
+        }
+
+        return Result<PurchaseOrderCharge>.Success(new PurchaseOrderCharge
+        {
+            PurchaseOrderId = orderId,
+            Label = request.Label.Trim(),
+            Amount = request.Amount,
+            VatRate = request.VatRate
         });
     }
 
@@ -195,19 +242,71 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             .Where(x => x.PurchaseOrderId == order.Id)
             .GroupJoin(db.Products, line => line.ProductId, product => product.Id, (line, products) => new { line, product = products.FirstOrDefault() })
             .OrderBy(x => x.line.Id)
-            .Select(x => new PurchaseOrderLineDto(
+            .Select(x => new
+            {
                 x.line.Id,
                 x.line.ProductId,
-                x.product == null ? null : x.product.Reference,
-                x.product == null ? null : x.product.Name,
+                ProductReference = x.product == null ? null : x.product.Reference,
+                ProductName = x.product == null ? null : x.product.Name,
                 x.line.Description,
                 x.line.Quantity,
                 x.line.UnitPrice,
-                x.line.ReceivedQuantity,
-                decimal.Round(x.line.Quantity * x.line.UnitPrice, 2)))
+                x.line.VatRate,
+                x.line.ReceivedQuantity
+            })
             .ToListAsync(cancellationToken);
 
-        return new PurchaseOrderDto(order.Id, order.Number, order.SupplierId, supplierName, order.Status, order.ExpectedAt, lines.Sum(x => x.LineTotal), lines);
+        var lineDtos = lines.Select(x =>
+        {
+            var net = decimal.Round(x.Quantity * x.UnitPrice, 2);
+            var vat = decimal.Round(net * x.VatRate / 100m, 2);
+            return new PurchaseOrderLineDto(
+                x.Id,
+                x.ProductId,
+                x.ProductReference,
+                x.ProductName,
+                x.Description,
+                x.Quantity,
+                x.UnitPrice,
+                x.VatRate,
+                x.ReceivedQuantity,
+                net,
+                vat,
+                net + vat);
+        }).ToList();
+
+        var chargeRows = await db.PurchaseOrderCharges
+            .Where(x => x.PurchaseOrderId == order.Id)
+            .OrderBy(x => x.Id)
+            .Select(x => new { x.Id, x.Label, x.Amount, x.VatRate })
+            .ToListAsync(cancellationToken);
+
+        var charges = chargeRows.Select(x =>
+        {
+            var vat = decimal.Round(x.Amount * x.VatRate / 100m, 2);
+            return new PurchaseOrderChargeDto(x.Id, x.Label, x.Amount, x.VatRate, vat, x.Amount + vat);
+        }).ToList();
+
+        var linesNetTotal = lineDtos.Sum(x => x.LineNetTotal);
+        var linesVatTotal = lineDtos.Sum(x => x.LineVatTotal);
+        var chargesNetTotal = charges.Sum(x => x.Amount);
+        var chargesVatTotal = charges.Sum(x => x.VatTotal);
+
+        return new PurchaseOrderDto(
+            order.Id,
+            order.Number,
+            order.SupplierId,
+            supplierName,
+            order.Status,
+            order.ExpectedAt,
+            order.Comment,
+            linesNetTotal,
+            linesVatTotal,
+            chargesNetTotal,
+            chargesVatTotal,
+            linesNetTotal + linesVatTotal + chargesNetTotal + chargesVatTotal,
+            lineDtos,
+            charges);
     }
 
     private async Task<string> NextNumberAsync(CancellationToken cancellationToken)
@@ -227,4 +326,7 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         var known = AllowedTransitions.Keys.Concat(AllowedTransitions.Values.SelectMany(x => x)).Distinct(StringComparer.OrdinalIgnoreCase);
         return known.FirstOrDefault(x => string.Equals(x, status.Trim(), StringComparison.OrdinalIgnoreCase));
     }
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

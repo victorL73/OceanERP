@@ -9,8 +9,14 @@ public sealed record PurchaseOrderDto(
     string? SupplierName,
     string Status,
     DateOnly? ExpectedAt,
+    string? Comment,
+    decimal LinesNetTotal,
+    decimal LinesVatTotal,
+    decimal ChargesNetTotal,
+    decimal ChargesVatTotal,
     decimal Total,
-    IReadOnlyList<PurchaseOrderLineDto> Lines);
+    IReadOnlyList<PurchaseOrderLineDto> Lines,
+    IReadOnlyList<PurchaseOrderChargeDto> Charges);
 
 public sealed record PurchaseOrderLineDto(
     Guid Id,
@@ -20,11 +26,17 @@ public sealed record PurchaseOrderLineDto(
     string Description,
     decimal Quantity,
     decimal UnitPrice,
+    decimal VatRate,
     decimal ReceivedQuantity,
+    decimal LineNetTotal,
+    decimal LineVatTotal,
     decimal LineTotal);
 
-public sealed record CreatePurchaseOrderRequest(Guid SupplierId, DateOnly? ExpectedAt, IReadOnlyList<CreatePurchaseOrderLineRequest> Lines);
-public sealed record CreatePurchaseOrderLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice);
+public sealed record PurchaseOrderChargeDto(Guid Id, string Label, decimal Amount, decimal VatRate, decimal VatTotal, decimal Total);
+
+public sealed record CreatePurchaseOrderRequest(Guid SupplierId, DateOnly? ExpectedAt, IReadOnlyList<CreatePurchaseOrderLineRequest> Lines, string? Comment = null, IReadOnlyList<CreatePurchaseOrderChargeRequest>? Charges = null);
+public sealed record CreatePurchaseOrderLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice, decimal? VatRate = null);
+public sealed record CreatePurchaseOrderChargeRequest(string Label, decimal Amount, decimal VatRate);
 public sealed record UpdatePurchaseOrderStatusRequest(string Status);
 public sealed record UpdatePurchaseOrderExpectedAtRequest(DateOnly? ExpectedAt);
 

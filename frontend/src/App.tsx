@@ -1633,21 +1633,86 @@ function Orders({ items, customers, products, warehouses, onChanged }: { items: 
   );
 }
 
+type PurchaseDraftLine = {
+  id: string;
+  productId: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  vatRate: string;
+};
+
+type PurchaseDraftCharge = {
+  id: string;
+  label: string;
+  amount: string;
+  vatRate: string;
+};
+
+function createPurchaseDraftLine(): PurchaseDraftLine {
+  return { id: crypto.randomUUID(), productId: '', description: '', quantity: '1', unitPrice: '0', vatRate: '20' };
+}
+
+function createPurchaseDraftCharge(label = ''): PurchaseDraftCharge {
+  return { id: crypto.randomUUID(), label, amount: '0', vatRate: '20' };
+}
+
+function purchaseAmount(value: number) {
+  return `${value.toFixed(2)} EUR`;
+}
+
 function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseOrder[]; suppliers: ProductSupplier[]; products: Product[]; onChanged: () => Promise<void> }) {
   const [supplierId, setSupplierId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [description, setDescription] = useState('');
-  const [quantity, setQuantity] = useState('1');
-  const [unitPrice, setUnitPrice] = useState('0');
   const [expectedAt, setExpectedAt] = useState('');
+  const [comment, setComment] = useState('');
+  const [lines, setLines] = useState<PurchaseDraftLine[]>([createPurchaseDraftLine()]);
+  const [charges, setCharges] = useState<PurchaseDraftCharge[]>([]);
   const [dateOrderId, setDateOrderId] = useState('');
   const [dateValue, setDateValue] = useState('');
-  const selectedProduct = products.find((product) => product.id === productId);
   const selectedDateOrder = items.find((item) => item.id === dateOrderId);
 
   useEffect(() => {
     setDateValue(selectedDateOrder?.expectedAt ?? '');
   }, [selectedDateOrder]);
+
+  function updateLine(lineId: string, patch: Partial<PurchaseDraftLine>) {
+    setLines((current) => current.map((line) => (line.id === lineId ? { ...line, ...patch } : line)));
+  }
+
+  function selectProduct(lineId: string, nextProductId: string) {
+    const product = products.find((item) => item.id === nextProductId);
+    updateLine(lineId, {
+      productId: nextProductId,
+      description: product ? `${product.reference} - ${product.name}` : '',
+      unitPrice: product ? String(product.purchasePrice) : '0',
+      vatRate: product ? String(product.vatRate) : '20'
+    });
+    if (product?.mainSupplierId && !supplierId) {
+      setSupplierId(product.mainSupplierId);
+    }
+  }
+
+  function updateCharge(chargeId: string, patch: Partial<PurchaseDraftCharge>) {
+    setCharges((current) => current.map((charge) => (charge.id === chargeId ? { ...charge, ...patch } : charge)));
+  }
+
+  function lineTotals(line: PurchaseDraftLine) {
+    const net = Number(line.quantity || 0) * Number(line.unitPrice || 0);
+    const vat = net * Number(line.vatRate || 0) / 100;
+    return { net, vat, total: net + vat };
+  }
+
+  function chargeTotals(charge: PurchaseDraftCharge) {
+    const net = Number(charge.amount || 0);
+    const vat = net * Number(charge.vatRate || 0) / 100;
+    return { net, vat, total: net + vat };
+  }
+
+  const linesNetTotal = lines.reduce((sum, line) => sum + lineTotals(line).net, 0);
+  const linesVatTotal = lines.reduce((sum, line) => sum + lineTotals(line).vat, 0);
+  const chargesNetTotal = charges.reduce((sum, charge) => sum + chargeTotals(charge).net, 0);
+  const chargesVatTotal = charges.reduce((sum, charge) => sum + chargeTotals(charge).vat, 0);
+  const orderTotal = linesNetTotal + linesVatTotal + chargesNetTotal + chargesVatTotal;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1659,17 +1724,21 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
     await api.createPurchaseOrder({
       supplierId: selectedSupplierId,
       expectedAt: expectedAt || null,
-      lines: [{
-        productId: productId || null,
-        description: description || selectedProduct?.name || 'Ligne fournisseur',
-        quantity: Number(quantity),
-        unitPrice: Number(unitPrice)
-      }]
+      comment: comment || null,
+      lines: lines.map((line) => ({
+        productId: line.productId || null,
+        description: line.description,
+        quantity: Number(line.quantity),
+        unitPrice: Number(line.unitPrice),
+        vatRate: Number(line.vatRate)
+      })),
+      charges: charges
+        .filter((charge) => charge.label.trim() || Number(charge.amount) > 0)
+        .map((charge) => ({ label: charge.label, amount: Number(charge.amount), vatRate: Number(charge.vatRate) }))
     });
-    setProductId('');
-    setDescription('');
-    setQuantity('1');
-    setUnitPrice('0');
+    setLines([createPurchaseDraftLine()]);
+    setCharges([]);
+    setComment('');
     setExpectedAt('');
     await onChanged();
   }
@@ -1692,47 +1761,145 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
   return (
     <>
       <Panel title="Nouvelle commande fournisseur">
-        <form className="form-grid" onSubmit={submit}>
-          <select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
-            <option value="">Fournisseur</option>
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.id}>
-                {supplier.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={productId}
-            onChange={(event) => {
-              const nextProduct = products.find((product) => product.id === event.target.value);
-              setProductId(event.target.value);
-              if (nextProduct) {
-                setDescription(`${nextProduct.reference} - ${nextProduct.name}`);
-                setUnitPrice(String(nextProduct.purchasePrice));
-                if (nextProduct.mainSupplierId) {
-                  setSupplierId(nextProduct.mainSupplierId);
-                }
-              }
-            }}
-          >
-            <option value="">Ligne libre</option>
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.reference} - {product.name}
-              </option>
-            ))}
-          </select>
-          <input required placeholder="Ligne" value={description} onChange={(event) => setDescription(event.target.value)} />
-          <input required type="number" step="0.001" placeholder="Quantite" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-          <input required type="number" step="0.01" placeholder="Prix achat HT" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
-          <label className="field">
-            <span>Date reception prevue</span>
-            <input type="date" value={expectedAt} onChange={(event) => setExpectedAt(event.target.value)} />
-          </label>
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Creer
-          </button>
+        <form className="purchase-builder" onSubmit={submit}>
+          <div className="form-grid">
+            <label className="field">
+              <span>Fournisseur</span>
+              <select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
+                <option value="">Fournisseur</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Date reception prevue</span>
+              <input type="date" value={expectedAt} onChange={(event) => setExpectedAt(event.target.value)} />
+            </label>
+            <label className="field wide-field">
+              <span>Commentaires</span>
+              <textarea placeholder="Instructions fournisseur, conditions, remarques internes..." value={comment} onChange={(event) => setComment(event.target.value)} />
+            </label>
+          </div>
+
+          <section className="purchase-section">
+            <div className="section-heading">
+              <h3>Lignes produits</h3>
+              <button className="secondary" type="button" onClick={() => setLines((current) => [...current, createPurchaseDraftLine()])}>
+                <Plus size={16} />
+                Ajouter une ligne
+              </button>
+            </div>
+            <div className="purchase-lines">
+              {lines.map((line, index) => {
+                const totals = lineTotals(line);
+                return (
+                  <div className="purchase-line-row" key={line.id}>
+                    <label className="field">
+                      <span>Produit</span>
+                      <select value={line.productId} onChange={(event) => selectProduct(line.id, event.target.value)}>
+                        <option value="">Ligne libre</option>
+                        {products.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.reference} - {product.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field description-cell">
+                      <span>Description</span>
+                      <input required placeholder="Designation fournisseur" value={line.description} onChange={(event) => updateLine(line.id, { description: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Quantite</span>
+                      <input required type="number" step="0.001" min="0.001" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Prix achat HT</span>
+                      <input required type="number" step="0.01" min="0" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>TVA (%)</span>
+                      <input required type="number" step="0.01" min="0" max="100" value={line.vatRate} onChange={(event) => updateLine(line.id, { vatRate: event.target.value })} />
+                    </label>
+                    <div className="purchase-row-total">
+                      <span>Total TTC</span>
+                      <strong>{purchaseAmount(totals.total)}</strong>
+                    </div>
+                    <button className="danger icon-only" type="button" aria-label="Supprimer la ligne" title="Supprimer la ligne" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))}>
+                      <Trash2 size={16} />
+                    </button>
+                    <small className="muted-text">Ligne {index + 1}: HT {purchaseAmount(totals.net)} / TVA {purchaseAmount(totals.vat)}</small>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="purchase-section">
+            <div className="section-heading">
+              <h3>Frais annexes</h3>
+              <div className="table-actions">
+                <button className="secondary" type="button" onClick={() => setCharges((current) => [...current, createPurchaseDraftCharge('Livraison')])}>
+                  Livraison
+                </button>
+                <button className="secondary" type="button" onClick={() => setCharges((current) => [...current, createPurchaseDraftCharge('Douane')])}>
+                  Douane
+                </button>
+                <button className="secondary" type="button" onClick={() => setCharges((current) => [...current, createPurchaseDraftCharge()])}>
+                  <Plus size={16} />
+                  Autre frais
+                </button>
+              </div>
+            </div>
+            {charges.length === 0 ? (
+              <p className="panel-note">Aucun frais annexe ajoute.</p>
+            ) : (
+              <div className="purchase-charges">
+                {charges.map((charge) => {
+                  const totals = chargeTotals(charge);
+                  return (
+                    <div className="purchase-charge-row" key={charge.id}>
+                      <label className="field">
+                        <span>Libelle</span>
+                        <input required placeholder="Livraison, douane..." value={charge.label} onChange={(event) => updateCharge(charge.id, { label: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Montant HT</span>
+                        <input required type="number" step="0.01" min="0" value={charge.amount} onChange={(event) => updateCharge(charge.id, { amount: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>TVA (%)</span>
+                        <input required type="number" step="0.01" min="0" max="100" value={charge.vatRate} onChange={(event) => updateCharge(charge.id, { vatRate: event.target.value })} />
+                      </label>
+                      <div className="purchase-row-total">
+                        <span>Total TTC</span>
+                        <strong>{purchaseAmount(totals.total)}</strong>
+                      </div>
+                      <button className="danger icon-only" type="button" aria-label="Supprimer le frais" title="Supprimer le frais" onClick={() => setCharges((current) => current.filter((item) => item.id !== charge.id))}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <div className="purchase-summary">
+            <DetailItem label="Articles HT" value={purchaseAmount(linesNetTotal)} />
+            <DetailItem label="Frais HT" value={purchaseAmount(chargesNetTotal)} />
+            <DetailItem label="TVA" value={purchaseAmount(linesVatTotal + chargesVatTotal)} />
+            <DetailItem label="Total TTC" value={purchaseAmount(orderTotal)} />
+          </div>
+          <div className="form-actions">
+            <button className="primary" type="submit">
+              <Plus size={16} />
+              Creer la commande
+            </button>
+          </div>
         </form>
       </Panel>
 
@@ -1757,13 +1924,15 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
       </Panel>
 
       <DataTable
-        columns={['Numero', 'Fournisseur', 'Statut', 'Reception prevue', 'Total', 'Lignes', 'Actions']}
+        columns={['Numero', 'Fournisseur', 'Statut', 'Reception prevue', 'HT', 'TVA', 'Total TTC', 'Lignes', 'Actions']}
         rows={items.map((item) => [
           item.number,
           item.supplierName ?? item.supplierId,
           purchaseStatusLabel(item.status),
           item.expectedAt || '-',
-          `${item.total.toFixed(2)} EUR`,
+          purchaseAmount(item.linesNetTotal + item.chargesNetTotal),
+          purchaseAmount(item.linesVatTotal + item.chargesVatTotal),
+          purchaseAmount(item.total),
           item.lines.map((line) => line.productReference ?? line.description).join(', '),
           <div className="table-actions">
             {item.status === 'Draft' && (

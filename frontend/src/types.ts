@@ -162,8 +162,20 @@ export type PurchaseOrderLine = {
   description: string;
   quantity: number;
   unitPrice: number;
+  vatRate: number;
   receivedQuantity: number;
+  lineNetTotal: number;
+  lineVatTotal: number;
   lineTotal: number;
+};
+
+export type PurchaseOrderCharge = {
+  id: string;
+  label: string;
+  amount: number;
+  vatRate: number;
+  vatTotal: number;
+  total: number;
 };
 
 export type PurchaseOrder = {
@@ -173,8 +185,14 @@ export type PurchaseOrder = {
   supplierName?: string;
   status: string;
   expectedAt?: string;
+  comment?: string;
+  linesNetTotal: number;
+  linesVatTotal: number;
+  chargesNetTotal: number;
+  chargesVatTotal: number;
   total: number;
   lines: PurchaseOrderLine[];
+  charges: PurchaseOrderCharge[];
 };
 
 export type Invoice = {
