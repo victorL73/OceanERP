@@ -133,11 +133,18 @@ export default function App() {
         setOrders(nextOrders);
       }
       if (target === 'stock') {
-        const [nextWarehouses, nextStockItems, nextProducts, nextMovements] = await Promise.all([api.warehouses(), api.stockItems(), api.products(), api.stockMovements()]);
+        const [nextWarehouses, nextStockItems, nextProducts, nextMovements, nextPrestashopConnections] = await Promise.all([
+          api.warehouses(),
+          api.stockItems(),
+          api.products(),
+          api.stockMovements(),
+          hasPermission(currentUser, 'prestashop.read') ? api.prestashopConnections() : Promise.resolve(prestashopConnections)
+        ]);
         setWarehouses(nextWarehouses);
         setStockItems(nextStockItems);
         setProducts(nextProducts);
         setStockMovements(nextMovements);
+        setPrestashopConnections(nextPrestashopConnections);
       }
       if (target === 'emails') {
         const [nextAccounts, nextMessages] = await Promise.all([api.mailAccounts(), api.emailMessages()]);
@@ -301,7 +308,7 @@ export default function App() {
         {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('quotes')} />}
         {!loading && view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
-        {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('stock')} />}
+        {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} onChanged={() => load('emails')} />}
         {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
         {!loading && view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
@@ -1518,7 +1525,21 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
   );
 }
 
-function Stock({ items, movements, products, warehouses, onChanged }: { items: StockItem[]; movements: StockMovement[]; products: Product[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
+function Stock({
+  items,
+  movements,
+  products,
+  warehouses,
+  prestashopConnections,
+  onChanged
+}: {
+  items: StockItem[];
+  movements: StockMovement[];
+  products: Product[];
+  warehouses: Warehouse[];
+  prestashopConnections: PrestashopConnection[];
+  onChanged: () => Promise<void>;
+}) {
   const [productId, setProductId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [quantity, setQuantity] = useState('0');
@@ -1526,6 +1547,11 @@ function Stock({ items, movements, products, warehouses, onChanged }: { items: S
   const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+  const activePrestashopConnections = useMemo(() => prestashopConnections.filter((connection) => connection.isActive), [prestashopConnections]);
+  const prestashopConnectionByWarehouseId = useMemo(
+    () => new Map(activePrestashopConnections.filter((connection) => connection.warehouseId).map((connection) => [connection.warehouseId as string, connection])),
+    [activePrestashopConnections]
+  );
   const selectedStock = selectedStockIndex === null ? null : items[selectedStockIndex] ?? null;
 
   function productLabel(id: string) {
@@ -1596,6 +1622,8 @@ function Stock({ items, movements, products, warehouses, onChanged }: { items: S
           item={selectedStock}
           productLabel={productLabel(selectedStock.productId)}
           warehouseLabel={warehouseLabel(selectedStock.warehouseId)}
+          prestashopConnection={prestashopConnectionByWarehouseId.get(selectedStock.warehouseId)}
+          activePrestashopConnections={activePrestashopConnections}
           onClose={() => setSelectedStockIndex(null)}
           onSaved={async () => {
             await onChanged();
@@ -1611,12 +1639,16 @@ function StockDetailsModal({
   item,
   productLabel,
   warehouseLabel,
+  prestashopConnection,
+  activePrestashopConnections,
   onClose,
   onSaved
 }: {
   item: StockItem;
   productLabel: string;
   warehouseLabel: string;
+  prestashopConnection?: PrestashopConnection;
+  activePrestashopConnections: PrestashopConnection[];
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -1632,6 +1664,15 @@ function StockDetailsModal({
     setEditMode(false);
     setError(null);
   }, [item]);
+
+  const unassignedPrestashopConnection = activePrestashopConnections.length === 1 && !activePrestashopConnections[0].warehouseId ? activePrestashopConnections[0] : null;
+  const prestashopStatus = prestashopConnection
+    ? `Lie a ${prestashopConnection.shopUrl}`
+    : unassignedPrestashopConnection
+      ? `Connexion active non rattachee: ${unassignedPrestashopConnection.shopUrl}. Elle sera rattachee a cet entrepot au prochain enregistrement.`
+      : activePrestashopConnections.length > 0
+        ? "Non rattache a PrestaShop. Choisir cet entrepot dans Parametres > PrestaShop."
+        : "Aucune connexion PrestaShop active.";
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -1716,8 +1757,13 @@ function StockDetailsModal({
               <DetailItem label="Reserve" value={item.quantityReserved} />
               <DetailItem label="Disponible" value={item.availableQuantity} />
               <DetailItem label="Seuil alerte" value={item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold} />
+              <DetailItem label="PrestaShop" value={prestashopStatus} />
             </div>
-            <p className="panel-note">Si cet entrepot est rattache a une connexion PrestaShop active, l'enregistrement mettra aussi a jour le stock PrestaShop.</p>
+            <p className={prestashopConnection || unassignedPrestashopConnection ? 'sync-note sync-note-ok' : 'sync-note sync-note-warning'}>
+              {prestashopConnection || unassignedPrestashopConnection
+                ? "L'enregistrement du stock publiera aussi la quantite dans PrestaShop."
+                : "Le stock ERP sera modifie, mais PrestaShop ne sera pas mis a jour tant que l'entrepot n'est pas rattache a une connexion active."}
+            </p>
           </>
         )}
       </section>

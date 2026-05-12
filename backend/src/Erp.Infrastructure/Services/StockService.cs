@@ -164,14 +164,13 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             return Result.Success();
         }
 
-        var connection = await db.PrestashopConnections
-            .Where(x => x.IsActive && x.WarehouseId == item.WarehouseId)
-            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (connection is null)
+        var connectionResult = await ResolvePrestashopConnectionForWarehouseAsync(item.WarehouseId, cancellationToken);
+        if (!connectionResult.Succeeded)
         {
-            return Result.Success();
+            return Result.Failure(connectionResult.Error!);
         }
+
+        var connection = connectionResult.Value!;
 
         var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
         if (!apiKeyResult.Succeeded)
@@ -213,6 +212,38 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         {
             return Result.Failure($"Modification stock PrestaShop impossible: {TrimDetail(FullExceptionMessage(ex))}");
         }
+    }
+
+    private async Task<Result<PrestashopConnection>> ResolvePrestashopConnectionForWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken)
+    {
+        var linkedConnection = await db.PrestashopConnections
+            .Where(x => x.IsActive && x.WarehouseId == warehouseId)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (linkedConnection is not null)
+        {
+            return Result<PrestashopConnection>.Success(linkedConnection);
+        }
+
+        var activeConnections = await db.PrestashopConnections
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        if (activeConnections.Count == 0)
+        {
+            return Result<PrestashopConnection>.Failure("Aucune connexion PrestaShop active n'est configuree pour publier ce stock.");
+        }
+
+        var unassignedConnections = activeConnections.Where(x => x.WarehouseId is null).ToList();
+        if (activeConnections.Count == 1 && unassignedConnections.Count == 1)
+        {
+            unassignedConnections[0].WarehouseId = warehouseId;
+            return Result<PrestashopConnection>.Success(unassignedConnections[0]);
+        }
+
+        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Id == warehouseId, cancellationToken);
+        return Result<PrestashopConnection>.Failure(
+            $"Aucune connexion PrestaShop active n'est rattachee a l'entrepot \"{warehouse?.Name ?? warehouseId.ToString()}\". Configurez le rattachement dans Parametres > PrestaShop.");
     }
 
     private async Task<string?> FindPrestashopStockAvailableIdAsync(string apiBaseUrl, string externalProductId, string apiKey, CancellationToken cancellationToken)
