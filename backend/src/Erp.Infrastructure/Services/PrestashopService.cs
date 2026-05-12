@@ -26,8 +26,15 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         var connection = new PrestashopConnection
         {
             ShopUrl = NormalizeShopUrl(request.ShopUrl),
-            IsActive = true
+            IsActive = true,
+            WarehouseId = request.WarehouseId
         };
+        var warehouseValidation = await ValidateWarehouseAsync(connection.WarehouseId, cancellationToken);
+        if (!warehouseValidation.Succeeded)
+        {
+            return Result<PrestashopConnectionDto>.Failure(warehouseValidation.Error!);
+        }
+
         SetApiKey(connection, request.ApiKey, clearApiKey: false);
         db.PrestashopConnections.Add(connection);
         await db.SaveChangesAsync(cancellationToken);
@@ -50,6 +57,13 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
 
         connection.ShopUrl = NormalizeShopUrl(request.ShopUrl);
         connection.IsActive = request.IsActive;
+        connection.WarehouseId = request.WarehouseId;
+        var warehouseValidation = await ValidateWarehouseAsync(connection.WarehouseId, cancellationToken);
+        if (!warehouseValidation.Succeeded)
+        {
+            return Result<PrestashopConnectionDto>.Failure(warehouseValidation.Error!);
+        }
+
         SetApiKey(connection, request.ApiKey, request.ClearApiKey);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -112,6 +126,18 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
             : normalized;
     }
 
+    private async Task<Result> ValidateWarehouseAsync(Guid? warehouseId, CancellationToken cancellationToken)
+    {
+        if (!warehouseId.HasValue)
+        {
+            return Result.Success();
+        }
+
+        return await db.Warehouses.AnyAsync(x => x.Id == warehouseId.Value, cancellationToken)
+            ? Result.Success()
+            : Result.Failure("Warehouse not found.");
+    }
+
     private void SetApiKey(PrestashopConnection connection, string? apiKey, bool clearApiKey)
     {
         if (clearApiKey)
@@ -134,7 +160,7 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         => !string.IsNullOrWhiteSpace(connection.ApiKeyProtectedValue) || !string.IsNullOrWhiteSpace(connection.ApiKeySecretName);
 
     private static PrestashopConnectionDto MapConnection(PrestashopConnection connection)
-        => new(connection.Id, connection.ShopUrl, connection.ApiKeySecretName, HasApiKey(connection), connection.IsActive);
+        => new(connection.Id, connection.ShopUrl, connection.ApiKeySecretName, HasApiKey(connection), connection.IsActive, connection.WarehouseId);
 
     private static PrestashopSyncLogDto MapLog(PrestashopSyncLog log)
         => new(log.Id, log.PrestashopConnectionId, log.Status, log.Message, log.CreatedAt, log.StartedAt, log.CompletedAt);

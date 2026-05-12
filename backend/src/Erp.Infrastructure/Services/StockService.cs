@@ -4,11 +4,19 @@ using Erp.Domain.FutureModules;
 using Erp.Domain.Notifications;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Xml.Linq;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class StockService(ErpDbContext db) : IStockService
+public sealed class StockService(ErpDbContext db, IConfiguration configuration, IHttpClientFactory httpClientFactory) : IStockService
 {
+    private const string PrestashopProvider = "PrestaShop";
+    private const string PrestashopProductModule = "products";
+
     public async Task<IReadOnlyList<WarehouseDto>> GetWarehousesAsync(CancellationToken cancellationToken)
         => await db.Warehouses.OrderBy(x => x.Name).Select(x => new WarehouseDto(x.Id, x.Name)).ToListAsync(cancellationToken);
 
@@ -56,9 +64,9 @@ public sealed class StockService(ErpDbContext db) : IStockService
 
     public async Task<Result<StockMovementDto>> AdjustAsync(AdjustStockRequest request, CancellationToken cancellationToken)
     {
-        if (request.Quantity == 0)
+        if (request.Quantity == 0 && !request.AlertThreshold.HasValue)
         {
-            return Result<StockMovementDto>.Failure("Quantity must not be zero.");
+            return Result<StockMovementDto>.Failure("Quantity or alert threshold must be modified.");
         }
 
         if (!await db.Products.AnyAsync(x => x.Id == request.ProductId, cancellationToken))
@@ -104,11 +112,18 @@ public sealed class StockService(ErpDbContext db) : IStockService
             ProductId = request.ProductId,
             WarehouseId = request.WarehouseId,
             Quantity = request.Quantity,
-            Type = "Adjustment",
+            Type = request.Quantity == 0 ? "Threshold" : "Adjustment",
             Reason = string.IsNullOrWhiteSpace(request.Reason) ? "Manual adjustment" : request.Reason.Trim()
         };
         db.StockMovements.Add(movement);
         await AddLowStockNotificationAsync(item, cancellationToken);
+
+        var prestashopResult = await PublishPrestashopStockAsync(item, cancellationToken);
+        if (!prestashopResult.Succeeded)
+        {
+            return Result<StockMovementDto>.Failure(prestashopResult.Error!);
+        }
+
         await db.SaveChangesAsync(cancellationToken);
 
         return Result<StockMovementDto>.Success(Map(movement));
@@ -137,6 +152,262 @@ public sealed class StockService(ErpDbContext db) : IStockService
             Message = $"{product?.Reference ?? item.ProductId.ToString()} atteint le seuil d'alerte ({available:0.###}).",
             LinkUrl = link
         });
+    }
+
+    private async Task<Result> PublishPrestashopStockAsync(StockItem item, CancellationToken cancellationToken)
+    {
+        var externalReference = await db.ExternalReferences.FirstOrDefaultAsync(
+            x => x.Provider == PrestashopProvider && x.Module == PrestashopProductModule && x.EntityId == item.ProductId,
+            cancellationToken);
+        if (externalReference is null)
+        {
+            return Result.Success();
+        }
+
+        var connection = await db.PrestashopConnections
+            .Where(x => x.IsActive && x.WarehouseId == item.WarehouseId)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (connection is null)
+        {
+            return Result.Success();
+        }
+
+        var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
+        if (!apiKeyResult.Succeeded)
+        {
+            return Result.Failure(apiKeyResult.Error ?? "Cle API PrestaShop non configuree.");
+        }
+
+        var externalProductId = ExtractPrestashopProductId(externalReference);
+        if (string.IsNullOrWhiteSpace(externalProductId))
+        {
+            return Result.Failure("Reference PrestaShop produit invalide.");
+        }
+
+        try
+        {
+            var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
+            var stockAvailableId = await FindPrestashopStockAvailableIdAsync(apiBaseUrl, externalProductId, apiKeyResult.Value!, cancellationToken);
+            if (string.IsNullOrWhiteSpace(stockAvailableId))
+            {
+                return Result.Failure("Stock PrestaShop introuvable pour ce produit.");
+            }
+
+            var document = await GetPrestashopStockXmlAsync(apiBaseUrl, stockAvailableId, apiKeyResult.Value!, cancellationToken);
+            var stockElement = document.Root?.Element("stock_available") ?? document.Descendants("stock_available").FirstOrDefault();
+            if (stockElement is null)
+            {
+                return Result.Failure("Reponse stock PrestaShop invalide.");
+            }
+
+            SetElementValue(stockElement, "quantity", FormatDecimal(item.QuantityOnHand));
+            await PutPrestashopStockXmlAsync(apiBaseUrl, stockAvailableId, apiKeyResult.Value!, document, cancellationToken);
+            return Result.Success();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure($"Modification stock PrestaShop impossible: {TrimDetail(FullExceptionMessage(ex))}");
+        }
+    }
+
+    private async Task<string?> FindPrestashopStockAvailableIdAsync(string apiBaseUrl, string externalProductId, string apiKey, CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient(nameof(StockService));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}/stock_availables?display=full&filter[id_product]=[{externalProductId}]&output_format=JSON");
+        AddPrestashopHeaders(request, apiKey, "application/json");
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"GET stock PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+
+        using var document = System.Text.Json.JsonDocument.Parse(body);
+        var stockItems = EnumerateItems(document, "stock_availables").ToList();
+        var defaultStock = stockItems.FirstOrDefault(x => IsZero(ReadPropertyText(x, "id_product_attribute")));
+        var selectedStock = defaultStock.ValueKind == System.Text.Json.JsonValueKind.Undefined ? stockItems.FirstOrDefault() : defaultStock;
+        return selectedStock.ValueKind == System.Text.Json.JsonValueKind.Undefined ? null : ReadPropertyText(selectedStock, "id");
+    }
+
+    private async Task<XDocument> GetPrestashopStockXmlAsync(string apiBaseUrl, string stockAvailableId, string apiKey, CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient(nameof(StockService));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}/stock_availables/{stockAvailableId}?display=full&output_format=XML");
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"GET stock PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+
+        return XDocument.Parse(body, LoadOptions.PreserveWhitespace);
+    }
+
+    private async Task PutPrestashopStockXmlAsync(string apiBaseUrl, string stockAvailableId, string apiKey, XDocument document, CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient(nameof(StockService));
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"{apiBaseUrl}/stock_availables/{stockAvailableId}");
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+        request.Content = new StringContent(document.ToString(SaveOptions.DisableFormatting), Encoding.UTF8, "application/xml");
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"PUT stock PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+    }
+
+    private static IEnumerable<System.Text.Json.JsonElement> EnumerateItems(System.Text.Json.JsonDocument document, string propertyName)
+    {
+        var isItem = (System.Text.Json.JsonElement item) => item.ValueKind == System.Text.Json.JsonValueKind.Object && item.TryGetProperty("id", out _);
+        if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object && document.RootElement.TryGetProperty(propertyName, out var property))
+        {
+            return EnumerateCollection(property, isItem);
+        }
+
+        return EnumerateCollection(document.RootElement, isItem);
+    }
+
+    private static IEnumerable<System.Text.Json.JsonElement> EnumerateCollection(System.Text.Json.JsonElement property, Func<System.Text.Json.JsonElement, bool> isItem)
+    {
+        if (property.ValueKind == System.Text.Json.JsonValueKind.Object && isItem(property))
+        {
+            return [property];
+        }
+
+        if (property.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            return property.EnumerateArray().SelectMany(x => EnumerateCollection(x, isItem)).ToList();
+        }
+
+        if (property.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            return property.EnumerateObject().SelectMany(x => EnumerateCollection(x.Value, isItem)).ToList();
+        }
+
+        return [];
+    }
+
+    private static string? ReadPropertyText(System.Text.Json.JsonElement item, string propertyName)
+    {
+        if (item.ValueKind != System.Text.Json.JsonValueKind.Object || !item.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return ReadText(property);
+    }
+
+    private static string? ReadText(System.Text.Json.JsonElement element)
+    {
+        if (element.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            return element.GetString();
+        }
+
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Number || element.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
+        {
+            return element.ToString();
+        }
+
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("value", out var value))
+            {
+                return ReadText(value);
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                var text = ReadText(property.Value);
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text;
+                }
+            }
+        }
+
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var child in element.EnumerateArray())
+            {
+                var text = ReadText(child);
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static void AddPrestashopHeaders(HttpRequestMessage request, string apiKey, string accept)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
+    }
+
+    private static void SetElementValue(XElement parent, string name, string value)
+    {
+        var element = parent.Element(name);
+        if (element is null)
+        {
+            element = new XElement(name);
+            parent.Add(element);
+        }
+
+        element.Value = value;
+    }
+
+    private static string? ExtractPrestashopProductId(ExternalReference externalReference)
+    {
+        var prefix = $"{PrestashopProductModule}:";
+        return externalReference.ExternalId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? externalReference.ExternalId[prefix.Length..]
+            : externalReference.ExternalId;
+    }
+
+    private static string GetApiBaseUrl(string shopUrl)
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : $"{normalized}/api";
+    }
+
+    private static string FormatDecimal(decimal value)
+        => value.ToString("0.###", CultureInfo.InvariantCulture);
+
+    private static bool IsZero(string? value)
+        => string.IsNullOrWhiteSpace(value) || value == "0";
+
+    private static string TrimDetail(string detail)
+        => detail.Length > 300 ? detail[..300] : detail;
+
+    private static string FullExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                messages.Add(current.Message);
+            }
+        }
+
+        return string.Join(" ", messages);
     }
 
     private static StockMovementDto Map(StockMovement movement)

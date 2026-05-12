@@ -96,20 +96,20 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     {
         using var client = await CreateAuthenticatedClientAsync();
 
-        var createResponse = await client.PostAsJsonAsync("/api/prestashop/connections", new CreatePrestashopConnectionRequest("https://shop.example.com", "prestashop-key-1"));
+        var createResponse = await client.PostAsJsonAsync("/api/prestashop/connections", new CreatePrestashopConnectionRequest("https://shop.example.com", "prestashop-key-1", null));
 
         Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
         var connection = await createResponse.Content.ReadFromJsonAsync<PrestashopConnectionDto>();
         Assert.True(connection!.HasApiKey);
 
-        var updateResponse = await client.PutAsJsonAsync($"/api/prestashop/connections/{connection.Id}", new UpdatePrestashopConnectionRequest("https://shop.example.com/fr", "prestashop-key-2", true, false));
+        var updateResponse = await client.PutAsJsonAsync($"/api/prestashop/connections/{connection.Id}", new UpdatePrestashopConnectionRequest("https://shop.example.com/fr", "prestashop-key-2", true, false, null));
 
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
         var updated = await updateResponse.Content.ReadFromJsonAsync<PrestashopConnectionDto>();
         Assert.Equal("https://shop.example.com/fr", updated!.ShopUrl);
         Assert.True(updated.HasApiKey);
 
-        var clearResponse = await client.PutAsJsonAsync($"/api/prestashop/connections/{connection.Id}", new UpdatePrestashopConnectionRequest("https://shop.example.com/fr", null, true, true));
+        var clearResponse = await client.PutAsJsonAsync($"/api/prestashop/connections/{connection.Id}", new UpdatePrestashopConnectionRequest("https://shop.example.com/fr", null, true, true, null));
         Assert.Equal(HttpStatusCode.OK, clearResponse.StatusCode);
         var cleared = await clearResponse.Content.ReadFromJsonAsync<PrestashopConnectionDto>();
         Assert.False(cleared!.HasApiKey);

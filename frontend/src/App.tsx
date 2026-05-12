@@ -100,6 +100,9 @@ export default function App() {
         if (hasPermission(user, 'prestashop.read') && hasPermission(user, 'prestashop.write')) {
           setPrestashopConnections(await api.prestashopConnections());
         }
+        if (hasPermission(user, 'stock.read')) {
+          setWarehouses(await api.warehouses());
+        }
       }
       if (target === 'customers') {
         setCustomers(await api.customers());
@@ -281,8 +284,10 @@ export default function App() {
             roles={roles}
             permissions={permissions}
             prestashopConnections={prestashopConnections}
+            warehouses={warehouses}
             onUsersRolesChanged={() => load('settings')}
             onPrestashopChanged={() => load('settings')}
+            onWarehousesChanged={() => load('settings')}
             onUserChanged={setCurrentUser}
             onSignedOut={() => {
               api.logout();
@@ -385,8 +390,10 @@ function Settings({
   roles,
   permissions,
   prestashopConnections,
+  warehouses,
   onUsersRolesChanged,
   onPrestashopChanged,
+  onWarehousesChanged,
   onUserChanged,
   onSignedOut
 }: {
@@ -395,14 +402,17 @@ function Settings({
   roles: Role[];
   permissions: Permission[];
   prestashopConnections: PrestashopConnection[];
+  warehouses: Warehouse[];
   onUsersRolesChanged: () => Promise<void>;
   onPrestashopChanged: () => Promise<void>;
+  onWarehousesChanged: () => Promise<void>;
   onUserChanged: (user: User) => void;
   onSignedOut: () => void;
 }) {
   const canManageUsers = hasPermission(currentUser, 'auth.users.read') && hasPermission(currentUser, 'auth.users.write');
   const canManagePrestashop = hasPermission(currentUser, 'prestashop.read') && hasPermission(currentUser, 'prestashop.write');
-  const [activeTab, setActiveTab] = useState<'account' | 'access' | 'prestashop'>('account');
+  const canManageWarehouses = hasPermission(currentUser, 'stock.read') && hasPermission(currentUser, 'stock.write');
+  const [activeTab, setActiveTab] = useState<'account' | 'access' | 'warehouses' | 'prestashop'>('account');
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -417,10 +427,10 @@ function Settings({
   }, [currentUser]);
 
   useEffect(() => {
-    if ((activeTab === 'access' && !canManageUsers) || (activeTab === 'prestashop' && !canManagePrestashop)) {
+    if ((activeTab === 'access' && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
       setActiveTab('account');
     }
-  }, [activeTab, canManagePrestashop, canManageUsers]);
+  }, [activeTab, canManagePrestashop, canManageUsers, canManageWarehouses]);
 
   async function updateProfile(event: FormEvent) {
     event.preventDefault();
@@ -457,6 +467,7 @@ function Settings({
   const tabs = [
     { key: 'account' as const, label: 'Compte' },
     ...(canManageUsers ? [{ key: 'access' as const, label: 'Utilisateurs/Roles' }] : []),
+    ...(canManageWarehouses ? [{ key: 'warehouses' as const, label: 'Entrepots' }] : []),
     ...(canManagePrestashop ? [{ key: 'prestashop' as const, label: 'PrestaShop' }] : [])
   ];
 
@@ -502,25 +513,63 @@ function Settings({
         )}
 
         {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
-        {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettings connections={prestashopConnections} onChanged={onPrestashopChanged} />}
+        {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
+        {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettings connections={prestashopConnections} warehouses={warehouses} onChanged={onPrestashopChanged} />}
       </section>
     </>
   );
 }
 
-function PrestashopSettings({ connections, onChanged }: { connections: PrestashopConnection[]; onChanged: () => Promise<void> }) {
+function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
+  const [name, setName] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    try {
+      await api.createWarehouse({ name });
+      setName('');
+      setMessage('Entrepot cree.');
+      await onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Creation impossible');
+    }
+  }
+
+  return (
+    <>
+      <Panel title="Nouvel entrepot">
+        <form className="form-grid" onSubmit={submit}>
+          <input required placeholder="Nom de l'entrepot" value={name} onChange={(event) => setName(event.target.value)} />
+          <button className="primary" type="submit">
+            <Plus size={16} />
+            Creer
+          </button>
+        </form>
+        {message && <div className="inline-message">{message}</div>}
+      </Panel>
+      <DataTable columns={['Entrepot']} rows={warehouses.map((warehouse) => [warehouse.name])} />
+    </>
+  );
+}
+
+function PrestashopSettings({ connections, warehouses, onChanged }: { connections: PrestashopConnection[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [selectedId, setSelectedId] = useState('');
   const [shopUrl, setShopUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [clearApiKey, setClearApiKey] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const selectedConnection = connections.find((connection) => connection.id === selectedId);
+  const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse.name])), [warehouses]);
 
   useEffect(() => {
     if (selectedConnection) {
       setShopUrl(selectedConnection.shopUrl);
+      setWarehouseId(selectedConnection.warehouseId ?? '');
       setIsActive(selectedConnection.isActive);
       setApiKey('');
       setClearApiKey(false);
@@ -532,16 +581,17 @@ function PrestashopSettings({ connections, onChanged }: { connections: Prestasho
     setMessage(null);
     try {
       if (selectedConnection) {
-        await api.updatePrestashopConnection(selectedConnection.id, { shopUrl, apiKey: apiKey || undefined, isActive, clearApiKey });
+        await api.updatePrestashopConnection(selectedConnection.id, { shopUrl, apiKey: apiKey || undefined, isActive, clearApiKey, warehouseId: warehouseId || undefined });
         setMessage('Connexion PrestaShop mise a jour.');
       } else {
-        await api.createPrestashopConnection({ shopUrl, apiKey: apiKey || undefined });
+        await api.createPrestashopConnection({ shopUrl, apiKey: apiKey || undefined, warehouseId: warehouseId || undefined });
         setMessage('Connexion PrestaShop creee.');
       }
 
       setSelectedId('');
       setShopUrl('');
       setApiKey('');
+      setWarehouseId('');
       setIsActive(true);
       setClearApiKey(false);
       await onChanged();
@@ -564,6 +614,14 @@ function PrestashopSettings({ connections, onChanged }: { connections: Prestasho
           </select>
           <input required placeholder="URL boutique" value={shopUrl} onChange={(event) => setShopUrl(event.target.value)} />
           <input type="password" placeholder={selectedConnection?.hasApiKey ? 'Nouvelle cle API, vide = conserver' : 'Cle API PrestaShop'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
+          <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+            <option value="">Entrepot ERP a synchroniser</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name}
+              </option>
+            ))}
+          </select>
           <label className="check-field">
             <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
             Actif
@@ -581,7 +639,7 @@ function PrestashopSettings({ connections, onChanged }: { connections: Prestasho
         </form>
         {message && <div className="inline-message">{message}</div>}
       </Panel>
-      <DataTable columns={['Boutique', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
+      <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : '-', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
     </>
   );
 }
@@ -1465,8 +1523,10 @@ function Stock({ items, movements, products, warehouses, onChanged }: { items: S
   const [warehouseId, setWarehouseId] = useState('');
   const [quantity, setQuantity] = useState('0');
   const [alertThreshold, setAlertThreshold] = useState('0');
+  const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+  const selectedStock = selectedStockIndex === null ? null : items[selectedStockIndex] ?? null;
 
   function productLabel(id: string) {
     const product = productById.get(id);
@@ -1524,9 +1584,144 @@ function Stock({ items, movements, products, warehouses, onChanged }: { items: S
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']} rows={items.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])} />
+      <DataTable
+        columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']}
+        rows={items.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])}
+        onRowClick={setSelectedStockIndex}
+        selectedRowIndex={selectedStockIndex ?? undefined}
+      />
       <DataTable columns={['Produit', 'Entrepot', 'Type', 'Quantite', 'Motif', 'Date']} rows={movements.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.type, item.quantity, item.reason, item.createdAt])} />
+      {selectedStock && (
+        <StockDetailsModal
+          item={selectedStock}
+          productLabel={productLabel(selectedStock.productId)}
+          warehouseLabel={warehouseLabel(selectedStock.warehouseId)}
+          onClose={() => setSelectedStockIndex(null)}
+          onSaved={async () => {
+            await onChanged();
+            setSelectedStockIndex(null);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function StockDetailsModal({
+  item,
+  productLabel,
+  warehouseLabel,
+  onClose,
+  onSaved
+}: {
+  item: StockItem;
+  productLabel: string;
+  warehouseLabel: string;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [editMode, setEditMode] = useState(false);
+  const [quantityOnHand, setQuantityOnHand] = useState(item.quantityOnHand.toString());
+  const [alertThreshold, setAlertThreshold] = useState(item.alertThreshold.toString());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setQuantityOnHand(item.quantityOnHand.toString());
+    setAlertThreshold(item.alertThreshold.toString());
+    setEditMode(false);
+    setError(null);
+  }, [item]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const nextQuantity = Number(quantityOnHand);
+      const delta = nextQuantity - item.quantityOnHand;
+      await api.adjustStock({
+        productId: item.productId,
+        warehouseId: item.warehouseId,
+        quantity: Number(delta.toFixed(3)),
+        reason: 'Correction de stock depuis la fiche stock',
+        alertThreshold: Number(alertThreshold)
+      });
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Modification impossible.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="modal-panel stock-modal" role="dialog" aria-modal="true" aria-labelledby="stock-detail-title" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-header">
+          <div>
+            <p className="eyebrow">Stock</p>
+            <h2 id="stock-detail-title">{productLabel}</h2>
+          </div>
+          <div className="modal-actions">
+            {!editMode && (
+              <button className="secondary" type="button" onClick={() => setEditMode(true)}>
+                <Pencil size={16} />
+                Modifier
+              </button>
+            )}
+            <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
+        </header>
+
+        {editMode ? (
+          <form className="product-edit-form" onSubmit={save}>
+            <div className="form-grid">
+              <label className="field">
+                <span>Produit</span>
+                <input readOnly value={productLabel} />
+              </label>
+              <label className="field">
+                <span>Entrepot</span>
+                <input readOnly value={warehouseLabel} />
+              </label>
+              <label className="field">
+                <span>Stock reel</span>
+                <input required type="number" step="0.001" value={quantityOnHand} onChange={(event) => setQuantityOnHand(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Seuil alerte</span>
+                <input required type="number" step="0.001" value={alertThreshold} onChange={(event) => setAlertThreshold(event.target.value)} />
+              </label>
+            </div>
+            {error && <div className="error-message">{error}</div>}
+            <div className="modal-footer">
+              <button className="secondary" type="button" disabled={saving} onClick={() => setEditMode(false)}>
+                Annuler
+              </button>
+              <button className="primary" type="submit" disabled={saving}>
+                <Save size={16} />
+                {saving ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <div className="detail-grid stock-detail-grid">
+              <DetailItem label="Produit" value={productLabel} />
+              <DetailItem label="Entrepot" value={warehouseLabel} />
+              <DetailItem label="Stock reel" value={item.quantityOnHand} />
+              <DetailItem label="Reserve" value={item.quantityReserved} />
+              <DetailItem label="Disponible" value={item.availableQuantity} />
+              <DetailItem label="Seuil alerte" value={item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold} />
+            </div>
+            <p className="panel-note">Si cet entrepot est rattache a une connexion PrestaShop active, l'enregistrement mettra aussi a jour le stock PrestaShop.</p>
+          </>
+        )}
+      </section>
+    </div>
   );
 }
 

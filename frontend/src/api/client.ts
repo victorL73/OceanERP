@@ -235,6 +235,10 @@ export class ApiClient {
     return this.request<Warehouse[]>('/api/stock/warehouses', { auth: true });
   }
 
+  createWarehouse(payload: { name: string }) {
+    return this.request<Warehouse>('/api/stock/warehouses', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
   stockItems() {
     return this.request<StockItem[]>('/api/stock/items', { auth: true });
   }
@@ -271,11 +275,11 @@ export class ApiClient {
     return this.request<PrestashopSyncLog[]>('/api/prestashop/sync-logs', { auth: true });
   }
 
-  createPrestashopConnection(payload: { shopUrl: string; apiKey?: string }) {
+  createPrestashopConnection(payload: { shopUrl: string; apiKey?: string; warehouseId?: string }) {
     return this.request<PrestashopConnection>('/api/prestashop/connections', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
-  updatePrestashopConnection(connectionId: string, payload: { shopUrl: string; apiKey?: string; isActive: boolean; clearApiKey: boolean }) {
+  updatePrestashopConnection(connectionId: string, payload: { shopUrl: string; apiKey?: string; isActive: boolean; clearApiKey: boolean; warehouseId?: string }) {
     return this.request<PrestashopConnection>(`/api/prestashop/connections/${connectionId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 

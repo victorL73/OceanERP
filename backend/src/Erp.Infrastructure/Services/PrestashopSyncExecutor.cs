@@ -15,7 +15,7 @@ namespace Erp.Infrastructure.Services;
 internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration configuration, HttpClient httpClient)
 {
     private const string Provider = "PrestaShop";
-    private const string DefaultWarehouseName = "PrestaShop";
+    private const string DefaultWarehouseName = "Entrepot principal";
     private readonly Dictionary<string, ProductCategory?> categoryCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ProductBrand?> brandCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ProductSupplier?> supplierCache = new(StringComparer.OrdinalIgnoreCase);
@@ -89,7 +89,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         var summaries = new List<ImportSummary>();
         summaries.Add(await RunImportAsync("products", () => ImportProductsAsync(apiBaseUrl, cancellationToken), cancellationToken));
         summaries.Add(await RunImportAsync("customers", () => ImportCustomersAsync(apiBaseUrl, cancellationToken), cancellationToken));
-        summaries.Add(await RunImportAsync("stock_availables", () => ImportStockAsync(apiBaseUrl, cancellationToken), cancellationToken));
+        summaries.Add(await RunImportAsync("stock_availables", () => ImportStockAsync(apiBaseUrl, connection, cancellationToken), cancellationToken));
         summaries.Add(await RunImportAsync("orders", () => ImportOrdersAsync(apiBaseUrl, cancellationToken), cancellationToken));
 
         var successCount = summaries.Count(x => x.IsSuccess);
@@ -247,10 +247,10 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         return ImportSummary.Ok("customers", created, updated);
     }
 
-    private async Task<ImportSummary> ImportStockAsync(string apiBaseUrl, CancellationToken cancellationToken)
+    private async Task<ImportSummary> ImportStockAsync(string apiBaseUrl, PrestashopConnection connection, CancellationToken cancellationToken)
     {
         using var document = await GetJsonAsync($"{apiBaseUrl}/stock_availables?display=full&limit=100&output_format=JSON", "stock_availables", cancellationToken);
-        var warehouse = await GetOrCreatePrestashopWarehouseAsync(cancellationToken);
+        var warehouse = await GetOrCreatePrestashopWarehouseAsync(connection, cancellationToken);
         var quantitiesByProduct = new Dictionary<string, decimal>();
 
         foreach (var item in EnumerateItems(document, "stock_availables"))
@@ -643,16 +643,31 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         reference.EntityId = entityId;
     }
 
-    private async Task<Warehouse> GetOrCreatePrestashopWarehouseAsync(CancellationToken cancellationToken)
+    private async Task<Warehouse> GetOrCreatePrestashopWarehouseAsync(PrestashopConnection connection, CancellationToken cancellationToken)
     {
-        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Name == DefaultWarehouseName, cancellationToken);
+        if (connection.WarehouseId.HasValue)
+        {
+            var assignedWarehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Id == connection.WarehouseId.Value, cancellationToken);
+            if (assignedWarehouse is not null)
+            {
+                return assignedWarehouse;
+            }
+        }
+
+        var warehouse = await db.Warehouses
+            .Where(x => x.Name != "PrestaShop")
+            .OrderBy(x => x.Name == DefaultWarehouseName ? 0 : 1)
+            .ThenBy(x => x.Name)
+            .FirstOrDefaultAsync(cancellationToken);
         if (warehouse is not null)
         {
+            connection.WarehouseId = warehouse.Id;
             return warehouse;
         }
 
         warehouse = new Warehouse { Name = DefaultWarehouseName };
         db.Warehouses.Add(warehouse);
+        connection.WarehouseId = warehouse.Id;
         return warehouse;
     }
 

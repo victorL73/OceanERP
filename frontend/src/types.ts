@@ -225,6 +225,7 @@ export type PrestashopConnection = {
   apiKeySecretName: string;
   hasApiKey: boolean;
   isActive: boolean;
+  warehouseId?: string;
 };
 
 export type PrestashopSyncLog = {
