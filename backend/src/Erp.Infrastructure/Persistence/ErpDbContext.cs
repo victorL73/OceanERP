@@ -56,6 +56,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<InvoicePayment> InvoicePayments => Set<InvoicePayment>();
     public DbSet<InvoiceDocument> InvoiceDocuments => Set<InvoiceDocument>();
     public DbSet<InvoiceStatusHistory> InvoiceStatusHistories => Set<InvoiceStatusHistory>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
     public DbSet<MailAccount> MailAccounts => Set<MailAccount>();
     public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
     public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
@@ -313,6 +315,25 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.FileName).HasMaxLength(260);
             entity.Property(x => x.MimeType).HasMaxLength(120);
             entity.Property(x => x.StoragePath).HasMaxLength(1024);
+        });
+
+        modelBuilder.Entity<PurchaseOrder>(entity =>
+        {
+            entity.HasIndex(x => x.Number).IsUnique();
+            entity.HasIndex(x => x.SupplierId);
+            entity.Property(x => x.Number).HasMaxLength(80);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.HasOne<ProductSupplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PurchaseOrderLine>(entity =>
+        {
+            entity.Property(x => x.Description).HasMaxLength(500);
+            entity.Property(x => x.Quantity).HasPrecision(18, 3);
+            entity.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            entity.Property(x => x.ReceivedQuantity).HasPrecision(18, 3);
+            entity.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => x.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<MailAccount>(entity =>

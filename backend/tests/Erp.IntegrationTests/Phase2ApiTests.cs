@@ -6,8 +6,10 @@ using Erp.Application.Customers;
 using Erp.Application.Invoices;
 using Erp.Application.Prestashop;
 using Erp.Application.Products;
+using Erp.Application.Purchases;
 using Erp.Application.Sales;
 using Erp.Application.Stock;
+using Erp.Application.Notifications;
 
 namespace Erp.IntegrationTests;
 
@@ -164,6 +166,56 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(updatedTarget.Id, moved!.WarehouseId);
         Assert.Equal(7, moved.QuantityOnHand);
         Assert.Equal(1, moved.AlertThreshold);
+    }
+
+    [Fact]
+    public async Task LowStockAlert_IsDailySummaryAndIsCoveredByOpenPurchaseOrder()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var product = await CreateProductAsync(client);
+        var inactiveProduct = await CreateProductAsync(client);
+        var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+
+        var inactiveResponse = await client.PutAsJsonAsync($"/api/products/{inactiveProduct.Id}", new UpdateProductRequest(
+            inactiveProduct.Name,
+            inactiveProduct.Description,
+            inactiveProduct.PurchasePrice,
+            inactiveProduct.SalePrice,
+            inactiveProduct.VatRate,
+            inactiveProduct.CategoryId,
+            inactiveProduct.MainSupplierId,
+            false,
+            inactiveProduct.ImageUrl,
+            inactiveProduct.Reference));
+        Assert.Equal(HttpStatusCode.OK, inactiveResponse.StatusCode);
+
+        var inactiveStockResponse = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(inactiveProduct.Id, warehouse.Id, 0, "Inactive alert ignored", 5));
+        Assert.Equal(HttpStatusCode.OK, inactiveStockResponse.StatusCode);
+
+        var stockResponse = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 0, "Alert threshold", 5));
+        Assert.Equal(HttpStatusCode.OK, stockResponse.StatusCode);
+
+        var notifications = await client.GetFromJsonAsync<IReadOnlyList<NotificationDto>>("/api/notifications");
+        var alert = Assert.Single(notifications!, x => x.Type == "stock.low.summary" && !x.IsRead);
+        Assert.Contains(product.Reference, alert.Message);
+        Assert.DoesNotContain(inactiveProduct.Reference, alert.Message);
+        Assert.Contains(product.Id.ToString(), alert.LinkUrl);
+
+        var supplier = (await client.GetFromJsonAsync<IReadOnlyList<ProductSupplierDto>>("/api/products/suppliers"))!.First();
+        var purchaseResponse = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
+            supplier.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
+            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - {product.Name}", 10, product.PurchasePrice)]));
+
+        Assert.Equal(HttpStatusCode.Created, purchaseResponse.StatusCode);
+        var purchaseOrder = await purchaseResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)), purchaseOrder!.ExpectedAt);
+
+        var orderResponse = await client.PostAsJsonAsync($"/api/purchases/orders/{purchaseOrder.Id}/status", new UpdatePurchaseOrderStatusRequest("Ordered"));
+        Assert.Equal(HttpStatusCode.OK, orderResponse.StatusCode);
+
+        var afterPurchase = await client.GetFromJsonAsync<IReadOnlyList<NotificationDto>>("/api/notifications");
+        Assert.DoesNotContain(afterPurchase!, x => x.Type == "stock.low.summary" && !x.IsRead && x.Message.Contains(product.Reference));
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()

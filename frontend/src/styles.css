@@ -259,6 +259,20 @@ h1 {
   line-height: 1.5;
 }
 
+.inline-filter-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 12px;
+  font-weight: 700;
+}
+
 .sync-note {
   margin: 14px 0 0;
   padding: 12px;
@@ -956,6 +970,28 @@ th {
   margin-top: 18px;
 }
 
+.related-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.related-list h3,
+.related-list p {
+  margin: 0;
+}
+
+.related-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 160px 220px;
+  gap: 10px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+}
+
 .drive-list,
 .notification-list {
   display: grid;
@@ -986,6 +1022,21 @@ th {
 
 .notification.read {
   opacity: 0.72;
+}
+
+.notification-button {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.notification-button:hover,
+.notification-button:focus {
+  border-color: #0f766e;
+  outline: 0;
+  box-shadow: 0 0 0 3px rgb(15 118 110 / 0.12);
 }
 
 .notification p {

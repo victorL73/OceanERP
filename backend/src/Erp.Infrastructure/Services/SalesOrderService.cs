@@ -1,14 +1,14 @@
 using Erp.Application.Common;
 using Erp.Application.Sales;
+using Erp.Application.Stock;
 using Erp.Domain.FutureModules;
-using Erp.Domain.Notifications;
 using Erp.Domain.Quotes;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class SalesOrderService(ErpDbContext db) : ISalesOrderService
+public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService lowStockAlerts) : ISalesOrderService
 {
     private static readonly IReadOnlyDictionary<string, string[]> AllowedTransitions = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
@@ -139,6 +139,11 @@ public sealed class SalesOrderService(ErpDbContext db) : ISalesOrderService
 
         db.SalesOrderStatusHistories.Add(new SalesOrderStatusHistory { SalesOrderId = order.Id, Status = nextStatus });
         await db.SaveChangesAsync(cancellationToken);
+        if (nextStatus is "Confirmed" or "Shipped" or "Cancelled")
+        {
+            await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
+        }
+
         return Result<SalesOrderDto>.Success(await MapAsync(order, cancellationToken));
     }
 
@@ -298,7 +303,6 @@ public sealed class SalesOrderService(ErpDbContext db) : ISalesOrderService
                 ReferenceModule = "SalesOrder",
                 ReferenceId = order.Id
             });
-            await AddLowStockNotificationAsync(item, cancellationToken);
         }
 
         return Result.Success();
@@ -335,31 +339,6 @@ public sealed class SalesOrderService(ErpDbContext db) : ISalesOrderService
         }
 
         return Result.Success();
-    }
-
-    private async Task AddLowStockNotificationAsync(StockItem item, CancellationToken cancellationToken)
-    {
-        var available = item.QuantityOnHand - item.QuantityReserved;
-        if (item.AlertThreshold <= 0 || available > item.AlertThreshold)
-        {
-            return;
-        }
-
-        var product = await db.Products.FirstOrDefaultAsync(x => x.Id == item.ProductId, cancellationToken);
-        var link = $"/stock?productId={item.ProductId}";
-        var exists = await db.Notifications.AnyAsync(x => x.Type == "stock.low" && x.LinkUrl == link && !x.IsRead, cancellationToken);
-        if (exists)
-        {
-            return;
-        }
-
-        db.Notifications.Add(new Notification
-        {
-            Type = "stock.low",
-            Title = "Stock bas",
-            Message = $"{product?.Reference ?? item.ProductId.ToString()} atteint le seuil d'alerte ({available:0.###}).",
-            LinkUrl = link
-        });
     }
 
     private async Task<string> NextNumberAsync(CancellationToken cancellationToken)

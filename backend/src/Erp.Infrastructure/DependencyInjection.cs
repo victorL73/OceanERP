@@ -7,6 +7,7 @@ using Erp.Application.Invoices;
 using Erp.Application.Notifications;
 using Erp.Application.Prestashop;
 using Erp.Application.Products;
+using Erp.Application.Purchases;
 using Erp.Application.Quotes;
 using Erp.Application.Sales;
 using Erp.Application.Stock;
@@ -54,9 +55,12 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IStockService, StockService>();
+        services.AddScoped<ILowStockAlertService, LowStockAlertService>();
         services.AddScoped<ISalesOrderService, SalesOrderService>();
+        services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         services.AddScoped<IInvoiceService, InvoiceService>();
         services.AddScoped<IEmailService, EmailService>();
+        services.AddHostedService<LowStockAlertWorker>();
 
         return services;
     }

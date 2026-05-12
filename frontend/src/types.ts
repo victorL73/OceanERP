@@ -53,8 +53,11 @@ export type Product = {
   purchasePrice: number;
   salePrice: number;
   vatRate: number;
+  categoryId?: string;
   categoryName?: string;
+  brandId?: string;
   brandName?: string;
+  mainSupplierId?: string;
   mainSupplierName?: string;
   isActive: boolean;
 };
@@ -115,6 +118,7 @@ export type DriveFolder = {
 
 export type NotificationItem = {
   id: string;
+  linkUrl?: string;
   title: string;
   message: string;
   type: string;
@@ -141,6 +145,36 @@ export type SalesOrder = {
   status: string;
   total: number;
   lines: Array<{ id: string; productId?: string; description: string; quantity: number; unitPrice: number; lineTotal: number }>;
+};
+
+export type ProductSupplier = {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+};
+
+export type PurchaseOrderLine = {
+  id: string;
+  productId?: string;
+  productReference?: string;
+  productName?: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  receivedQuantity: number;
+  lineTotal: number;
+};
+
+export type PurchaseOrder = {
+  id: string;
+  number: string;
+  supplierId: string;
+  supplierName?: string;
+  status: string;
+  expectedAt?: string;
+  total: number;
+  lines: PurchaseOrderLine[];
 };
 
 export type Invoice = {

@@ -32,6 +32,7 @@ public static class DataSeeder
             "dashboard.read",
             "stock.read", "stock.write",
             "orders.read", "orders.write",
+            "purchases.read", "purchases.write",
             "invoices.read", "invoices.write",
             "emails.read", "emails.write",
             "prestashop.read", "prestashop.write"

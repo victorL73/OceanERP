@@ -1,7 +1,6 @@
 using Erp.Application.Common;
 using Erp.Application.Stock;
 using Erp.Domain.FutureModules;
-using Erp.Domain.Notifications;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -12,7 +11,7 @@ using System.Xml.Linq;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class StockService(ErpDbContext db, IConfiguration configuration, IHttpClientFactory httpClientFactory) : IStockService
+public sealed class StockService(ErpDbContext db, IConfiguration configuration, IHttpClientFactory httpClientFactory, ILowStockAlertService lowStockAlerts) : IStockService
 {
     private const string PrestashopProvider = "PrestaShop";
     private const string PrestashopProductModule = "products";
@@ -203,7 +202,6 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             Reason = string.IsNullOrWhiteSpace(request.Reason) ? "Manual adjustment" : request.Reason.Trim()
         };
         db.StockMovements.Add(movement);
-        await AddLowStockNotificationAsync(item, cancellationToken);
 
         var prestashopResult = await PublishPrestashopStockAsync(item, cancellationToken);
         if (!prestashopResult.Succeeded)
@@ -212,6 +210,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
 
         return Result<StockMovementDto>.Success(Map(movement));
     }
@@ -295,7 +294,6 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             }
         }
 
-        await AddLowStockNotificationAsync(item, cancellationToken);
         var prestashopResult = await PublishPrestashopStockAsync(item, cancellationToken);
         if (!prestashopResult.Succeeded)
         {
@@ -303,32 +301,8 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
         return Result<StockItemDto>.Success(Map(item));
-    }
-
-    private async Task AddLowStockNotificationAsync(StockItem item, CancellationToken cancellationToken)
-    {
-        var available = item.QuantityOnHand - item.QuantityReserved;
-        if (item.AlertThreshold <= 0 || available > item.AlertThreshold)
-        {
-            return;
-        }
-
-        var product = await db.Products.FirstOrDefaultAsync(x => x.Id == item.ProductId, cancellationToken);
-        var link = $"/stock?productId={item.ProductId}";
-        var exists = await db.Notifications.AnyAsync(x => x.Type == "stock.low" && x.LinkUrl == link && !x.IsRead, cancellationToken);
-        if (exists)
-        {
-            return;
-        }
-
-        db.Notifications.Add(new Notification
-        {
-            Type = "stock.low",
-            Title = "Stock bas",
-            Message = $"{product?.Reference ?? item.ProductId.ToString()} atteint le seuil d'alerte ({available:0.###}).",
-            LinkUrl = link
-        });
     }
 
     private async Task<Result> PublishPrestashopStockAsync(StockItem item, CancellationToken cancellationToken)

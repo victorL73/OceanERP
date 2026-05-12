@@ -14,6 +14,8 @@ import type {
   PrestashopConnection,
   PrestashopSyncLog,
   Product,
+  ProductSupplier,
+  PurchaseOrder,
   Quote,
   QuoteDocument,
   Role,
@@ -96,6 +98,10 @@ export class ApiClient {
     return this.request<PagedResult<Product>>('/api/products?pageSize=500', { auth: true });
   }
 
+  productSuppliers() {
+    return this.request<ProductSupplier[]>('/api/products/suppliers', { auth: true });
+  }
+
   createProduct(payload: { reference: string; name: string; description?: string; imageUrl?: string; purchasePrice: number; salePrice: number; vatRate: number }) {
     return this.request<Product>('/api/products', {
       method: 'POST',
@@ -171,6 +177,10 @@ export class ApiClient {
     return this.request<NotificationItem[]>('/api/notifications', { auth: true });
   }
 
+  markNotificationRead(notificationId: string) {
+    return this.request<void>(`/api/notifications/${notificationId}/read`, { method: 'POST', auth: true });
+  }
+
   users() {
     return this.request<User[]>('/api/users', { auth: true });
   }
@@ -209,6 +219,22 @@ export class ApiClient {
 
   changeOrderStatus(orderId: string, status: string) {
     return this.request<SalesOrder>(`/api/orders/${orderId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status }) });
+  }
+
+  purchaseOrders() {
+    return this.request<PagedResult<PurchaseOrder>>('/api/purchases/orders?pageSize=100', { auth: true });
+  }
+
+  createPurchaseOrder(payload: { supplierId: string; expectedAt?: string | null; lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number }> }) {
+    return this.request<PurchaseOrder>('/api/purchases/orders', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  changePurchaseOrderStatus(orderId: string, status: string) {
+    return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status }) });
+  }
+
+  updatePurchaseOrderExpectedAt(orderId: string, expectedAt?: string | null) {
+    return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/expected-date`, { method: 'PUT', auth: true, body: JSON.stringify({ expectedAt }) });
   }
 
   invoices() {

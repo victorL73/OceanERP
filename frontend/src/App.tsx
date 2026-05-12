@@ -1,10 +1,10 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
+import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
-type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'invoices' | 'stock' | 'emails' | 'prestashop';
+type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
   { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
@@ -12,6 +12,7 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
   { key: 'products', label: 'Produits', icon: Package, permission: 'products.read' },
   { key: 'quotes', label: 'Devis', icon: FileText, permission: 'quotes.read' },
   { key: 'orders', label: 'Commandes', icon: ShoppingCart, permission: 'orders.read' },
+  { key: 'purchases', label: 'Achats', icon: ShoppingBag, permission: 'purchases.read' },
   { key: 'invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
   { key: 'stock', label: 'Stock', icon: WarehouseIcon, permission: 'stock.read' },
   { key: 'emails', label: 'Emails', icon: Mail, permission: 'emails.read' },
@@ -27,6 +28,7 @@ const viewLabels: Record<ViewKey, string> = {
   products: 'Produits',
   quotes: 'Devis',
   orders: 'Commandes',
+  purchases: 'Achats fournisseurs',
   invoices: 'Factures',
   stock: 'Stock',
   emails: 'Emails',
@@ -97,6 +99,8 @@ export default function App() {
   const [files, setFiles] = useState<DriveItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [orders, setOrders] = useState<PagedResult<SalesOrder> | null>(null);
+  const [purchaseOrders, setPurchaseOrders] = useState<PagedResult<PurchaseOrder> | null>(null);
+  const [productSuppliers, setProductSuppliers] = useState<ProductSupplier[]>([]);
   const [invoices, setInvoices] = useState<PagedResult<Invoice> | null>(null);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
@@ -105,6 +109,7 @@ export default function App() {
   const [emailMessages, setEmailMessages] = useState<PagedResult<EmailMessage> | null>(null);
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
+  const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
 
   async function refreshPrestashopData() {
@@ -168,24 +173,32 @@ export default function App() {
         setProducts(nextProducts);
         setWarehouses(nextWarehouses);
       }
+      if (target === 'purchases') {
+        const [nextPurchaseOrders, nextProducts, nextSuppliers] = await Promise.all([api.purchaseOrders(), api.products(), api.productSuppliers()]);
+        setPurchaseOrders(nextPurchaseOrders);
+        setProducts(nextProducts);
+        setProductSuppliers(nextSuppliers);
+      }
       if (target === 'invoices') {
         const [nextInvoices, nextOrders] = await Promise.all([api.invoices(), api.orders()]);
         setInvoices(nextInvoices);
         setOrders(nextOrders);
       }
       if (target === 'stock') {
-        const [nextWarehouses, nextStockItems, nextProducts, nextMovements, nextPrestashopConnections] = await Promise.all([
+        const [nextWarehouses, nextStockItems, nextProducts, nextMovements, nextPrestashopConnections, nextPurchaseOrders] = await Promise.all([
           api.warehouses(),
           api.stockItems(),
           api.products(),
           api.stockMovements(),
-          hasPermission(currentUser, 'prestashop.read') ? api.prestashopConnections() : Promise.resolve(prestashopConnections)
+          hasPermission(currentUser, 'prestashop.read') ? api.prestashopConnections() : Promise.resolve(prestashopConnections),
+          hasPermission(currentUser, 'purchases.read') ? api.purchaseOrders() : Promise.resolve(purchaseOrders)
         ]);
         setWarehouses(nextWarehouses);
         setStockItems(nextStockItems);
         setProducts(nextProducts);
         setStockMovements(nextMovements);
         setPrestashopConnections(nextPrestashopConnections);
+        setPurchaseOrders(nextPurchaseOrders);
       }
       if (target === 'emails') {
         const [nextAccounts, nextMessages] = await Promise.all([api.mailAccounts(), api.emailMessages()]);
@@ -202,6 +215,27 @@ export default function App() {
       setError(err instanceof Error ? err.message : 'Action impossible');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function openNotification(item: NotificationItem) {
+    if (item.linkUrl) {
+      const link = new URL(item.linkUrl, window.location.origin);
+      if (link.pathname === '/stock') {
+        const productIds = (link.searchParams.get('products') ?? '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean);
+        setStockFocusProductIds(productIds);
+        setView('stock');
+      }
+    }
+
+    try {
+      await api.markNotificationRead(item.id);
+      setNotifications((items) => items.map((notification) => notification.id === item.id ? { ...notification, isRead: true } : notification));
+    } catch {
+      // La navigation reste prioritaire si l'accuse de lecture echoue.
     }
   }
 
@@ -348,12 +382,13 @@ export default function App() {
         {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('quotes')} />}
         {!loading && view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
+        {!loading && view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} onChanged={() => load('purchases')} />}
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
-        {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
+        {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} onChanged={() => load('emails')} />}
         {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
         {!loading && view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
-        {!loading && view === 'notifications' && <Notifications items={notifications} />}
+        {!loading && view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
     </div>
   );
@@ -1598,6 +1633,172 @@ function Orders({ items, customers, products, warehouses, onChanged }: { items: 
   );
 }
 
+function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseOrder[]; suppliers: ProductSupplier[]; products: Product[]; onChanged: () => Promise<void> }) {
+  const [supplierId, setSupplierId] = useState('');
+  const [productId, setProductId] = useState('');
+  const [description, setDescription] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [unitPrice, setUnitPrice] = useState('0');
+  const [expectedAt, setExpectedAt] = useState('');
+  const [dateOrderId, setDateOrderId] = useState('');
+  const [dateValue, setDateValue] = useState('');
+  const selectedProduct = products.find((product) => product.id === productId);
+  const selectedDateOrder = items.find((item) => item.id === dateOrderId);
+
+  useEffect(() => {
+    setDateValue(selectedDateOrder?.expectedAt ?? '');
+  }, [selectedDateOrder]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const selectedSupplierId = supplierId || suppliers[0]?.id;
+    if (!selectedSupplierId) {
+      throw new Error('Creer un fournisseur produit avant de creer une commande fournisseur.');
+    }
+
+    await api.createPurchaseOrder({
+      supplierId: selectedSupplierId,
+      expectedAt: expectedAt || null,
+      lines: [{
+        productId: productId || null,
+        description: description || selectedProduct?.name || 'Ligne fournisseur',
+        quantity: Number(quantity),
+        unitPrice: Number(unitPrice)
+      }]
+    });
+    setProductId('');
+    setDescription('');
+    setQuantity('1');
+    setUnitPrice('0');
+    setExpectedAt('');
+    await onChanged();
+  }
+
+  async function changeStatus(order: PurchaseOrder, status: string) {
+    await api.changePurchaseOrderStatus(order.id, status);
+    await onChanged();
+  }
+
+  async function updateExpectedAt(event: FormEvent) {
+    event.preventDefault();
+    if (!dateOrderId) {
+      throw new Error('Selectionner une commande fournisseur.');
+    }
+
+    await api.updatePurchaseOrderExpectedAt(dateOrderId, dateValue || null);
+    await onChanged();
+  }
+
+  return (
+    <>
+      <Panel title="Nouvelle commande fournisseur">
+        <form className="form-grid" onSubmit={submit}>
+          <select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
+            <option value="">Fournisseur</option>
+            {suppliers.map((supplier) => (
+              <option key={supplier.id} value={supplier.id}>
+                {supplier.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={productId}
+            onChange={(event) => {
+              const nextProduct = products.find((product) => product.id === event.target.value);
+              setProductId(event.target.value);
+              if (nextProduct) {
+                setDescription(`${nextProduct.reference} - ${nextProduct.name}`);
+                setUnitPrice(String(nextProduct.purchasePrice));
+                if (nextProduct.mainSupplierId) {
+                  setSupplierId(nextProduct.mainSupplierId);
+                }
+              }
+            }}
+          >
+            <option value="">Ligne libre</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.reference} - {product.name}
+              </option>
+            ))}
+          </select>
+          <input required placeholder="Ligne" value={description} onChange={(event) => setDescription(event.target.value)} />
+          <input required type="number" step="0.001" placeholder="Quantite" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+          <input required type="number" step="0.01" placeholder="Prix achat HT" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
+          <label className="field">
+            <span>Date reception prevue</span>
+            <input type="date" value={expectedAt} onChange={(event) => setExpectedAt(event.target.value)} />
+          </label>
+          <button className="primary" type="submit">
+            <Plus size={16} />
+            Creer
+          </button>
+        </form>
+      </Panel>
+
+      <Panel title="Date de reception connue">
+        <form className="form-grid" onSubmit={updateExpectedAt}>
+          <select value={dateOrderId} onChange={(event) => setDateOrderId(event.target.value)}>
+            <option value="">Commande fournisseur</option>
+            {items
+              .filter((item) => item.status !== 'Received' && item.status !== 'Cancelled')
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.number} - {item.supplierName ?? item.supplierId}
+                </option>
+              ))}
+          </select>
+          <input type="date" value={dateValue} onChange={(event) => setDateValue(event.target.value)} />
+          <button className="primary" type="submit">
+            <Save size={16} />
+            Enregistrer
+          </button>
+        </form>
+      </Panel>
+
+      <DataTable
+        columns={['Numero', 'Fournisseur', 'Statut', 'Reception prevue', 'Total', 'Lignes', 'Actions']}
+        rows={items.map((item) => [
+          item.number,
+          item.supplierName ?? item.supplierId,
+          purchaseStatusLabel(item.status),
+          item.expectedAt || '-',
+          `${item.total.toFixed(2)} EUR`,
+          item.lines.map((line) => line.productReference ?? line.description).join(', '),
+          <div className="table-actions">
+            {item.status === 'Draft' && (
+              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Ordered')}>
+                Commander
+              </button>
+            )}
+            {(item.status === 'Ordered' || item.status === 'PartiallyReceived') && (
+              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Received')}>
+                Recu
+              </button>
+            )}
+            {item.status !== 'Received' && item.status !== 'Cancelled' && (
+              <button className="danger" type="button" onClick={() => changeStatus(item, 'Cancelled')}>
+                Annuler
+              </button>
+            )}
+          </div>
+        ])}
+      />
+    </>
+  );
+}
+
+function purchaseStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    Draft: 'Brouillon',
+    Ordered: 'Commandee',
+    PartiallyReceived: 'Partiellement recue',
+    Received: 'Recue',
+    Cancelled: 'Annulee'
+  };
+  return labels[status] ?? status;
+}
+
 function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: SalesOrder[]; onChanged: () => Promise<void> }) {
   const [orderId, setOrderId] = useState('');
   const [paymentInvoiceId, setPaymentInvoiceId] = useState('');
@@ -1707,6 +1908,9 @@ function Stock({
   movements,
   products,
   warehouses,
+  purchaseOrders,
+  focusedProductIds,
+  onClearFocusedProducts,
   prestashopConnections,
   onChanged
 }: {
@@ -1714,6 +1918,9 @@ function Stock({
   movements: StockMovement[];
   products: Product[];
   warehouses: Warehouse[];
+  purchaseOrders: PurchaseOrder[];
+  focusedProductIds: string[];
+  onClearFocusedProducts: () => void;
   prestashopConnections: PrestashopConnection[];
   onChanged: () => Promise<void>;
 }) {
@@ -1735,6 +1942,7 @@ function Stock({
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
   const activePrestashopConnections = useMemo(() => prestashopConnections.filter((connection) => connection.isActive), [prestashopConnections]);
   const globalPrestashopConnection = useMemo(() => activePrestashopConnections.find((connection) => !connection.warehouseId), [activePrestashopConnections]);
+  const activePurchaseOrders = useMemo(() => purchaseOrders.filter((order) => order.status === 'Ordered' || order.status === 'PartiallyReceived'), [purchaseOrders]);
   const prestashopConnectionByWarehouseId = useMemo(
     () => new Map(activePrestashopConnections.filter((connection) => connection.warehouseId).map((connection) => [connection.warehouseId as string, connection])),
     [activePrestashopConnections]
@@ -1742,6 +1950,16 @@ function Stock({
   const selectedStock = selectedStockId ? items.find((item) => item.id === selectedStockId) ?? null : null;
   const selectedMovement = selectedMovementId ? movements.find((item) => item.id === selectedMovementId) ?? null : null;
   const movementTypes = useMemo(() => Array.from(new Set(movements.map((movement) => movement.type))).sort(), [movements]);
+  const focusedProductSet = useMemo(() => new Set(focusedProductIds), [focusedProductIds]);
+
+  useEffect(() => {
+    if (focusedProductIds.length > 0) {
+      setActiveStockTab('items');
+      setStockSearch('');
+      setStockFilterColumn('product');
+      setStockFilterWarehouseId('');
+    }
+  }, [focusedProductIds]);
 
   function productLabel(id: string) {
     const product = productById.get(id);
@@ -1750,6 +1968,31 @@ function Stock({
 
   function warehouseLabel(id: string) {
     return warehouseById.get(id)?.name ?? id;
+  }
+
+  function purchaseOrdersForProduct(productId: string) {
+    return activePurchaseOrders.filter((order) => order.lines.some((line) => line.productId === productId && line.quantity > line.receivedQuantity));
+  }
+
+  function stockStatus(item: StockItem) {
+    if (productById.get(item.productId)?.isActive === false) {
+      return 'Inactif';
+    }
+
+    const incoming = purchaseOrdersForProduct(item.productId);
+    if (incoming.length > 0 && item.availableQuantity <= item.alertThreshold) {
+      return 'En reapprovisionnement';
+    }
+
+    if (item.availableQuantity <= 0) {
+      return 'Hors stock';
+    }
+
+    if (item.isLowStock) {
+      return 'Stock bas';
+    }
+
+    return 'En stock';
   }
 
   function movementAuthor(item: StockMovement) {
@@ -1763,7 +2006,8 @@ function Stock({
       stock: item.quantityOnHand.toString(),
       reserved: item.quantityReserved.toString(),
       available: item.availableQuantity.toString(),
-      threshold: (item.isLowStock ? `Bas ${item.alertThreshold}` : item.alertThreshold).toString()
+      threshold: (item.isLowStock ? `Bas ${item.alertThreshold}` : item.alertThreshold).toString(),
+      status: stockStatus(item)
     };
     return column === 'all' ? Object.values(values).join(' ') : values[column] ?? '';
   }
@@ -1788,9 +2032,13 @@ function Stock({
         return false;
       }
 
+      if (focusedProductSet.size > 0 && !focusedProductSet.has(item.productId)) {
+        return false;
+      }
+
       return !query || stockColumnText(item, stockFilterColumn).toLowerCase().includes(query);
     });
-  }, [items, stockSearch, stockFilterColumn, stockFilterWarehouseId, productById, warehouseById]);
+  }, [items, stockSearch, stockFilterColumn, stockFilterWarehouseId, focusedProductSet, productById, warehouseById, activePurchaseOrders]);
 
   const filteredMovements = useMemo(() => {
     const query = movementSearch.trim().toLowerCase();
@@ -1864,6 +2112,14 @@ function Stock({
       </nav>
       {activeStockTab === 'items' && (
         <section className="tab-page">
+          {focusedProductIds.length > 0 && (
+            <div className="inline-filter-banner">
+              <span>{filteredStockItems.length} ligne(s) de stock sous surveillance depuis une notification.</span>
+              <button className="secondary" type="button" onClick={onClearFocusedProducts}>
+                Reinitialiser
+              </button>
+            </div>
+          )}
           <Panel title="Filtres stock">
             <form className="form-grid filter-grid" onSubmit={(event) => event.preventDefault()}>
               <input placeholder="Rechercher un produit, entrepot, quantite..." value={stockSearch} onChange={(event) => setStockSearch(event.target.value)} />
@@ -1875,6 +2131,7 @@ function Stock({
                 <option value="reserved">Reserve</option>
                 <option value="available">Disponible</option>
                 <option value="threshold">Seuil</option>
+                <option value="status">Statut</option>
               </select>
               <select value={stockFilterWarehouseId} onChange={(event) => setStockFilterWarehouseId(event.target.value)}>
                 <option value="">Tous les entrepots</option>
@@ -1890,8 +2147,8 @@ function Stock({
             </form>
           </Panel>
           <DataTable
-            columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']}
-            rows={filteredStockItems.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])}
+            columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil', 'Statut']}
+            rows={filteredStockItems.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold, stockStatus(item)])}
             onRowClick={(index) => setSelectedStockId(filteredStockItems[index]?.id ?? null)}
             selectedRowIndex={selectedStock ? filteredStockItems.findIndex((item) => item.id === selectedStock.id) : undefined}
           />
@@ -1950,6 +2207,8 @@ function Stock({
           prestashopConnection={prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) ?? globalPrestashopConnection}
           prestashopConnectionIsGlobal={!prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) && Boolean(globalPrestashopConnection)}
           activePrestashopConnections={activePrestashopConnections}
+          incomingPurchaseOrders={purchaseOrdersForProduct(selectedStock.productId)}
+          stockStatus={stockStatus(selectedStock)}
           onClose={() => setSelectedStockId(null)}
           onSaved={async () => {
             await onChanged();
@@ -1977,6 +2236,8 @@ function StockDetailsModal({
   prestashopConnection,
   prestashopConnectionIsGlobal,
   activePrestashopConnections,
+  incomingPurchaseOrders,
+  stockStatus,
   onClose,
   onSaved
 }: {
@@ -1987,6 +2248,8 @@ function StockDetailsModal({
   prestashopConnection?: PrestashopConnection;
   prestashopConnectionIsGlobal: boolean;
   activePrestashopConnections: PrestashopConnection[];
+  incomingPurchaseOrders: PurchaseOrder[];
+  stockStatus: string;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -2104,8 +2367,24 @@ function StockDetailsModal({
               <DetailItem label="Reserve" value={item.quantityReserved} />
               <DetailItem label="Disponible" value={item.availableQuantity} />
               <DetailItem label="Seuil alerte" value={item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold} />
+              <DetailItem label="Statut automatique" value={stockStatus} />
               <DetailItem label="PrestaShop" value={prestashopStatus} />
             </div>
+            <section className="related-list">
+              <h3>Commandes fournisseurs en cours</h3>
+              {incomingPurchaseOrders.length === 0 ? (
+                <p>Aucune commande fournisseur en cours pour ce produit.</p>
+              ) : (
+                incomingPurchaseOrders.map((order) => (
+                  <article key={order.id} className="related-row">
+                    <strong>{order.number}</strong>
+                    <span>{order.supplierName ?? order.supplierId}</span>
+                    <span>{purchaseStatusLabel(order.status)}</span>
+                    <span>Reception prevue: {order.expectedAt || 'non renseignee'}</span>
+                  </article>
+                ))
+              )}
+            </section>
             <p className={prestashopConnection ? 'sync-note sync-note-ok' : 'sync-note sync-note-warning'}>
               {prestashopConnection
                 ? "L'enregistrement publiera la quantite et le nom de l'entrepot dans le champ Emplacement du stock PrestaShop."
@@ -2417,17 +2696,17 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
   );
 }
 
-function Notifications({ items }: { items: NotificationItem[] }) {
+function Notifications({ items, onOpen }: { items: NotificationItem[]; onOpen: (item: NotificationItem) => void }) {
   return (
     <section className="notification-list">
       {items.map((item) => (
-        <article key={item.id} className={item.isRead ? 'notification read' : 'notification'}>
+        <button key={item.id} type="button" className={item.isRead ? 'notification read notification-button' : 'notification notification-button'} onClick={() => onOpen(item)}>
           <Bell size={18} />
           <div>
             <strong>{item.title}</strong>
             <p>{item.message}</p>
           </div>
-        </article>
+        </button>
       ))}
       {items.length === 0 && <EmptyState icon={Bell} title="Aucune notification" />}
     </section>
