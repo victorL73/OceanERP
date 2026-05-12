@@ -1649,23 +1649,33 @@ type PurchaseDraftCharge = {
   vatRate: string;
 };
 
+function createClientId(prefix: string) {
+  const randomUuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
+  if (randomUuid) {
+    return randomUuid();
+  }
+
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function createPurchaseDraftLine(): PurchaseDraftLine {
-  return { id: crypto.randomUUID(), productId: '', description: '', quantity: '1', unitPrice: '0', vatRate: '20' };
+  return { id: createClientId('purchase-line'), productId: '', description: '', quantity: '1', unitPrice: '0', vatRate: '20' };
 }
 
 function createPurchaseDraftCharge(label = ''): PurchaseDraftCharge {
-  return { id: crypto.randomUUID(), label, amount: '0', vatRate: '20' };
+  return { id: createClientId('purchase-charge'), label, amount: '0', vatRate: '20' };
 }
 
-function purchaseAmount(value: number) {
-  return `${value.toFixed(2)} EUR`;
+function purchaseAmount(value?: number | null) {
+  const amount = Number.isFinite(value) ? value! : 0;
+  return `${amount.toFixed(2)} EUR`;
 }
 
 function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseOrder[]; suppliers: ProductSupplier[]; products: Product[]; onChanged: () => Promise<void> }) {
   const [supplierId, setSupplierId] = useState('');
   const [expectedAt, setExpectedAt] = useState('');
   const [comment, setComment] = useState('');
-  const [lines, setLines] = useState<PurchaseDraftLine[]>([createPurchaseDraftLine()]);
+  const [lines, setLines] = useState<PurchaseDraftLine[]>(() => [createPurchaseDraftLine()]);
   const [charges, setCharges] = useState<PurchaseDraftCharge[]>([]);
   const [dateOrderId, setDateOrderId] = useState('');
   const [dateValue, setDateValue] = useState('');
@@ -1925,33 +1935,40 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
 
       <DataTable
         columns={['Numero', 'Fournisseur', 'Statut', 'Reception prevue', 'HT', 'TVA', 'Total TTC', 'Lignes', 'Actions']}
-        rows={items.map((item) => [
-          item.number,
-          item.supplierName ?? item.supplierId,
-          purchaseStatusLabel(item.status),
-          item.expectedAt || '-',
-          purchaseAmount(item.linesNetTotal + item.chargesNetTotal),
-          purchaseAmount(item.linesVatTotal + item.chargesVatTotal),
-          purchaseAmount(item.total),
-          item.lines.map((line) => line.productReference ?? line.description).join(', '),
-          <div className="table-actions">
-            {item.status === 'Draft' && (
-              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Ordered')}>
-                Commander
-              </button>
-            )}
-            {(item.status === 'Ordered' || item.status === 'PartiallyReceived') && (
-              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Received')}>
-                Recu
-              </button>
-            )}
-            {item.status !== 'Received' && item.status !== 'Cancelled' && (
-              <button className="danger" type="button" onClick={() => changeStatus(item, 'Cancelled')}>
-                Annuler
-              </button>
-            )}
-          </div>
-        ])}
+        rows={items.map((item) => {
+          const orderLines = item.lines ?? [];
+          const lineNet = item.linesNetTotal ?? orderLines.reduce((sum, line) => sum + (line.lineNetTotal ?? line.quantity * line.unitPrice), 0);
+          const lineVat = item.linesVatTotal ?? orderLines.reduce((sum, line) => sum + (line.lineVatTotal ?? 0), 0);
+          const chargesNet = item.chargesNetTotal ?? 0;
+          const chargesVat = item.chargesVatTotal ?? 0;
+          return [
+            item.number,
+            item.supplierName ?? item.supplierId,
+            purchaseStatusLabel(item.status),
+            item.expectedAt || '-',
+            purchaseAmount(lineNet + chargesNet),
+            purchaseAmount(lineVat + chargesVat),
+            purchaseAmount(item.total),
+            orderLines.map((line) => line.productReference ?? line.description).join(', '),
+            <div className="table-actions">
+              {item.status === 'Draft' && (
+                <button className="secondary" type="button" onClick={() => changeStatus(item, 'Ordered')}>
+                  Commander
+                </button>
+              )}
+              {(item.status === 'Ordered' || item.status === 'PartiallyReceived') && (
+                <button className="secondary" type="button" onClick={() => changeStatus(item, 'Received')}>
+                  Recu
+                </button>
+              )}
+              {item.status !== 'Received' && item.status !== 'Cancelled' && (
+                <button className="danger" type="button" onClick={() => changeStatus(item, 'Cancelled')}>
+                  Annuler
+                </button>
+              )}
+            </div>
+          ];
+        })}
       />
     </>
   );
