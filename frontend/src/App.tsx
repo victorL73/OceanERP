@@ -1667,9 +1667,9 @@ function StockDetailsModal({
 
   const unassignedPrestashopConnection = activePrestashopConnections.length === 1 && !activePrestashopConnections[0].warehouseId ? activePrestashopConnections[0] : null;
   const prestashopStatus = prestashopConnection
-    ? `Lie a ${prestashopConnection.shopUrl}`
+    ? `Lie a ${prestashopConnection.shopUrl}. Emplacement stock publie: ${warehouseLabel}`
     : unassignedPrestashopConnection
-      ? `Connexion active non rattachee: ${unassignedPrestashopConnection.shopUrl}. Elle sera rattachee a cet entrepot au prochain enregistrement.`
+      ? `Connexion active non rattachee: ${unassignedPrestashopConnection.shopUrl}. Elle sera rattachee a cet entrepot au prochain enregistrement et publiera l'emplacement ${warehouseLabel}.`
       : activePrestashopConnections.length > 0
         ? "Non rattache a PrestaShop. Choisir cet entrepot dans Parametres > PrestaShop."
         : "Aucune connexion PrestaShop active.";
@@ -1761,7 +1761,7 @@ function StockDetailsModal({
             </div>
             <p className={prestashopConnection || unassignedPrestashopConnection ? 'sync-note sync-note-ok' : 'sync-note sync-note-warning'}>
               {prestashopConnection || unassignedPrestashopConnection
-                ? "L'enregistrement du stock publiera aussi la quantite dans PrestaShop."
+                ? "L'enregistrement publiera la quantite et le nom de l'entrepot dans le champ Emplacement du stock PrestaShop."
                 : "Le stock ERP sera modifie, mais PrestaShop ne sera pas mis a jour tant que l'entrepot n'est pas rattache a une connexion active."}
             </p>
           </>

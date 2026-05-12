@@ -187,6 +187,10 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         try
         {
             var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
+            var warehouseName = await db.Warehouses
+                .Where(x => x.Id == item.WarehouseId)
+                .Select(x => x.Name)
+                .FirstOrDefaultAsync(cancellationToken);
             var stockAvailableId = await FindPrestashopStockAvailableIdAsync(apiBaseUrl, externalProductId, apiKeyResult.Value!, cancellationToken);
             if (string.IsNullOrWhiteSpace(stockAvailableId))
             {
@@ -201,6 +205,11 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             }
 
             SetElementValue(stockElement, "quantity", FormatDecimal(item.QuantityOnHand));
+            if (!string.IsNullOrWhiteSpace(warehouseName))
+            {
+                SetElementValue(stockElement, "location", warehouseName.Trim());
+            }
+
             await PutPrestashopStockXmlAsync(apiBaseUrl, stockAvailableId, apiKeyResult.Value!, document, cancellationToken);
             return Result.Success();
         }
