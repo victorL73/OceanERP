@@ -170,6 +170,15 @@ export type InvoiceDocument = {
 export type Warehouse = {
   id: string;
   name: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  postalCode?: string;
+  city?: string;
+  country?: string;
+  representativeName?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
 };
 
 export type StockItem = {

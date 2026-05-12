@@ -245,6 +245,15 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         modelBuilder.Entity<Warehouse>(entity =>
         {
             entity.Property(x => x.Name).HasMaxLength(160);
+            entity.Property(x => x.AddressLine1).HasMaxLength(240);
+            entity.Property(x => x.AddressLine2).HasMaxLength(240);
+            entity.Property(x => x.PostalCode).HasMaxLength(40);
+            entity.Property(x => x.City).HasMaxLength(120);
+            entity.Property(x => x.Country).HasMaxLength(120);
+            entity.Property(x => x.RepresentativeName).HasMaxLength(160);
+            entity.Property(x => x.Phone).HasMaxLength(80);
+            entity.Property(x => x.Email).HasMaxLength(320);
+            entity.Property(x => x.Notes).HasMaxLength(1000);
             entity.HasIndex(x => x.Name).IsUnique();
         });
 

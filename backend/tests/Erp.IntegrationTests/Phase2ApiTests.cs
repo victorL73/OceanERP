@@ -119,14 +119,26 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     public async Task Warehouses_AdminCanUpdateDeleteAndMoveStockItem()
     {
         using var client = await CreateAuthenticatedClientAsync();
-        var targetResponse = await client.PostAsJsonAsync("/api/stock/warehouses", new CreateWarehouseRequest($"Depot-{Guid.NewGuid():N}"[..16]));
+        var targetResponse = await client.PostAsJsonAsync("/api/stock/warehouses", new CreateWarehouseRequest(
+            $"Depot-{Guid.NewGuid():N}"[..16],
+            "1 rue du Port",
+            null,
+            "17000",
+            "La Rochelle",
+            "France",
+            "Responsable depot",
+            "0102030405",
+            "depot@example.com",
+            "Entrepot test"));
         Assert.Equal(HttpStatusCode.OK, targetResponse.StatusCode);
         var target = await targetResponse.Content.ReadFromJsonAsync<WarehouseDto>();
+        Assert.Equal("Responsable depot", target!.RepresentativeName);
 
-        var updateResponse = await client.PutAsJsonAsync($"/api/stock/warehouses/{target!.Id}", new UpdateWarehouseRequest($"{target.Name}-B"));
+        var updateResponse = await client.PutAsJsonAsync($"/api/stock/warehouses/{target.Id}", new UpdateWarehouseRequest($"{target.Name}-B", City: "Rochefort"));
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
         var updatedTarget = await updateResponse.Content.ReadFromJsonAsync<WarehouseDto>();
         Assert.EndsWith("-B", updatedTarget!.Name);
+        Assert.Equal("Rochefort", updatedTarget.City);
 
         var deleteCandidateResponse = await client.PostAsJsonAsync("/api/stock/warehouses", new CreateWarehouseRequest($"Temp-{Guid.NewGuid():N}"[..15]));
         deleteCandidateResponse.EnsureSuccessStatusCode();

@@ -235,11 +235,11 @@ export class ApiClient {
     return this.request<Warehouse[]>('/api/stock/warehouses', { auth: true });
   }
 
-  createWarehouse(payload: { name: string }) {
+  createWarehouse(payload: { name: string; addressLine1?: string; addressLine2?: string; postalCode?: string; city?: string; country?: string; representativeName?: string; phone?: string; email?: string; notes?: string }) {
     return this.request<Warehouse>('/api/stock/warehouses', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
-  updateWarehouse(warehouseId: string, payload: { name: string }) {
+  updateWarehouse(warehouseId: string, payload: { name: string; addressLine1?: string; addressLine2?: string; postalCode?: string; city?: string; country?: string; representativeName?: string; phone?: string; email?: string; notes?: string }) {
     return this.request<Warehouse>(`/api/stock/warehouses/${warehouseId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 

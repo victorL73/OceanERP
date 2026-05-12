@@ -18,7 +18,10 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
     private const string PrestashopProductModule = "products";
 
     public async Task<IReadOnlyList<WarehouseDto>> GetWarehousesAsync(CancellationToken cancellationToken)
-        => await db.Warehouses.OrderBy(x => x.Name).Select(x => new WarehouseDto(x.Id, x.Name)).ToListAsync(cancellationToken);
+        => await db.Warehouses
+            .OrderBy(x => x.Name)
+            .Select(x => new WarehouseDto(x.Id, x.Name, x.AddressLine1, x.AddressLine2, x.PostalCode, x.City, x.Country, x.RepresentativeName, x.Phone, x.Email, x.Notes))
+            .ToListAsync(cancellationToken);
 
     public async Task<Result<WarehouseDto>> CreateWarehouseAsync(CreateWarehouseRequest request, CancellationToken cancellationToken)
     {
@@ -34,9 +37,10 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         }
 
         var warehouse = new Warehouse { Name = name };
+        ApplyWarehouseDetails(warehouse, request);
         db.Warehouses.Add(warehouse);
         await db.SaveChangesAsync(cancellationToken);
-        return Result<WarehouseDto>.Success(new WarehouseDto(warehouse.Id, warehouse.Name));
+        return Result<WarehouseDto>.Success(Map(warehouse));
     }
 
     public async Task<Result<WarehouseDto>> UpdateWarehouseAsync(Guid warehouseId, UpdateWarehouseRequest request, CancellationToken cancellationToken)
@@ -59,8 +63,9 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         }
 
         warehouse.Name = name;
+        ApplyWarehouseDetails(warehouse, request);
         await db.SaveChangesAsync(cancellationToken);
-        return Result<WarehouseDto>.Success(new WarehouseDto(warehouse.Id, warehouse.Name));
+        return Result<WarehouseDto>.Success(Map(warehouse));
     }
 
     public async Task<Result> DeleteWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken)
@@ -323,7 +328,11 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             return Result.Failure(connectionResult.Error!);
         }
 
-        var connection = connectionResult.Value!;
+        var connection = connectionResult.Value;
+        if (connection is null)
+        {
+            return Result.Success();
+        }
 
         var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
         if (!apiKeyResult.Succeeded)
@@ -376,7 +385,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         }
     }
 
-    private async Task<Result<PrestashopConnection>> ResolvePrestashopConnectionForWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken)
+    private async Task<Result<PrestashopConnection?>> ResolvePrestashopConnectionForWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken)
     {
         var linkedConnection = await db.PrestashopConnections
             .Where(x => x.IsActive && x.WarehouseId == warehouseId)
@@ -384,7 +393,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             .FirstOrDefaultAsync(cancellationToken);
         if (linkedConnection is not null)
         {
-            return Result<PrestashopConnection>.Success(linkedConnection);
+            return Result<PrestashopConnection?>.Success(linkedConnection);
         }
 
         var activeConnections = await db.PrestashopConnections
@@ -393,19 +402,17 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             .ToListAsync(cancellationToken);
         if (activeConnections.Count == 0)
         {
-            return Result<PrestashopConnection>.Failure("Aucune connexion PrestaShop active n'est configuree pour publier ce stock.");
+            return Result<PrestashopConnection?>.Success(null);
         }
 
         var unassignedConnections = activeConnections.Where(x => x.WarehouseId is null).ToList();
         if (activeConnections.Count == 1 && unassignedConnections.Count == 1)
         {
             unassignedConnections[0].WarehouseId = warehouseId;
-            return Result<PrestashopConnection>.Success(unassignedConnections[0]);
+            return Result<PrestashopConnection?>.Success(unassignedConnections[0]);
         }
 
-        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Id == warehouseId, cancellationToken);
-        return Result<PrestashopConnection>.Failure(
-            $"Aucune connexion PrestaShop active n'est rattachee a l'entrepot \"{warehouse?.Name ?? warehouseId.ToString()}\". Configurez le rattachement dans Parametres > PrestaShop.");
+        return Result<PrestashopConnection?>.Success(null);
     }
 
     private async Task<string?> FindPrestashopStockAvailableIdAsync(string apiBaseUrl, string externalProductId, string apiKey, CancellationToken cancellationToken)
@@ -602,6 +609,49 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
 
         return string.Join(" ", messages);
     }
+
+    private static void ApplyWarehouseDetails(Warehouse warehouse, CreateWarehouseRequest request)
+    {
+        warehouse.AddressLine1 = NormalizeOptional(request.AddressLine1);
+        warehouse.AddressLine2 = NormalizeOptional(request.AddressLine2);
+        warehouse.PostalCode = NormalizeOptional(request.PostalCode);
+        warehouse.City = NormalizeOptional(request.City);
+        warehouse.Country = NormalizeOptional(request.Country);
+        warehouse.RepresentativeName = NormalizeOptional(request.RepresentativeName);
+        warehouse.Phone = NormalizeOptional(request.Phone);
+        warehouse.Email = NormalizeOptional(request.Email);
+        warehouse.Notes = NormalizeOptional(request.Notes);
+    }
+
+    private static void ApplyWarehouseDetails(Warehouse warehouse, UpdateWarehouseRequest request)
+    {
+        warehouse.AddressLine1 = NormalizeOptional(request.AddressLine1);
+        warehouse.AddressLine2 = NormalizeOptional(request.AddressLine2);
+        warehouse.PostalCode = NormalizeOptional(request.PostalCode);
+        warehouse.City = NormalizeOptional(request.City);
+        warehouse.Country = NormalizeOptional(request.Country);
+        warehouse.RepresentativeName = NormalizeOptional(request.RepresentativeName);
+        warehouse.Phone = NormalizeOptional(request.Phone);
+        warehouse.Email = NormalizeOptional(request.Email);
+        warehouse.Notes = NormalizeOptional(request.Notes);
+    }
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static WarehouseDto Map(Warehouse warehouse)
+        => new(
+            warehouse.Id,
+            warehouse.Name,
+            warehouse.AddressLine1,
+            warehouse.AddressLine2,
+            warehouse.PostalCode,
+            warehouse.City,
+            warehouse.Country,
+            warehouse.RepresentativeName,
+            warehouse.Phone,
+            warehouse.Email,
+            warehouse.Notes);
 
     private static StockItemDto Map(StockItem item)
         => new(item.Id, item.ProductId, item.WarehouseId, item.QuantityOnHand, item.QuantityReserved, item.QuantityOnHand - item.QuantityReserved, item.AlertThreshold, item.AlertThreshold > 0 && item.QuantityOnHand - item.QuantityReserved <= item.AlertThreshold);

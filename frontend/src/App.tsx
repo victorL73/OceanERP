@@ -35,6 +35,47 @@ const viewLabels: Record<ViewKey, string> = {
   notifications: 'Notifications'
 };
 
+type WarehouseDraft = {
+  name: string;
+  addressLine1: string;
+  addressLine2: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  representativeName: string;
+  phone: string;
+  email: string;
+  notes: string;
+};
+
+const emptyWarehouseDraft: WarehouseDraft = {
+  name: '',
+  addressLine1: '',
+  addressLine2: '',
+  postalCode: '',
+  city: '',
+  country: '',
+  representativeName: '',
+  phone: '',
+  email: '',
+  notes: ''
+};
+
+function warehouseToDraft(warehouse?: Warehouse): WarehouseDraft {
+  return {
+    name: warehouse?.name ?? '',
+    addressLine1: warehouse?.addressLine1 ?? '',
+    addressLine2: warehouse?.addressLine2 ?? '',
+    postalCode: warehouse?.postalCode ?? '',
+    city: warehouse?.city ?? '',
+    country: warehouse?.country ?? '',
+    representativeName: warehouse?.representativeName ?? '',
+    phone: warehouse?.phone ?? '',
+    email: warehouse?.email ?? '',
+    notes: warehouse?.notes ?? ''
+  };
+}
+
 function hasPermission(user: User | null, permission?: string) {
   return !permission || Boolean(user && (user.roles.includes('Administrator') || user.permissions.includes(permission)));
 }
@@ -528,20 +569,22 @@ function Settings({
 }
 
 function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
-  const [name, setName] = useState('');
-  const [draftNames, setDraftNames] = useState<Record<string, string>>({});
+  const [draft, setDraft] = useState<WarehouseDraft>(emptyWarehouseDraft);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+  const [editDraft, setEditDraft] = useState<WarehouseDraft>(emptyWarehouseDraft);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraftNames(Object.fromEntries(warehouses.map((warehouse) => [warehouse.id, warehouse.name])));
-  }, [warehouses]);
+    const selected = warehouses.find((warehouse) => warehouse.id === selectedWarehouseId);
+    setEditDraft(warehouseToDraft(selected));
+  }, [selectedWarehouseId, warehouses]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setMessage(null);
     try {
-      await api.createWarehouse({ name });
-      setName('');
+      await api.createWarehouse(draft);
+      setDraft(emptyWarehouseDraft);
       setMessage('Entrepot cree.');
       await onChanged();
     } catch (err) {
@@ -549,10 +592,17 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
     }
   }
 
-  async function updateWarehouse(warehouse: Warehouse) {
+  async function updateWarehouse(event: FormEvent) {
+    event.preventDefault();
+    const warehouse = warehouses.find((item) => item.id === selectedWarehouseId);
+    if (!warehouse) {
+      setMessage('Selectionnez un entrepot a modifier.');
+      return;
+    }
+
     setMessage(null);
     try {
-      await api.updateWarehouse(warehouse.id, { name: draftNames[warehouse.id] ?? warehouse.name });
+      await api.updateWarehouse(warehouse.id, editDraft);
       setMessage('Entrepot modifie.');
       await onChanged();
     } catch (err) {
@@ -560,7 +610,13 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
     }
   }
 
-  async function deleteWarehouse(warehouse: Warehouse) {
+  async function deleteWarehouse() {
+    const warehouse = warehouses.find((item) => item.id === selectedWarehouseId);
+    if (!warehouse) {
+      setMessage('Selectionnez un entrepot a supprimer.');
+      return;
+    }
+
     if (!window.confirm(`Supprimer l'entrepot "${warehouse.name}" ?`)) {
       return;
     }
@@ -569,6 +625,7 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
     try {
       await api.deleteWarehouse(warehouse.id);
       setMessage('Entrepot supprime.');
+      setSelectedWarehouseId('');
       await onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Suppression impossible');
@@ -579,7 +636,7 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
     <>
       <Panel title="Nouvel entrepot">
         <form className="form-grid" onSubmit={submit}>
-          <input required placeholder="Nom de l'entrepot" value={name} onChange={(event) => setName(event.target.value)} />
+          <WarehouseDraftFields draft={draft} onChange={setDraft} />
           <button className="primary" type="submit">
             <Plus size={16} />
             Creer
@@ -587,29 +644,97 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
         </form>
         {message && <div className="inline-message">{message}</div>}
       </Panel>
-      <DataTable
-        columns={['Entrepot', 'Actions']}
-        rows={warehouses.map((warehouse) => [
-          <input
-            key={`${warehouse.id}-name`}
-            className="table-input"
-            value={draftNames[warehouse.id] ?? warehouse.name}
-            onChange={(event) => setDraftNames((current) => ({ ...current, [warehouse.id]: event.target.value }))}
-          />,
-          <div key={`${warehouse.id}-actions`} className="table-actions">
-            <button className="secondary" type="button" onClick={() => updateWarehouse(warehouse)}>
+      <Panel title="Modifier un entrepot">
+        <form className="form-grid" onSubmit={updateWarehouse}>
+          <label className="field">
+            <span>Entrepot</span>
+            <select value={selectedWarehouseId} onChange={(event) => setSelectedWarehouseId(event.target.value)}>
+              <option value="">Selectionner</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <WarehouseDraftFields draft={editDraft} onChange={setEditDraft} disabled={!selectedWarehouseId} />
+          <div className="table-actions form-actions">
+            <button className="primary" type="submit" disabled={!selectedWarehouseId}>
               <Save size={15} />
-              Modifier
+              Enregistrer
             </button>
-            <button className="danger" type="button" onClick={() => deleteWarehouse(warehouse)}>
+            <button className="danger" type="button" disabled={!selectedWarehouseId} onClick={deleteWarehouse}>
               <Trash2 size={15} />
               Supprimer
             </button>
           </div>
+        </form>
+      </Panel>
+      <DataTable
+        columns={['Entrepot', 'Adresse', 'Representant', 'Telephone', 'Email']}
+        rows={warehouses.map((warehouse) => [
+          warehouse.name,
+          formatWarehouseAddress(warehouse) || '-',
+          warehouse.representativeName || '-',
+          warehouse.phone || '-',
+          warehouse.email || '-'
         ])}
       />
     </>
   );
+}
+
+function WarehouseDraftFields({ draft, onChange, disabled = false }: { draft: WarehouseDraft; onChange: (draft: WarehouseDraft) => void; disabled?: boolean }) {
+  const update = (key: keyof WarehouseDraft, value: string) => onChange({ ...draft, [key]: value });
+
+  return (
+    <>
+      <label className="field">
+        <span>Nom</span>
+        <input required disabled={disabled} placeholder="Nom de l'entrepot" value={draft.name} onChange={(event) => update('name', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Representant</span>
+        <input disabled={disabled} placeholder="Nom du responsable" value={draft.representativeName} onChange={(event) => update('representativeName', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Telephone</span>
+        <input disabled={disabled} placeholder="Telephone" value={draft.phone} onChange={(event) => update('phone', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Email</span>
+        <input disabled={disabled} type="email" placeholder="email@entreprise.fr" value={draft.email} onChange={(event) => update('email', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Adresse</span>
+        <input disabled={disabled} placeholder="Adresse" value={draft.addressLine1} onChange={(event) => update('addressLine1', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Complement</span>
+        <input disabled={disabled} placeholder="Complement d'adresse" value={draft.addressLine2} onChange={(event) => update('addressLine2', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Code postal</span>
+        <input disabled={disabled} placeholder="Code postal" value={draft.postalCode} onChange={(event) => update('postalCode', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Ville</span>
+        <input disabled={disabled} placeholder="Ville" value={draft.city} onChange={(event) => update('city', event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Pays</span>
+        <input disabled={disabled} placeholder="Pays" value={draft.country} onChange={(event) => update('country', event.target.value)} />
+      </label>
+      <label className="field wide-field">
+        <span>Notes</span>
+        <textarea disabled={disabled} placeholder="Informations internes" value={draft.notes} onChange={(event) => update('notes', event.target.value)} />
+      </label>
+    </>
+  );
+}
+
+function formatWarehouseAddress(warehouse: Warehouse) {
+  return [warehouse.addressLine1, warehouse.addressLine2, [warehouse.postalCode, warehouse.city].filter(Boolean).join(' '), warehouse.country].filter(Boolean).join(', ');
 }
 
 function PrestashopSettings({ connections, warehouses, onChanged }: { connections: PrestashopConnection[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
@@ -1710,14 +1835,18 @@ function StockDetailsModal({
   const [selectedWarehouseId, setSelectedWarehouseId] = useState(item.warehouseId);
   const [quantityOnHand, setQuantityOnHand] = useState(item.quantityOnHand.toString());
   const [alertThreshold, setAlertThreshold] = useState(item.alertThreshold.toString());
+  const [warehouseInfoOpen, setWarehouseInfoOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+  const currentWarehouse = warehouseById.get(item.warehouseId);
 
   useEffect(() => {
     setSelectedWarehouseId(item.warehouseId);
     setQuantityOnHand(item.quantityOnHand.toString());
     setAlertThreshold(item.alertThreshold.toString());
     setEditMode(false);
+    setWarehouseInfoOpen(false);
     setError(null);
   }, [item]);
 
@@ -1811,7 +1940,10 @@ function StockDetailsModal({
           <>
             <div className="detail-grid stock-detail-grid">
               <DetailItem label="Produit" value={productLabel} />
-              <DetailItem label="Entrepot" value={warehouseLabel} />
+              <button className="detail-item detail-button" type="button" onClick={() => setWarehouseInfoOpen(true)}>
+                <span>Entrepot</span>
+                <strong>{warehouseLabel}</strong>
+              </button>
               <DetailItem label="Stock reel" value={item.quantityOnHand} />
               <DetailItem label="Reserve" value={item.quantityReserved} />
               <DetailItem label="Disponible" value={item.availableQuantity} />
@@ -1823,9 +1955,37 @@ function StockDetailsModal({
                 ? "L'enregistrement publiera la quantite et le nom de l'entrepot dans le champ Emplacement du stock PrestaShop."
                 : "Le stock ERP sera modifie, mais PrestaShop ne sera pas mis a jour tant que l'entrepot n'est pas rattache a une connexion active."}
             </p>
+            {warehouseInfoOpen && currentWarehouse && <WarehouseInfoBubble warehouse={currentWarehouse} onClose={() => setWarehouseInfoOpen(false)} />}
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+function WarehouseInfoBubble({ warehouse, onClose }: { warehouse: Warehouse; onClose: () => void }) {
+  const address = formatWarehouseAddress(warehouse);
+
+  return (
+    <div className="popover-backdrop" onClick={onClose}>
+      <aside className="warehouse-popover" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-header compact">
+          <div>
+            <p className="eyebrow">Entrepot</p>
+            <h3>{warehouse.name}</h3>
+          </div>
+          <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+        <div className="detail-grid">
+          <DetailItem label="Representant" value={warehouse.representativeName || '-'} />
+          <DetailItem label="Telephone" value={warehouse.phone || '-'} />
+          <DetailItem label="Email" value={warehouse.email ? <a href={`mailto:${warehouse.email}`}>{warehouse.email}</a> : '-'} />
+          <DetailItem label="Adresse" value={address || '-'} />
+          {warehouse.notes && <DetailItem label="Notes" value={warehouse.notes} />}
+        </div>
+      </aside>
     </div>
   );
 }

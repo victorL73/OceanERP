@@ -4,7 +4,7 @@ namespace Erp.Domain.FutureModules;
 
 // Phase 2/3 placeholders keep the ubiquitous language explicit without pretending
 // that every workflow is production-complete in the MVP.
-public sealed class Warehouse : AuditableEntity { public string Name { get; set; } = string.Empty; }
+public sealed class Warehouse : AuditableEntity { public string Name { get; set; } = string.Empty; public string? AddressLine1 { get; set; } public string? AddressLine2 { get; set; } public string? PostalCode { get; set; } public string? City { get; set; } public string? Country { get; set; } public string? RepresentativeName { get; set; } public string? Phone { get; set; } public string? Email { get; set; } public string? Notes { get; set; } }
 public sealed class StockItem : AuditableEntity { public Guid ProductId { get; set; } public Guid WarehouseId { get; set; } public decimal QuantityOnHand { get; set; } public decimal QuantityReserved { get; set; } public decimal AlertThreshold { get; set; } }
 public sealed class StockMovement : AuditableEntity { public Guid ProductId { get; set; } public Guid WarehouseId { get; set; } public decimal Quantity { get; set; } public string Type { get; set; } = "Adjustment"; public string Reason { get; set; } = string.Empty; public string? ReferenceModule { get; set; } public Guid? ReferenceId { get; set; } }
 public sealed class SalesOrder : AuditableEntity { public string Number { get; set; } = string.Empty; public Guid CustomerId { get; set; } public Guid? WarehouseId { get; set; } public string Status { get; set; } = "Draft"; public DateTimeOffset? ConfirmedAt { get; set; } public DateTimeOffset? ShippedAt { get; set; } public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? CancelledAt { get; set; } }
