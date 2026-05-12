@@ -243,6 +243,10 @@ export class ApiClient {
     return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/expected-date`, { method: 'PUT', auth: true, body: JSON.stringify({ expectedAt }) });
   }
 
+  receivePurchaseOrderToStock(orderId: string, warehouseId: string) {
+    return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/receive-to-stock`, { method: 'POST', auth: true, body: JSON.stringify({ warehouseId }) });
+  }
+
   invoices() {
     return this.request<PagedResult<Invoice>>('/api/invoices', { auth: true });
   }

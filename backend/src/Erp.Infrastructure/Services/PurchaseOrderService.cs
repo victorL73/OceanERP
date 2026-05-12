@@ -7,15 +7,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService lowStockAlerts) : IPurchaseOrderService
+public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService lowStockAlerts, IStockService stock) : IPurchaseOrderService
 {
     private static readonly IReadOnlyDictionary<string, string[]> AllowedTransitions = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["Draft"] = ["Ordered", "Cancelled"],
-        ["Ordered"] = ["PartiallyReceived", "Received", "Cancelled"],
-        ["PartiallyReceived"] = ["Received", "Cancelled"],
-        ["Received"] = [],
-        ["Cancelled"] = []
+        ["Ordered"] = ["Draft", "PartiallyReceived", "Received", "Cancelled"],
+        ["PartiallyReceived"] = ["Ordered", "Received", "Cancelled"],
+        ["Received"] = ["Ordered", "PartiallyReceived", "Cancelled"],
+        ["Cancelled"] = ["Draft"]
     };
 
     public async Task<PagedResult<PurchaseOrderDto>> SearchAsync(int page, int pageSize, CancellationToken cancellationToken)
@@ -119,6 +119,8 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         if (nextStatus == "Ordered") order.OrderedAt = now;
         if (nextStatus == "Received") order.ReceivedAt = now;
         if (nextStatus == "Cancelled") order.CancelledAt = now;
+        if (nextStatus != "Received") order.ReceivedAt = null;
+        if (nextStatus != "Cancelled") order.CancelledAt = null;
 
         await db.SaveChangesAsync(cancellationToken);
         await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
@@ -140,6 +142,80 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
 
         order.ExpectedAt = request.ExpectedAt;
         await db.SaveChangesAsync(cancellationToken);
+        return Result<PurchaseOrderDto>.Success(await MapAsync(order, cancellationToken));
+    }
+
+    public async Task<Result<PurchaseOrderDto>> ReceiveToStockAsync(Guid id, ReceivePurchaseOrderToStockRequest request, CancellationToken cancellationToken)
+    {
+        var order = await db.PurchaseOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (order is null)
+        {
+            return Result<PurchaseOrderDto>.Failure("Commande fournisseur introuvable.");
+        }
+
+        if (!string.Equals(order.Status, "Received", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<PurchaseOrderDto>.Failure("La commande doit etre au statut recue avant ajout au stock.");
+        }
+
+        var lines = await db.PurchaseOrderLines
+            .Where(x => x.PurchaseOrderId == id && x.ProductId.HasValue && x.Quantity > x.ReceivedQuantity)
+            .OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        if (lines.Count == 0)
+        {
+            return Result<PurchaseOrderDto>.Failure("Aucune ligne produit restante a ajouter au stock.");
+        }
+
+        async Task<Result> AddLinesAsync()
+        {
+            foreach (var line in lines)
+            {
+                var quantity = line.Quantity - line.ReceivedQuantity;
+                var result = await stock.AdjustAsync(new AdjustStockRequest(
+                    line.ProductId!.Value,
+                    request.WarehouseId,
+                    quantity,
+                    $"Reception commande fournisseur {order.Number}",
+                    null,
+                    "PurchaseOrder",
+                    order.Id), cancellationToken);
+
+                if (!result.Succeeded)
+                {
+                    return Result.Failure(result.Error!);
+                }
+
+                line.ReceivedQuantity = line.Quantity;
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            return Result.Success();
+        }
+
+        if (db.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            var result = await AddLinesAsync();
+            if (!result.Succeeded)
+            {
+                return Result<PurchaseOrderDto>.Failure(result.Error!);
+            }
+        }
+        else
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var result = await AddLinesAsync();
+            if (!result.Succeeded)
+            {
+                return Result<PurchaseOrderDto>.Failure(result.Error!);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
+
         return Result<PurchaseOrderDto>.Success(await MapAsync(order, cancellationToken));
     }
 

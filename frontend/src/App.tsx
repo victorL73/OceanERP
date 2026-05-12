@@ -174,10 +174,11 @@ export default function App() {
         setWarehouses(nextWarehouses);
       }
       if (target === 'purchases') {
-        const [nextPurchaseOrders, nextProducts, nextSuppliers] = await Promise.all([api.purchaseOrders(), api.products(), api.productSuppliers()]);
+        const [nextPurchaseOrders, nextProducts, nextSuppliers, nextWarehouses] = await Promise.all([api.purchaseOrders(), api.products(), api.productSuppliers(), api.warehouses()]);
         setPurchaseOrders(nextPurchaseOrders);
         setProducts(nextProducts);
         setProductSuppliers(nextSuppliers);
+        setWarehouses(nextWarehouses);
       }
       if (target === 'invoices') {
         const [nextInvoices, nextOrders] = await Promise.all([api.invoices(), api.orders()]);
@@ -382,7 +383,7 @@ export default function App() {
         {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('quotes')} />}
         {!loading && view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
-        {!loading && view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} onChanged={() => load('purchases')} />}
+        {!loading && view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('purchases')} />}
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} onChanged={() => load('emails')} />}
@@ -1671,7 +1672,7 @@ function purchaseAmount(value?: number | null) {
   return `${amount.toFixed(2)} EUR`;
 }
 
-function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseOrder[]; suppliers: ProductSupplier[]; products: Product[]; onChanged: () => Promise<void> }) {
+function Purchases({ items, suppliers, products, warehouses, onChanged }: { items: PurchaseOrder[]; suppliers: ProductSupplier[]; products: Product[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [supplierId, setSupplierId] = useState('');
   const [expectedAt, setExpectedAt] = useState('');
   const [comment, setComment] = useState('');
@@ -1679,6 +1680,7 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
   const [charges, setCharges] = useState<PurchaseDraftCharge[]>([]);
   const [dateOrderId, setDateOrderId] = useState('');
   const [dateValue, setDateValue] = useState('');
+  const [receiveWarehouseIds, setReceiveWarehouseIds] = useState<Record<string, string>>({});
   const selectedDateOrder = items.find((item) => item.id === dateOrderId);
 
   useEffect(() => {
@@ -1755,6 +1757,24 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
 
   async function changeStatus(order: PurchaseOrder, status: string) {
     await api.changePurchaseOrderStatus(order.id, status);
+    await onChanged();
+  }
+
+  function hasStockToReceive(order: PurchaseOrder) {
+    return (order.lines ?? []).some((line) => line.productId && line.quantity > line.receivedQuantity);
+  }
+
+  function selectedReceiveWarehouse(order: PurchaseOrder) {
+    return receiveWarehouseIds[order.id] || warehouses[0]?.id || '';
+  }
+
+  async function receiveToStock(order: PurchaseOrder) {
+    const warehouseId = selectedReceiveWarehouse(order);
+    if (!warehouseId) {
+      throw new Error('Creer un entrepot avant ajout au stock.');
+    }
+
+    await api.receivePurchaseOrderToStock(order.id, warehouseId);
     await onChanged();
   }
 
@@ -1941,6 +1961,7 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
           const lineVat = item.linesVatTotal ?? orderLines.reduce((sum, line) => sum + (line.lineVatTotal ?? 0), 0);
           const chargesNet = item.chargesNetTotal ?? 0;
           const chargesVat = item.chargesVatTotal ?? 0;
+          const stockPending = hasStockToReceive(item);
           return [
             item.number,
             item.supplierName ?? item.supplierId,
@@ -1956,10 +1977,44 @@ function Purchases({ items, suppliers, products, onChanged }: { items: PurchaseO
                   Commander
                 </button>
               )}
+              {item.status === 'Ordered' && (
+                <button className="secondary" type="button" onClick={() => changeStatus(item, 'Draft')}>
+                  Retour brouillon
+                </button>
+              )}
+              {item.status === 'PartiallyReceived' && (
+                <button className="secondary" type="button" onClick={() => changeStatus(item, 'Ordered')}>
+                  Retour commandee
+                </button>
+              )}
+              {item.status === 'Received' && (
+                <button className="secondary" type="button" onClick={() => changeStatus(item, 'Ordered')}>
+                  Retour commandee
+                </button>
+              )}
+              {item.status === 'Cancelled' && (
+                <button className="secondary" type="button" onClick={() => changeStatus(item, 'Draft')}>
+                  Reouvrir
+                </button>
+              )}
               {(item.status === 'Ordered' || item.status === 'PartiallyReceived') && (
                 <button className="secondary" type="button" onClick={() => changeStatus(item, 'Received')}>
                   Recu
                 </button>
+              )}
+              {item.status === 'Received' && stockPending && (
+                <>
+                  <select className="compact-select" value={selectedReceiveWarehouse(item)} onChange={(event) => setReceiveWarehouseIds((current) => ({ ...current, [item.id]: event.target.value }))}>
+                    {warehouses.map((warehouse) => (
+                      <option key={warehouse.id} value={warehouse.id}>
+                        {warehouse.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="primary" type="button" onClick={() => receiveToStock(item)}>
+                    Ajouter au stock
+                  </button>
+                </>
               )}
               {item.status !== 'Received' && item.status !== 'Cancelled' && (
                 <button className="danger" type="button" onClick={() => changeStatus(item, 'Cancelled')}>

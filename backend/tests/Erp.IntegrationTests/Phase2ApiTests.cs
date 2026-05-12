@@ -249,6 +249,47 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(62.15m, order.Total);
     }
 
+    [Fact]
+    public async Task PurchaseOrder_CanRollbackStatusAndReceiveLinesToStock()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var product = await CreateProductAsync(client);
+        var supplier = (await client.GetFromJsonAsync<IReadOnlyList<ProductSupplierDto>>("/api/products/suppliers"))!.First();
+        var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+
+        var createResponse = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
+            supplier.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5)),
+            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - stock", 4, product.PurchasePrice, product.VatRate)]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var order = await createResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+
+        var ordered = await client.PostAsJsonAsync($"/api/purchases/orders/{order!.Id}/status", new UpdatePurchaseOrderStatusRequest("Ordered"));
+        Assert.Equal(HttpStatusCode.OK, ordered.StatusCode);
+
+        var rollback = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Draft"));
+        Assert.Equal(HttpStatusCode.OK, rollback.StatusCode);
+        var rolledBack = await rollback.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+        Assert.Equal("Draft", rolledBack!.Status);
+
+        (await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Ordered"))).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Received"))).EnsureSuccessStatusCode();
+
+        var receiveResponse = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/receive-to-stock", new ReceivePurchaseOrderToStockRequest(warehouse.Id));
+        Assert.Equal(HttpStatusCode.OK, receiveResponse.StatusCode);
+        var receivedOrder = await receiveResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+        var receivedLine = Assert.Single(receivedOrder!.Lines);
+        Assert.Equal(4, receivedLine.ReceivedQuantity);
+
+        var stockItems = await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items");
+        var stockItem = Assert.Single(stockItems!, x => x.ProductId == product.Id && x.WarehouseId == warehouse.Id);
+        Assert.Equal(4, stockItem.QuantityOnHand);
+
+        var movements = await client.GetFromJsonAsync<IReadOnlyList<StockMovementDto>>("/api/stock/movements");
+        var movement = Assert.Single(movements!, x => x.ReferenceModule == "PurchaseOrder" && x.ReferenceId == order.Id);
+        Assert.Equal(4, movement.Quantity);
+    }
+
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
     {
         var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });

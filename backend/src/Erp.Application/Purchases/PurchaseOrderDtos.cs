@@ -39,6 +39,7 @@ public sealed record CreatePurchaseOrderLineRequest(Guid? ProductId, string Desc
 public sealed record CreatePurchaseOrderChargeRequest(string Label, decimal Amount, decimal VatRate);
 public sealed record UpdatePurchaseOrderStatusRequest(string Status);
 public sealed record UpdatePurchaseOrderExpectedAtRequest(DateOnly? ExpectedAt);
+public sealed record ReceivePurchaseOrderToStockRequest(Guid WarehouseId);
 
 public interface IPurchaseOrderService
 {
@@ -47,4 +48,5 @@ public interface IPurchaseOrderService
     Task<Result<PurchaseOrderDto>> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> ChangeStatusAsync(Guid id, UpdatePurchaseOrderStatusRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> UpdateExpectedAtAsync(Guid id, UpdatePurchaseOrderExpectedAtRequest request, CancellationToken cancellationToken);
+    Task<Result<PurchaseOrderDto>> ReceiveToStockAsync(Guid id, ReceivePurchaseOrderToStockRequest request, CancellationToken cancellationToken);
 }

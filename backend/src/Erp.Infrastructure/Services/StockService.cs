@@ -199,7 +199,9 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             WarehouseId = request.WarehouseId,
             Quantity = request.Quantity,
             Type = request.Quantity == 0 ? "Threshold" : "Adjustment",
-            Reason = string.IsNullOrWhiteSpace(request.Reason) ? "Manual adjustment" : request.Reason.Trim()
+            Reason = string.IsNullOrWhiteSpace(request.Reason) ? "Manual adjustment" : request.Reason.Trim(),
+            ReferenceModule = request.ReferenceModule,
+            ReferenceId = request.ReferenceId
         };
         db.StockMovements.Add(movement);
 

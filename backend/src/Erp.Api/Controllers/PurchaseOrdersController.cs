@@ -45,4 +45,12 @@ public sealed class PurchaseOrdersController(IPurchaseOrderService purchaseOrder
         var result = await purchaseOrders.UpdateExpectedAtAsync(id, request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
+
+    [HttpPost("{id:guid}/receive-to-stock")]
+    [Authorize(Policy = "purchases.write")]
+    public async Task<ActionResult<PurchaseOrderDto>> ReceiveToStock(Guid id, ReceivePurchaseOrderToStockRequest request, CancellationToken cancellationToken)
+    {
+        var result = await purchaseOrders.ReceiveToStockAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
 }
