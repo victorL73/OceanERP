@@ -239,6 +239,14 @@ export class ApiClient {
     return this.request<Warehouse>('/api/stock/warehouses', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  updateWarehouse(warehouseId: string, payload: { name: string }) {
+    return this.request<Warehouse>(`/api/stock/warehouses/${warehouseId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  deleteWarehouse(warehouseId: string) {
+    return this.request<void>(`/api/stock/warehouses/${warehouseId}`, { method: 'DELETE', auth: true });
+  }
+
   stockItems() {
     return this.request<StockItem[]>('/api/stock/items', { auth: true });
   }
@@ -249,6 +257,10 @@ export class ApiClient {
 
   adjustStock(payload: { productId: string; warehouseId: string; quantity: number; reason: string; alertThreshold?: number }) {
     return this.request('/api/stock/adjustments', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateStockItem(stockItemId: string, payload: { warehouseId: string; quantityOnHand: number; alertThreshold?: number }) {
+    return this.request<StockItem>(`/api/stock/items/${stockItemId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
   mailAccounts() {

@@ -434,7 +434,8 @@ h1 {
 }
 
 .secondary,
-.upload-button {
+.upload-button,
+.danger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -448,9 +449,23 @@ h1 {
   font-weight: 700;
 }
 
+.danger {
+  border-color: #fecaca;
+  background: #fff;
+  color: #b91c1c;
+}
+
 .secondary:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.table-input {
+  width: min(360px, 100%);
+  min-height: 36px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0 10px;
 }
 
 .upload-button input {

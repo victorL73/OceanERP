@@ -22,15 +22,78 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
 
     public async Task<Result<WarehouseDto>> CreateWarehouseAsync(CreateWarehouseRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Name))
+        var name = request.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(name))
         {
-            return Result<WarehouseDto>.Failure("Warehouse name is required.");
+            return Result<WarehouseDto>.Failure("Le nom de l'entrepot est obligatoire.");
         }
 
-        var warehouse = new Warehouse { Name = request.Name.Trim() };
+        if (await db.Warehouses.AnyAsync(x => x.Name == name, cancellationToken))
+        {
+            return Result<WarehouseDto>.Failure("Un entrepot porte deja ce nom.");
+        }
+
+        var warehouse = new Warehouse { Name = name };
         db.Warehouses.Add(warehouse);
         await db.SaveChangesAsync(cancellationToken);
         return Result<WarehouseDto>.Success(new WarehouseDto(warehouse.Id, warehouse.Name));
+    }
+
+    public async Task<Result<WarehouseDto>> UpdateWarehouseAsync(Guid warehouseId, UpdateWarehouseRequest request, CancellationToken cancellationToken)
+    {
+        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Id == warehouseId, cancellationToken);
+        if (warehouse is null)
+        {
+            return Result<WarehouseDto>.Failure("Entrepot introuvable.");
+        }
+
+        var name = request.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Result<WarehouseDto>.Failure("Le nom de l'entrepot est obligatoire.");
+        }
+
+        if (await db.Warehouses.AnyAsync(x => x.Id != warehouseId && x.Name == name, cancellationToken))
+        {
+            return Result<WarehouseDto>.Failure("Un entrepot porte deja ce nom.");
+        }
+
+        warehouse.Name = name;
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<WarehouseDto>.Success(new WarehouseDto(warehouse.Id, warehouse.Name));
+    }
+
+    public async Task<Result> DeleteWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken)
+    {
+        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Id == warehouseId, cancellationToken);
+        if (warehouse is null)
+        {
+            return Result.Failure("Entrepot introuvable.");
+        }
+
+        if (await db.StockItems.AnyAsync(x => x.WarehouseId == warehouseId, cancellationToken))
+        {
+            return Result.Failure("Impossible de supprimer cet entrepot car il contient du stock.");
+        }
+
+        if (await db.StockMovements.AnyAsync(x => x.WarehouseId == warehouseId, cancellationToken))
+        {
+            return Result.Failure("Impossible de supprimer cet entrepot car il possede un historique de mouvements.");
+        }
+
+        if (await db.SalesOrders.AnyAsync(x => x.WarehouseId == warehouseId, cancellationToken))
+        {
+            return Result.Failure("Impossible de supprimer cet entrepot car il est utilise par des commandes.");
+        }
+
+        if (await db.PrestashopConnections.AnyAsync(x => x.WarehouseId == warehouseId, cancellationToken))
+        {
+            return Result.Failure("Impossible de supprimer cet entrepot car il est rattache a une connexion PrestaShop.");
+        }
+
+        db.Warehouses.Remove(warehouse);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
     }
 
     public async Task<IReadOnlyList<StockItemDto>> GetStockItemsAsync(CancellationToken cancellationToken)
@@ -127,6 +190,96 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         await db.SaveChangesAsync(cancellationToken);
 
         return Result<StockMovementDto>.Success(Map(movement));
+    }
+
+    public async Task<Result<StockItemDto>> UpdateStockItemAsync(Guid stockItemId, UpdateStockItemRequest request, CancellationToken cancellationToken)
+    {
+        if (request.QuantityOnHand < 0)
+        {
+            return Result<StockItemDto>.Failure("Le stock reel ne peut pas etre negatif.");
+        }
+
+        if (!await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId, cancellationToken))
+        {
+            return Result<StockItemDto>.Failure("Entrepot introuvable.");
+        }
+
+        var item = await db.StockItems.FirstOrDefaultAsync(x => x.Id == stockItemId, cancellationToken);
+        if (item is null)
+        {
+            return Result<StockItemDto>.Failure("Ligne de stock introuvable.");
+        }
+
+        if (request.QuantityOnHand < item.QuantityReserved)
+        {
+            return Result<StockItemDto>.Failure("Le stock reel ne peut pas etre inferieur au stock reserve.");
+        }
+
+        var warehouseChanged = item.WarehouseId != request.WarehouseId;
+        if (warehouseChanged && item.QuantityReserved > 0)
+        {
+            return Result<StockItemDto>.Failure("Impossible de changer l'entrepot d'une ligne avec du stock reserve.");
+        }
+
+        if (warehouseChanged && await db.StockItems.AnyAsync(x => x.Id != item.Id && x.ProductId == item.ProductId && x.WarehouseId == request.WarehouseId, cancellationToken))
+        {
+            return Result<StockItemDto>.Failure("Un stock existe deja pour ce produit dans l'entrepot cible. Modifiez directement cette ligne.");
+        }
+
+        var oldWarehouseId = item.WarehouseId;
+        var oldQuantity = item.QuantityOnHand;
+        var oldThreshold = item.AlertThreshold;
+        item.WarehouseId = request.WarehouseId;
+        item.QuantityOnHand = request.QuantityOnHand;
+        if (request.AlertThreshold is decimal threshold)
+        {
+            item.AlertThreshold = threshold;
+        }
+
+        if (warehouseChanged)
+        {
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = item.ProductId,
+                WarehouseId = oldWarehouseId,
+                Quantity = -oldQuantity,
+                Type = "Transfer",
+                Reason = "Changement d'entrepot depuis la fiche stock"
+            });
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = item.ProductId,
+                WarehouseId = item.WarehouseId,
+                Quantity = item.QuantityOnHand,
+                Type = "Transfer",
+                Reason = "Changement d'entrepot depuis la fiche stock"
+            });
+        }
+        else
+        {
+            var delta = item.QuantityOnHand - oldQuantity;
+            if (delta != 0 || item.AlertThreshold != oldThreshold)
+            {
+                db.StockMovements.Add(new StockMovement
+                {
+                    ProductId = item.ProductId,
+                    WarehouseId = item.WarehouseId,
+                    Quantity = delta,
+                    Type = delta == 0 ? "Threshold" : "Adjustment",
+                    Reason = "Correction de stock depuis la fiche stock"
+                });
+            }
+        }
+
+        await AddLowStockNotificationAsync(item, cancellationToken);
+        var prestashopResult = await PublishPrestashopStockAsync(item, cancellationToken);
+        if (!prestashopResult.Succeeded)
+        {
+            return Result<StockItemDto>.Failure(prestashopResult.Error!);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<StockItemDto>.Success(Map(item));
     }
 
     private async Task AddLowStockNotificationAsync(StockItem item, CancellationToken cancellationToken)
@@ -449,6 +602,9 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
 
         return string.Join(" ", messages);
     }
+
+    private static StockItemDto Map(StockItem item)
+        => new(item.Id, item.ProductId, item.WarehouseId, item.QuantityOnHand, item.QuantityReserved, item.QuantityOnHand - item.QuantityReserved, item.AlertThreshold, item.AlertThreshold > 0 && item.QuantityOnHand - item.QuantityReserved <= item.AlertThreshold);
 
     private static StockMovementDto Map(StockMovement movement)
         => new(movement.Id, movement.ProductId, movement.WarehouseId, movement.Quantity, movement.Type, movement.Reason, movement.ReferenceModule, movement.ReferenceId, movement.CreatedAt);

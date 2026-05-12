@@ -22,6 +22,22 @@ public sealed class StockController(IStockService stock) : ControllerBase
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPut("warehouses/{warehouseId:guid}")]
+    [Authorize(Policy = "stock.write")]
+    public async Task<ActionResult<WarehouseDto>> UpdateWarehouse(Guid warehouseId, UpdateWarehouseRequest request, CancellationToken cancellationToken)
+    {
+        var result = await stock.UpdateWarehouseAsync(warehouseId, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpDelete("warehouses/{warehouseId:guid}")]
+    [Authorize(Policy = "stock.write")]
+    public async Task<IActionResult> DeleteWarehouse(Guid warehouseId, CancellationToken cancellationToken)
+    {
+        var result = await stock.DeleteWarehouseAsync(warehouseId, cancellationToken);
+        return result.Succeeded ? NoContent() : BadRequest(new { error = result.Error });
+    }
+
     [HttpGet("items")]
     [Authorize(Policy = "stock.read")]
     public async Task<ActionResult<IReadOnlyList<StockItemDto>>> Items(CancellationToken cancellationToken)
@@ -37,6 +53,14 @@ public sealed class StockController(IStockService stock) : ControllerBase
     public async Task<ActionResult<StockMovementDto>> Adjust(AdjustStockRequest request, CancellationToken cancellationToken)
     {
         var result = await stock.AdjustAsync(request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPut("items/{stockItemId:guid}")]
+    [Authorize(Policy = "stock.write")]
+    public async Task<ActionResult<StockItemDto>> UpdateItem(Guid stockItemId, UpdateStockItemRequest request, CancellationToken cancellationToken)
+    {
+        var result = await stock.UpdateStockItemAsync(stockItemId, request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 }

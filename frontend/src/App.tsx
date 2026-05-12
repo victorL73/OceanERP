@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -529,7 +529,12 @@ function Settings({
 
 function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [name, setName] = useState('');
+  const [draftNames, setDraftNames] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftNames(Object.fromEntries(warehouses.map((warehouse) => [warehouse.id, warehouse.name])));
+  }, [warehouses]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -541,6 +546,32 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
       await onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Creation impossible');
+    }
+  }
+
+  async function updateWarehouse(warehouse: Warehouse) {
+    setMessage(null);
+    try {
+      await api.updateWarehouse(warehouse.id, { name: draftNames[warehouse.id] ?? warehouse.name });
+      setMessage('Entrepot modifie.');
+      await onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Modification impossible');
+    }
+  }
+
+  async function deleteWarehouse(warehouse: Warehouse) {
+    if (!window.confirm(`Supprimer l'entrepot "${warehouse.name}" ?`)) {
+      return;
+    }
+
+    setMessage(null);
+    try {
+      await api.deleteWarehouse(warehouse.id);
+      setMessage('Entrepot supprime.');
+      await onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Suppression impossible');
     }
   }
 
@@ -556,7 +587,27 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
         </form>
         {message && <div className="inline-message">{message}</div>}
       </Panel>
-      <DataTable columns={['Entrepot']} rows={warehouses.map((warehouse) => [warehouse.name])} />
+      <DataTable
+        columns={['Entrepot', 'Actions']}
+        rows={warehouses.map((warehouse) => [
+          <input
+            key={`${warehouse.id}-name`}
+            className="table-input"
+            value={draftNames[warehouse.id] ?? warehouse.name}
+            onChange={(event) => setDraftNames((current) => ({ ...current, [warehouse.id]: event.target.value }))}
+          />,
+          <div key={`${warehouse.id}-actions`} className="table-actions">
+            <button className="secondary" type="button" onClick={() => updateWarehouse(warehouse)}>
+              <Save size={15} />
+              Modifier
+            </button>
+            <button className="danger" type="button" onClick={() => deleteWarehouse(warehouse)}>
+              <Trash2 size={15} />
+              Supprimer
+            </button>
+          </div>
+        ])}
+      />
     </>
   );
 }
@@ -1622,6 +1673,7 @@ function Stock({
           item={selectedStock}
           productLabel={productLabel(selectedStock.productId)}
           warehouseLabel={warehouseLabel(selectedStock.warehouseId)}
+          warehouses={warehouses}
           prestashopConnection={prestashopConnectionByWarehouseId.get(selectedStock.warehouseId)}
           activePrestashopConnections={activePrestashopConnections}
           onClose={() => setSelectedStockIndex(null)}
@@ -1639,6 +1691,7 @@ function StockDetailsModal({
   item,
   productLabel,
   warehouseLabel,
+  warehouses,
   prestashopConnection,
   activePrestashopConnections,
   onClose,
@@ -1647,18 +1700,21 @@ function StockDetailsModal({
   item: StockItem;
   productLabel: string;
   warehouseLabel: string;
+  warehouses: Warehouse[];
   prestashopConnection?: PrestashopConnection;
   activePrestashopConnections: PrestashopConnection[];
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const [editMode, setEditMode] = useState(false);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState(item.warehouseId);
   const [quantityOnHand, setQuantityOnHand] = useState(item.quantityOnHand.toString());
   const [alertThreshold, setAlertThreshold] = useState(item.alertThreshold.toString());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setSelectedWarehouseId(item.warehouseId);
     setQuantityOnHand(item.quantityOnHand.toString());
     setAlertThreshold(item.alertThreshold.toString());
     setEditMode(false);
@@ -1680,12 +1736,9 @@ function StockDetailsModal({
     setError(null);
     try {
       const nextQuantity = Number(quantityOnHand);
-      const delta = nextQuantity - item.quantityOnHand;
-      await api.adjustStock({
-        productId: item.productId,
-        warehouseId: item.warehouseId,
-        quantity: Number(delta.toFixed(3)),
-        reason: 'Correction de stock depuis la fiche stock',
+      await api.updateStockItem(item.id, {
+        warehouseId: selectedWarehouseId,
+        quantityOnHand: Number(nextQuantity.toFixed(3)),
         alertThreshold: Number(alertThreshold)
       });
       await onSaved();
@@ -1726,7 +1779,13 @@ function StockDetailsModal({
               </label>
               <label className="field">
                 <span>Entrepot</span>
-                <input readOnly value={warehouseLabel} />
+                <select required value={selectedWarehouseId} onChange={(event) => setSelectedWarehouseId(event.target.value)}>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Stock reel</span>

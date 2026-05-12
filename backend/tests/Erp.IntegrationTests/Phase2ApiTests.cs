@@ -19,7 +19,7 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         using var client = await CreateAuthenticatedClientAsync();
         var product = await CreateProductAsync(client);
         var warehouses = await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses");
-        var warehouse = Assert.Single(warehouses!);
+        var warehouse = warehouses!.First();
 
         var response = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 5, "Initial stock", 2));
 
@@ -36,7 +36,7 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var customer = await CreateCustomerAsync(client);
         var product = await CreateProductAsync(client);
         var warehouses = await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses");
-        var warehouse = Assert.Single(warehouses!);
+        var warehouse = warehouses!.First();
         var stockResponse = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 5, "Initial stock", 2));
         stockResponse.EnsureSuccessStatusCode();
 
@@ -68,7 +68,7 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         using var client = await CreateAuthenticatedClientAsync();
         var customer = await CreateCustomerAsync(client);
         var product = await CreateProductAsync(client);
-        var warehouse = Assert.Single((await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!);
+        var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
         (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 5, "Initial stock", 2))).EnsureSuccessStatusCode();
         var orderResponse = await client.PostAsJsonAsync("/api/orders", new CreateSalesOrderRequest(
             customer.Id,
@@ -113,6 +113,39 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(HttpStatusCode.OK, clearResponse.StatusCode);
         var cleared = await clearResponse.Content.ReadFromJsonAsync<PrestashopConnectionDto>();
         Assert.False(cleared!.HasApiKey);
+    }
+
+    [Fact]
+    public async Task Warehouses_AdminCanUpdateDeleteAndMoveStockItem()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var targetResponse = await client.PostAsJsonAsync("/api/stock/warehouses", new CreateWarehouseRequest($"Depot-{Guid.NewGuid():N}"[..16]));
+        Assert.Equal(HttpStatusCode.OK, targetResponse.StatusCode);
+        var target = await targetResponse.Content.ReadFromJsonAsync<WarehouseDto>();
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/stock/warehouses/{target!.Id}", new UpdateWarehouseRequest($"{target.Name}-B"));
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updatedTarget = await updateResponse.Content.ReadFromJsonAsync<WarehouseDto>();
+        Assert.EndsWith("-B", updatedTarget!.Name);
+
+        var deleteCandidateResponse = await client.PostAsJsonAsync("/api/stock/warehouses", new CreateWarehouseRequest($"Temp-{Guid.NewGuid():N}"[..15]));
+        deleteCandidateResponse.EnsureSuccessStatusCode();
+        var deleteCandidate = await deleteCandidateResponse.Content.ReadFromJsonAsync<WarehouseDto>();
+        var deleteResponse = await client.DeleteAsync($"/api/stock/warehouses/{deleteCandidate!.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var product = await CreateProductAsync(client);
+        var source = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First(x => x.Id != updatedTarget.Id);
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, source.Id, 5, "Initial stock", 2))).EnsureSuccessStatusCode();
+        var item = Assert.Single((await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items"))!, x => x.ProductId == product.Id && x.WarehouseId == source.Id);
+
+        var moveResponse = await client.PutAsJsonAsync($"/api/stock/items/{item.Id}", new UpdateStockItemRequest(updatedTarget.Id, 7, 1));
+
+        Assert.Equal(HttpStatusCode.OK, moveResponse.StatusCode);
+        var moved = await moveResponse.Content.ReadFromJsonAsync<StockItemDto>();
+        Assert.Equal(updatedTarget.Id, moved!.WarehouseId);
+        Assert.Equal(7, moved.QuantityOnHand);
+        Assert.Equal(1, moved.AlertThreshold);
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
