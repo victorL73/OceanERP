@@ -1,6 +1,6 @@
-import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -2463,28 +2463,60 @@ function DataTable({
   onRowClick?: (index: number) => void;
   selectedRowIndex?: number;
 }) {
+  const [sortState, setSortState] = useState<{ columnIndex: number; direction: 'asc' | 'desc' } | null>(null);
+  const sortedRows = useMemo(() => {
+    const indexedRows = rows.map((row, index) => ({ row, originalIndex: index }));
+    if (!sortState) {
+      return indexedRows;
+    }
+
+    return [...indexedRows].sort((left, right) => {
+      const result = compareTableCells(left.row[sortState.columnIndex], right.row[sortState.columnIndex]);
+      return sortState.direction === 'asc' ? result : -result;
+    });
+  }, [rows, sortState]);
+
+  function toggleSort(columnIndex: number) {
+    setSortState((current) => {
+      if (!current || current.columnIndex !== columnIndex) {
+        return { columnIndex, direction: 'asc' };
+      }
+
+      if (current.direction === 'asc') {
+        return { columnIndex, direction: 'desc' };
+      }
+
+      return null;
+    });
+  }
+
   return (
     <section className="table-surface">
       <table>
         <thead>
           <tr>
-            {columns.map((column) => (
-              <th key={column}>{column}</th>
+            {columns.map((column, columnIndex) => (
+              <th key={column} aria-sort={sortState?.columnIndex === columnIndex ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button className="sortable-header" type="button" onClick={() => toggleSort(columnIndex)} title={`Trier ${column}`}>
+                  <span>{column}</span>
+                  {sortState?.columnIndex === columnIndex && (sortState.direction === 'asc' ? <ArrowDownAZ size={15} /> : <ArrowUpAZ size={15} />)}
+                </button>
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
+          {sortedRows.map(({ row, originalIndex }) => (
             <tr
-              key={index}
-              className={`${onRowClick ? 'clickable-row' : ''}${selectedRowIndex === index ? ' selected' : ''}`}
-              onClick={onRowClick ? () => onRowClick(index) : undefined}
+              key={originalIndex}
+              className={`${onRowClick ? 'clickable-row' : ''}${selectedRowIndex === originalIndex ? ' selected' : ''}`}
+              onClick={onRowClick ? () => onRowClick(originalIndex) : undefined}
               onKeyDown={
                 onRowClick
                   ? (event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        onRowClick(index);
+                        onRowClick(originalIndex);
                       }
                     }
                   : undefined
@@ -2501,6 +2533,74 @@ function DataTable({
       {rows.length === 0 && <EmptyState icon={BriefcaseBusiness} title="Aucune donnee" />}
     </section>
   );
+}
+
+function compareTableCells(left: ReactNode, right: ReactNode) {
+  const leftText = tableCellText(left);
+  const rightText = tableCellText(right);
+  const leftNumber = parseTableNumber(leftText);
+  const rightNumber = parseTableNumber(rightText);
+  if (leftNumber !== null && rightNumber !== null) {
+    return leftNumber - rightNumber;
+  }
+
+  const leftDate = parseTableDate(leftText);
+  const rightDate = parseTableDate(rightText);
+  if (leftDate !== null && rightDate !== null) {
+    return leftDate - rightDate;
+  }
+
+  return leftText.localeCompare(rightText, 'fr', { numeric: true, sensitivity: 'base' });
+}
+
+function tableCellText(value: ReactNode): string {
+  if (value === null || value === undefined || typeof value === 'boolean') {
+    return '';
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value).trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(tableCellText).join(' ').trim();
+  }
+
+  if (isValidElement<{ children?: ReactNode }>(value)) {
+    return tableCellText(value.props.children);
+  }
+
+  return '';
+}
+
+function parseTableNumber(value: string) {
+  const normalized = value.trim();
+  if (!normalized || /[/:T]/.test(normalized)) {
+    return null;
+  }
+
+  const cleaned = normalized
+    .replace(/\s/g, '')
+    .replace(',', '.')
+    .replace(/(EUR|€|%|Ko)$/i, '')
+    .replace(/[^\d.-]/g, '');
+
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) {
+    return null;
+  }
+
+  const number = Number(cleaned);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseTableDate(value: string) {
+  const normalized = value.trim();
+  if (!/\d{4}-\d{2}-\d{2}/.test(normalized)) {
+    return null;
+  }
+
+  const timestamp = Date.parse(normalized);
+  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function EmptyState({ icon: Icon, title }: { icon: typeof Box; title: string }) {

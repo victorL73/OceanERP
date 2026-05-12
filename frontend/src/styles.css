@@ -525,15 +525,47 @@ table {
 th,
 td {
   border-bottom: 1px solid #e5e7eb;
-  padding: 13px 16px;
   text-align: left;
 }
 
+td {
+  padding: 13px 16px;
+}
+
 th {
+  padding: 0;
   background: #f3f4f6;
   color: #475569;
   font-size: 13px;
   text-transform: uppercase;
+}
+
+.sortable-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 13px 16px;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.sortable-header:hover,
+.sortable-header:focus {
+  background: #e5e7eb;
+  outline: none;
+}
+
+.sortable-header svg {
+  flex: 0 0 auto;
+  color: #0f766e;
 }
 
 .clickable-row {
