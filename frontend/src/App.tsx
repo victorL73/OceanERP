@@ -1721,7 +1721,15 @@ function Stock({
   const [warehouseId, setWarehouseId] = useState('');
   const [quantity, setQuantity] = useState('0');
   const [alertThreshold, setAlertThreshold] = useState('0');
-  const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
+  const [activeStockTab, setActiveStockTab] = useState<'items' | 'movements'>('items');
+  const [stockSearch, setStockSearch] = useState('');
+  const [stockFilterColumn, setStockFilterColumn] = useState('all');
+  const [stockFilterWarehouseId, setStockFilterWarehouseId] = useState('');
+  const [movementSearch, setMovementSearch] = useState('');
+  const [movementFilterColumn, setMovementFilterColumn] = useState('all');
+  const [movementFilterWarehouseId, setMovementFilterWarehouseId] = useState('');
+  const [movementFilterType, setMovementFilterType] = useState('');
+  const [selectedStockId, setSelectedStockId] = useState<string | null>(null);
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
   const activePrestashopConnections = useMemo(() => prestashopConnections.filter((connection) => connection.isActive), [prestashopConnections]);
@@ -1730,7 +1738,8 @@ function Stock({
     () => new Map(activePrestashopConnections.filter((connection) => connection.warehouseId).map((connection) => [connection.warehouseId as string, connection])),
     [activePrestashopConnections]
   );
-  const selectedStock = selectedStockIndex === null ? null : items[selectedStockIndex] ?? null;
+  const selectedStock = selectedStockId ? items.find((item) => item.id === selectedStockId) ?? null : null;
+  const movementTypes = useMemo(() => Array.from(new Set(movements.map((movement) => movement.type))).sort(), [movements]);
 
   function productLabel(id: string) {
     const product = productById.get(id);
@@ -1740,6 +1749,56 @@ function Stock({
   function warehouseLabel(id: string) {
     return warehouseById.get(id)?.name ?? id;
   }
+
+  function stockColumnText(item: StockItem, column: string) {
+    const values: Record<string, string> = {
+      product: productLabel(item.productId),
+      warehouse: warehouseLabel(item.warehouseId),
+      stock: item.quantityOnHand.toString(),
+      reserved: item.quantityReserved.toString(),
+      available: item.availableQuantity.toString(),
+      threshold: (item.isLowStock ? `Bas ${item.alertThreshold}` : item.alertThreshold).toString()
+    };
+    return column === 'all' ? Object.values(values).join(' ') : values[column] ?? '';
+  }
+
+  function movementColumnText(item: StockMovement, column: string) {
+    const values: Record<string, string> = {
+      product: productLabel(item.productId),
+      warehouse: warehouseLabel(item.warehouseId),
+      type: item.type,
+      quantity: item.quantity.toString(),
+      reason: item.reason,
+      date: item.createdAt
+    };
+    return column === 'all' ? Object.values(values).join(' ') : values[column] ?? '';
+  }
+
+  const filteredStockItems = useMemo(() => {
+    const query = stockSearch.trim().toLowerCase();
+    return items.filter((item) => {
+      if (stockFilterWarehouseId && item.warehouseId !== stockFilterWarehouseId) {
+        return false;
+      }
+
+      return !query || stockColumnText(item, stockFilterColumn).toLowerCase().includes(query);
+    });
+  }, [items, stockSearch, stockFilterColumn, stockFilterWarehouseId, productById, warehouseById]);
+
+  const filteredMovements = useMemo(() => {
+    const query = movementSearch.trim().toLowerCase();
+    return movements.filter((item) => {
+      if (movementFilterWarehouseId && item.warehouseId !== movementFilterWarehouseId) {
+        return false;
+      }
+
+      if (movementFilterType && item.type !== movementFilterType) {
+        return false;
+      }
+
+      return !query || movementColumnText(item, movementFilterColumn).toLowerCase().includes(query);
+    });
+  }, [movements, movementSearch, movementFilterColumn, movementFilterWarehouseId, movementFilterType, productById, warehouseById]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1788,13 +1847,87 @@ function Stock({
           </button>
         </form>
       </Panel>
-      <DataTable
-        columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']}
-        rows={items.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])}
-        onRowClick={setSelectedStockIndex}
-        selectedRowIndex={selectedStockIndex ?? undefined}
-      />
-      <DataTable columns={['Produit', 'Entrepot', 'Type', 'Quantite', 'Motif', 'Date']} rows={movements.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.type, item.quantity, item.reason, item.createdAt])} />
+      <nav className="browser-tabs">
+        <button type="button" className={activeStockTab === 'items' ? 'active' : ''} onClick={() => setActiveStockTab('items')}>
+          Stock
+        </button>
+        <button type="button" className={activeStockTab === 'movements' ? 'active' : ''} onClick={() => setActiveStockTab('movements')}>
+          Mouvements
+        </button>
+      </nav>
+      {activeStockTab === 'items' && (
+        <section className="tab-page">
+          <Panel title="Filtres stock">
+            <form className="form-grid filter-grid" onSubmit={(event) => event.preventDefault()}>
+              <input placeholder="Rechercher un produit, entrepot, quantite..." value={stockSearch} onChange={(event) => setStockSearch(event.target.value)} />
+              <select value={stockFilterColumn} onChange={(event) => setStockFilterColumn(event.target.value)}>
+                <option value="all">Toutes les colonnes</option>
+                <option value="product">Produit</option>
+                <option value="warehouse">Entrepot</option>
+                <option value="stock">Stock</option>
+                <option value="reserved">Reserve</option>
+                <option value="available">Disponible</option>
+                <option value="threshold">Seuil</option>
+              </select>
+              <select value={stockFilterWarehouseId} onChange={(event) => setStockFilterWarehouseId(event.target.value)}>
+                <option value="">Tous les entrepots</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
+              <button className="secondary" type="button" onClick={() => { setStockSearch(''); setStockFilterColumn('all'); setStockFilterWarehouseId(''); }}>
+                Reinitialiser
+              </button>
+            </form>
+          </Panel>
+          <DataTable
+            columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil']}
+            rows={filteredStockItems.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold])}
+            onRowClick={(index) => setSelectedStockId(filteredStockItems[index]?.id ?? null)}
+            selectedRowIndex={selectedStock ? filteredStockItems.findIndex((item) => item.id === selectedStock.id) : undefined}
+          />
+        </section>
+      )}
+      {activeStockTab === 'movements' && (
+        <section className="tab-page">
+          <Panel title="Filtres mouvements">
+            <form className="form-grid filter-grid" onSubmit={(event) => event.preventDefault()}>
+              <input placeholder="Rechercher un produit, motif, date..." value={movementSearch} onChange={(event) => setMovementSearch(event.target.value)} />
+              <select value={movementFilterColumn} onChange={(event) => setMovementFilterColumn(event.target.value)}>
+                <option value="all">Toutes les colonnes</option>
+                <option value="product">Produit</option>
+                <option value="warehouse">Entrepot</option>
+                <option value="type">Type</option>
+                <option value="quantity">Quantite</option>
+                <option value="reason">Motif</option>
+                <option value="date">Date</option>
+              </select>
+              <select value={movementFilterWarehouseId} onChange={(event) => setMovementFilterWarehouseId(event.target.value)}>
+                <option value="">Tous les entrepots</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
+              <select value={movementFilterType} onChange={(event) => setMovementFilterType(event.target.value)}>
+                <option value="">Tous les types</option>
+                {movementTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+              <button className="secondary" type="button" onClick={() => { setMovementSearch(''); setMovementFilterColumn('all'); setMovementFilterWarehouseId(''); setMovementFilterType(''); }}>
+                Reinitialiser
+              </button>
+            </form>
+          </Panel>
+          <DataTable columns={['Produit', 'Entrepot', 'Type', 'Quantite', 'Motif', 'Date']} rows={filteredMovements.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.type, item.quantity, item.reason, item.createdAt])} />
+        </section>
+      )}
       {selectedStock && (
         <StockDetailsModal
           item={selectedStock}
@@ -1804,10 +1937,10 @@ function Stock({
           prestashopConnection={prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) ?? globalPrestashopConnection}
           prestashopConnectionIsGlobal={!prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) && Boolean(globalPrestashopConnection)}
           activePrestashopConnections={activePrestashopConnections}
-          onClose={() => setSelectedStockIndex(null)}
+          onClose={() => setSelectedStockId(null)}
           onSaved={async () => {
             await onChanged();
-            setSelectedStockIndex(null);
+            setSelectedStockId(null);
           }}
         />
       )}

@@ -336,6 +336,10 @@ h1 {
   align-items: end;
 }
 
+.filter-grid {
+  grid-template-columns: minmax(240px, 1.5fr) repeat(auto-fit, minmax(160px, 1fr));
+}
+
 .field {
   display: grid;
   gap: 6px;
