@@ -172,35 +172,31 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
-    public async Task PrestashopProductStock_StaysInPrestashopWarehouse()
+    public async Task PrestashopProductStock_CanMoveToAnotherWarehouse()
     {
         using var client = await CreateAuthenticatedClientAsync();
         var product = await CreateProductAsync(client);
-        var canonicalWarehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+        var sourceWarehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
         var otherWarehouseResponse = await client.PostAsJsonAsync("/api/stock/warehouses", new CreateWarehouseRequest($"Test-{Guid.NewGuid():N}"[..15]));
         otherWarehouseResponse.EnsureSuccessStatusCode();
-        var otherWarehouse = await otherWarehouseResponse.Content.ReadFromJsonAsync<WarehouseDto>();
+        var targetWarehouse = await otherWarehouseResponse.Content.ReadFromJsonAsync<WarehouseDto>();
 
-        await MarkProductAsPrestashopAsync(product.Id, canonicalWarehouse.Id);
+        await MarkProductAsPrestashopAsync(product.Id, sourceWarehouse.Id);
 
-        var wrongAdjustment = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, otherWarehouse!.Id, 5, "Wrong warehouse", 0));
-        Assert.Equal(HttpStatusCode.BadRequest, wrongAdjustment.StatusCode);
+        var adjustment = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, sourceWarehouse.Id, 5, "Initial stock", 0));
+        Assert.Equal(HttpStatusCode.OK, adjustment.StatusCode);
+        var item = Assert.Single((await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items"))!, x => x.ProductId == product.Id);
 
-        using (var scope = factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
-            db.StockItems.Add(new StockItem { ProductId = product.Id, WarehouseId = canonicalWarehouse.Id, QuantityOnHand = 0 });
-            db.StockItems.Add(new StockItem { ProductId = product.Id, WarehouseId = otherWarehouse.Id, QuantityOnHand = 12, AlertThreshold = 3 });
-            await db.SaveChangesAsync();
-        }
+        var moveResponse = await client.PutAsJsonAsync($"/api/stock/items/{item.Id}", new UpdateStockItemRequest(targetWarehouse!.Id, 12, 3));
+        Assert.Equal(HttpStatusCode.OK, moveResponse.StatusCode);
+        var moved = await moveResponse.Content.ReadFromJsonAsync<StockItemDto>();
+        Assert.Equal(targetWarehouse.Id, moved!.WarehouseId);
+        Assert.Equal(12, moved.QuantityOnHand);
+        Assert.Equal(3, moved.AlertThreshold);
 
         var stockItems = await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items");
         var productStocks = stockItems!.Where(x => x.ProductId == product.Id).ToList();
-
-        var stockItem = Assert.Single(productStocks);
-        Assert.Equal(canonicalWarehouse.Id, stockItem.WarehouseId);
-        Assert.Equal(12, stockItem.QuantityOnHand);
-        Assert.Equal(3, stockItem.AlertThreshold);
+        Assert.Single(productStocks);
     }
 
     [Fact]
@@ -380,7 +376,8 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var blockedUpdateResponse = await client.PutAsJsonAsync($"/api/purchases/orders/{order.Id}", new UpdatePurchaseOrderRequest(
             supplier.Id,
             DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10)),
-            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - stock modifie", 1, product.PurchasePrice, product.VatRate)]));
+            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - stock modifie", 1, product.PurchasePrice, product.VatRate)],
+            WarehouseId: warehouse.Id));
         Assert.Equal(HttpStatusCode.BadRequest, blockedUpdateResponse.StatusCode);
     }
 
@@ -426,10 +423,15 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
+        foreach (var connection in db.PrestashopConnections)
+        {
+            connection.IsActive = false;
+        }
+
         db.PrestashopConnections.Add(new PrestashopConnection
         {
             ShopUrl = "https://shop.example.com",
-            IsActive = true,
+            IsActive = false,
             WarehouseId = warehouseId
         });
         db.ExternalReferences.Add(new ExternalReference

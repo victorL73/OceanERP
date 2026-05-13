@@ -15,7 +15,6 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
 {
     private const string PrestashopProvider = "PrestaShop";
     private const string PrestashopProductModule = "products";
-    private const string DefaultPrestashopWarehouseName = "Entrepot principal";
 
     public async Task<IReadOnlyList<WarehouseDto>> GetWarehousesAsync(CancellationToken cancellationToken)
         => await db.Warehouses
@@ -108,8 +107,6 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
 
     public async Task<IReadOnlyList<StockItemDto>> GetStockItemsAsync(CancellationToken cancellationToken)
     {
-        await ConsolidatePrestashopStockItemsAsync(cancellationToken);
-
         return await db.StockItems
             .OrderBy(x => x.ProductId)
             .Select(x => new StockItemDto(
@@ -175,13 +172,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             return Result<StockMovementDto>.Failure("Warehouse not found.");
         }
 
-        var warehouseResult = await ResolvePrestashopWarehouseForProductAsync(request.ProductId, request.WarehouseId, cancellationToken);
-        if (!warehouseResult.Succeeded)
-        {
-            return Result<StockMovementDto>.Failure(warehouseResult.Error!);
-        }
-
-        var warehouseId = warehouseResult.Value ?? request.WarehouseId;
+        var warehouseId = request.WarehouseId;
         var item = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == request.ProductId && x.WarehouseId == warehouseId, cancellationToken);
         if (item is null)
         {
@@ -257,13 +248,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             return Result<StockItemDto>.Failure("Le stock reel ne peut pas etre inferieur au stock reserve.");
         }
 
-        var warehouseResult = await ResolvePrestashopWarehouseForProductAsync(item.ProductId, request.WarehouseId, cancellationToken);
-        if (!warehouseResult.Succeeded)
-        {
-            return Result<StockItemDto>.Failure(warehouseResult.Error!);
-        }
-
-        var targetWarehouseId = warehouseResult.Value ?? request.WarehouseId;
+        var targetWarehouseId = request.WarehouseId;
         var warehouseChanged = item.WarehouseId != targetWarehouseId;
         if (warehouseChanged && item.QuantityReserved > 0)
         {
@@ -331,138 +316,6 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         return Result<StockItemDto>.Success(Map(item));
     }
 
-    private async Task ConsolidatePrestashopStockItemsAsync(CancellationToken cancellationToken)
-    {
-        var prestashopWarehouseId = await GetOrAssignPrestashopWarehouseIdAsync(cancellationToken);
-        if (!prestashopWarehouseId.HasValue)
-        {
-            return;
-        }
-
-        var productIds = await db.ExternalReferences
-            .Where(x => x.Provider == PrestashopProvider && x.Module == PrestashopProductModule)
-            .Select(x => x.EntityId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        if (productIds.Count == 0)
-        {
-            if (db.ChangeTracker.HasChanges())
-            {
-                await db.SaveChangesAsync(cancellationToken);
-            }
-
-            return;
-        }
-
-        var stockItems = await db.StockItems
-            .Where(x => productIds.Contains(x.ProductId))
-            .ToListAsync(cancellationToken);
-
-        foreach (var group in stockItems.GroupBy(x => x.ProductId))
-        {
-            var rows = group.ToList();
-            if (rows.Count == 0 || rows.All(x => x.WarehouseId == prestashopWarehouseId.Value))
-            {
-                continue;
-            }
-
-            var canonical = rows.FirstOrDefault(x => x.WarehouseId == prestashopWarehouseId.Value);
-            if (canonical is null)
-            {
-                canonical = new StockItem
-                {
-                    ProductId = group.Key,
-                    WarehouseId = prestashopWarehouseId.Value
-                };
-                db.StockItems.Add(canonical);
-            }
-
-            var reserved = rows.Max(x => x.QuantityReserved);
-            canonical.QuantityReserved = reserved;
-            canonical.QuantityOnHand = Math.Max(rows.Max(x => x.QuantityOnHand), reserved);
-            canonical.AlertThreshold = rows.Max(x => x.AlertThreshold);
-
-            var obsoleteRows = rows.Where(x => x.Id != canonical.Id).ToList();
-            db.StockItems.RemoveRange(obsoleteRows);
-        }
-
-        if (db.ChangeTracker.HasChanges())
-        {
-            await db.SaveChangesAsync(cancellationToken);
-        }
-    }
-
-    private async Task<Result<Guid?>> ResolvePrestashopWarehouseForProductAsync(Guid productId, Guid requestedWarehouseId, CancellationToken cancellationToken)
-    {
-        var isPrestashopProduct = await db.ExternalReferences.AnyAsync(
-            x => x.Provider == PrestashopProvider && x.Module == PrestashopProductModule && x.EntityId == productId,
-            cancellationToken);
-        if (!isPrestashopProduct)
-        {
-            return Result<Guid?>.Success(requestedWarehouseId);
-        }
-
-        var prestashopWarehouseId = await GetOrAssignPrestashopWarehouseIdAsync(cancellationToken);
-        if (!prestashopWarehouseId.HasValue)
-        {
-            return Result<Guid?>.Success(requestedWarehouseId);
-        }
-
-        if (requestedWarehouseId != prestashopWarehouseId.Value)
-        {
-            var warehouseName = await WarehouseNameAsync(prestashopWarehouseId.Value, cancellationToken);
-            return Result<Guid?>.Failure($"Ce produit est lie a PrestaShop: le stock doit rester dans l'entrepot \"{warehouseName}\".");
-        }
-
-        return Result<Guid?>.Success(prestashopWarehouseId.Value);
-    }
-
-    private async Task<Guid?> GetOrAssignPrestashopWarehouseIdAsync(CancellationToken cancellationToken)
-    {
-        var activeConnections = await db.PrestashopConnections
-            .Where(x => x.IsActive)
-            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
-            .ToListAsync(cancellationToken);
-        if (activeConnections.Count == 0)
-        {
-            return null;
-        }
-
-        foreach (var connection in activeConnections.Where(x => x.WarehouseId.HasValue))
-        {
-            if (await db.Warehouses.AnyAsync(x => x.Id == connection.WarehouseId!.Value, cancellationToken))
-            {
-                foreach (var unassigned in activeConnections.Where(x => !x.WarehouseId.HasValue))
-                {
-                    unassigned.WarehouseId = connection.WarehouseId;
-                }
-
-                return connection.WarehouseId;
-            }
-        }
-
-        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Name == DefaultPrestashopWarehouseName, cancellationToken);
-        if (warehouse is null)
-        {
-            warehouse = new Warehouse { Name = DefaultPrestashopWarehouseName };
-            db.Warehouses.Add(warehouse);
-        }
-
-        foreach (var connection in activeConnections)
-        {
-            connection.WarehouseId = warehouse.Id;
-        }
-
-        return warehouse.Id;
-    }
-
-    private async Task<string> WarehouseNameAsync(Guid warehouseId, CancellationToken cancellationToken)
-        => await db.Warehouses
-            .Where(x => x.Id == warehouseId)
-            .Select(x => x.Name)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? warehouseId.ToString();
-
     private async Task<Result> PublishPrestashopStockAsync(StockItem item, CancellationToken cancellationToken)
     {
         var externalReference = await db.ExternalReferences.FirstOrDefaultAsync(
@@ -473,13 +326,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             return Result.Success();
         }
 
-        var warehouseResult = await ResolvePrestashopWarehouseForProductAsync(item.ProductId, item.WarehouseId, cancellationToken);
-        if (!warehouseResult.Succeeded)
-        {
-            return Result.Failure(warehouseResult.Error!);
-        }
-
-        var connectionResult = await ResolvePrestashopConnectionForWarehouseAsync(item.WarehouseId, cancellationToken);
+        var connectionResult = await ResolvePrestashopConnectionAsync(item.WarehouseId, cancellationToken);
         if (!connectionResult.Succeeded)
         {
             return Result.Failure(connectionResult.Error!);
@@ -542,16 +389,10 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
         }
     }
 
-    private async Task<Result<PrestashopConnection?>> ResolvePrestashopConnectionForWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken)
+    private async Task<Result<PrestashopConnection?>> ResolvePrestashopConnectionAsync(Guid preferredWarehouseId, CancellationToken cancellationToken)
     {
-        var prestashopWarehouseId = await GetOrAssignPrestashopWarehouseIdAsync(cancellationToken);
-        if (prestashopWarehouseId.HasValue && warehouseId != prestashopWarehouseId.Value)
-        {
-            return Result<PrestashopConnection?>.Success(null);
-        }
-
         var linkedConnection = await db.PrestashopConnections
-            .Where(x => x.IsActive && x.WarehouseId == warehouseId)
+            .Where(x => x.IsActive && x.WarehouseId == preferredWarehouseId)
             .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (linkedConnection is not null)
@@ -563,12 +404,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             .Where(x => x.IsActive)
             .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
-        if (connection is not null && connection.WarehouseId is null && prestashopWarehouseId == warehouseId)
-        {
-            connection.WarehouseId = warehouseId;
-        }
-
-        return Result<PrestashopConnection?>.Success(connection?.WarehouseId == warehouseId ? connection : null);
+        return Result<PrestashopConnection?>.Success(connection);
     }
 
     private async Task<string?> FindPrestashopStockAvailableIdAsync(string apiBaseUrl, string externalProductId, string apiKey, CancellationToken cancellationToken)

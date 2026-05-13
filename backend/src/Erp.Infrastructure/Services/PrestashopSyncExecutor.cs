@@ -250,7 +250,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     private async Task<ImportSummary> ImportStockAsync(string apiBaseUrl, PrestashopConnection connection, CancellationToken cancellationToken)
     {
         using var document = await GetJsonAsync($"{apiBaseUrl}/stock_availables?display=full&limit=100&output_format=JSON", "stock_availables", cancellationToken);
-        var warehouse = await GetOrCreatePrestashopWarehouseAsync(connection, cancellationToken);
+        var defaultWarehouse = await GetOrCreatePrestashopWarehouseAsync(connection, cancellationToken);
         var quantitiesByProduct = new Dictionary<string, decimal>();
 
         foreach (var item in EnumerateItems(document, "stock_availables"))
@@ -274,45 +274,29 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 continue;
             }
 
-            var obsoleteStockItems = await db.StockItems
-                .Where(x => x.ProductId == productRef.EntityId && x.WarehouseId != warehouse.Id)
-                .ToListAsync(cancellationToken);
-            var stockItem = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == productRef.EntityId && x.WarehouseId == warehouse.Id, cancellationToken);
-            if (stockItem is null)
+            var (stockItem, isCreated) = await ResolveStockItemForPrestashopProductAsync(productRef.EntityId, defaultWarehouse, cancellationToken);
+            if (isCreated)
             {
-                stockItem = new StockItem
-                {
-                    ProductId = productRef.EntityId,
-                    WarehouseId = warehouse.Id,
-                    QuantityOnHand = quantity,
-                    AlertThreshold = obsoleteStockItems.Select(x => x.AlertThreshold).DefaultIfEmpty(0).Max()
-                };
-                db.StockItems.Add(stockItem);
+                stockItem.QuantityOnHand = quantity;
                 created += 1;
             }
             else
             {
                 var delta = quantity - stockItem.QuantityOnHand;
                 stockItem.QuantityOnHand = quantity;
-                stockItem.AlertThreshold = Math.Max(stockItem.AlertThreshold, obsoleteStockItems.Select(x => x.AlertThreshold).DefaultIfEmpty(0).Max());
                 updated += 1;
                 if (delta != 0)
                 {
                     db.StockMovements.Add(new StockMovement
                     {
                         ProductId = productRef.EntityId,
-                        WarehouseId = warehouse.Id,
+                        WarehouseId = stockItem.WarehouseId,
                         Quantity = delta,
                         Type = "PrestaShopSync",
                         Reason = "Synchronisation PrestaShop",
                         ReferenceModule = "prestashop"
                     });
                 }
-            }
-
-            if (obsoleteStockItems.Count > 0)
-            {
-                db.StockItems.RemoveRange(obsoleteStockItems);
             }
         }
 
@@ -678,6 +662,27 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
         connection.WarehouseId = warehouse.Id;
         return warehouse;
+    }
+
+    private async Task<(StockItem Item, bool Created)> ResolveStockItemForPrestashopProductAsync(Guid productId, Warehouse defaultWarehouse, CancellationToken cancellationToken)
+    {
+        var stockItem = await db.StockItems
+            .Where(x => x.ProductId == productId)
+            .OrderByDescending(x => x.QuantityOnHand > 0)
+            .ThenByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (stockItem is not null)
+        {
+            return (stockItem, false);
+        }
+
+        stockItem = new StockItem
+        {
+            ProductId = productId,
+            WarehouseId = defaultWarehouse.Id
+        };
+        db.StockItems.Add(stockItem);
+        return (stockItem, true);
     }
 
     private async Task<Customer> ResolveOrderCustomerAsync(string? customerExternalId, CancellationToken cancellationToken)
