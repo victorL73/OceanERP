@@ -106,6 +106,86 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         return Result<PurchaseOrderDto>.Success(await MapAsync(order, cancellationToken));
     }
 
+    public async Task<Result<PurchaseOrderDto>> UpdateAsync(Guid id, UpdatePurchaseOrderRequest request, CancellationToken cancellationToken)
+    {
+        var order = await db.PurchaseOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (order is null)
+        {
+            return Result<PurchaseOrderDto>.Failure("Commande fournisseur introuvable.");
+        }
+
+        if (order.Status is "Received" or "Cancelled")
+        {
+            return Result<PurchaseOrderDto>.Failure("Reouvrez la commande fournisseur avant modification.");
+        }
+
+        if (await db.PurchaseOrderLines.AnyAsync(x => x.PurchaseOrderId == id && x.ReceivedQuantity > 0, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("La commande fournisseur ne peut plus etre modifiee apres ajout au stock.");
+        }
+
+        if (!await db.ProductSuppliers.AnyAsync(x => x.Id == request.SupplierId, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("Fournisseur introuvable.");
+        }
+
+        if (request.Lines.Count == 0)
+        {
+            return Result<PurchaseOrderDto>.Failure("Une commande fournisseur requiert au moins une ligne.");
+        }
+
+        if (request.WarehouseId.HasValue && !await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
+        }
+
+        var warehouseResult = await ResolvePrestashopWarehouseForProductsAsync(request.Lines.Select(x => x.ProductId), request.WarehouseId, allowAutoCorrect: true, cancellationToken);
+        if (!warehouseResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(warehouseResult.Error!);
+        }
+
+        var nextLines = new List<PurchaseOrderLine>();
+        foreach (var line in request.Lines)
+        {
+            var built = await BuildLineAsync(order.Id, line, cancellationToken);
+            if (!built.Succeeded)
+            {
+                return Result<PurchaseOrderDto>.Failure(built.Error!);
+            }
+
+            nextLines.Add(built.Value!);
+        }
+
+        var nextCharges = new List<PurchaseOrderCharge>();
+        foreach (var charge in request.Charges ?? [])
+        {
+            var built = BuildCharge(order.Id, charge);
+            if (!built.Succeeded)
+            {
+                return Result<PurchaseOrderDto>.Failure(built.Error!);
+            }
+
+            nextCharges.Add(built.Value!);
+        }
+
+        var oldLines = await db.PurchaseOrderLines.Where(x => x.PurchaseOrderId == id).ToListAsync(cancellationToken);
+        var oldCharges = await db.PurchaseOrderCharges.Where(x => x.PurchaseOrderId == id).ToListAsync(cancellationToken);
+        db.PurchaseOrderLines.RemoveRange(oldLines);
+        db.PurchaseOrderCharges.RemoveRange(oldCharges);
+
+        order.SupplierId = request.SupplierId;
+        order.WarehouseId = warehouseResult.Value ?? request.WarehouseId;
+        order.ExpectedAt = request.ExpectedAt;
+        order.Comment = NormalizeOptional(request.Comment);
+        db.PurchaseOrderLines.AddRange(nextLines);
+        db.PurchaseOrderCharges.AddRange(nextCharges);
+
+        await db.SaveChangesAsync(cancellationToken);
+        await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
+        return Result<PurchaseOrderDto>.Success(await MapAsync(order, cancellationToken));
+    }
+
     public async Task<Result<PurchaseOrderDto>> ChangeStatusAsync(Guid id, UpdatePurchaseOrderStatusRequest request, CancellationToken cancellationToken)
     {
         var nextStatus = NormalizeStatus(request.Status);

@@ -30,6 +30,14 @@ public sealed class PurchaseOrdersController(IPurchaseOrderService purchaseOrder
         return result.Succeeded ? CreatedAtAction(nameof(Get), new { id = result.Value!.Id }, result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = "purchases.write")]
+    public async Task<ActionResult<PurchaseOrderDto>> Update(Guid id, UpdatePurchaseOrderRequest request, CancellationToken cancellationToken)
+    {
+        var result = await purchaseOrders.UpdateAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpPost("{id:guid}/status")]
     [Authorize(Policy = "purchases.write")]
     public async Task<ActionResult<PurchaseOrderDto>> ChangeStatus(Guid id, UpdatePurchaseOrderStatusRequest request, CancellationToken cancellationToken)

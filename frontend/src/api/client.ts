@@ -236,6 +236,17 @@ export class ApiClient {
     return this.request<PurchaseOrder>('/api/purchases/orders', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  updatePurchaseOrder(orderId: string, payload: {
+    supplierId: string;
+    warehouseId?: string | null;
+    expectedAt?: string | null;
+    comment?: string | null;
+    lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number; vatRate?: number | null }>;
+    charges?: Array<{ label: string; amount: number; vatRate: number }>;
+  }) {
+    return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
   changePurchaseOrderStatus(orderId: string, status: string) {
     return this.request<PurchaseOrder>(`/api/purchases/orders/${orderId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status }) });
   }

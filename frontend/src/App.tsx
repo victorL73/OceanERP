@@ -1679,10 +1679,12 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
   const [comment, setComment] = useState('');
   const [lines, setLines] = useState<PurchaseDraftLine[]>(() => [createPurchaseDraftLine()]);
   const [charges, setCharges] = useState<PurchaseDraftCharge[]>([]);
+  const [editingOrderId, setEditingOrderId] = useState('');
   const [dateOrderId, setDateOrderId] = useState('');
   const [dateValue, setDateValue] = useState('');
   const [warehouseOrderId, setWarehouseOrderId] = useState('');
   const [warehouseValue, setWarehouseValue] = useState('');
+  const editingOrder = items.find((item) => item.id === editingOrderId);
   const selectedDateOrder = items.find((item) => item.id === dateOrderId);
   const selectedWarehouseOrder = items.find((item) => item.id === warehouseOrderId);
 
@@ -1693,6 +1695,44 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
   useEffect(() => {
     setWarehouseValue(selectedWarehouseOrder?.warehouseId ?? '');
   }, [selectedWarehouseOrder]);
+
+  function resetPurchaseForm() {
+    setSupplierId('');
+    setWarehouseId('');
+    setExpectedAt('');
+    setComment('');
+    setLines([createPurchaseDraftLine()]);
+    setCharges([]);
+    setEditingOrderId('');
+  }
+
+  function canEditPurchaseOrder(order: PurchaseOrder) {
+    return order.status !== 'Received' && order.status !== 'Cancelled' && !(order.lines ?? []).some((line) => line.receivedQuantity > 0);
+  }
+
+  function startEdit(order: PurchaseOrder) {
+    setEditingOrderId(order.id);
+    setSupplierId(order.supplierId);
+    setWarehouseId(order.warehouseId ?? '');
+    setExpectedAt(order.expectedAt ?? '');
+    setComment(order.comment ?? '');
+    const nextLines = (order.lines ?? []).map((line) => ({
+      id: createClientId('purchase-line'),
+      productId: line.productId ?? '',
+      description: line.description,
+      quantity: String(line.quantity),
+      unitPrice: String(line.unitPrice),
+      vatRate: String(line.vatRate)
+    }));
+    setLines(nextLines.length > 0 ? nextLines : [createPurchaseDraftLine()]);
+    setCharges((order.charges ?? []).map((charge) => ({
+      id: createClientId('purchase-charge'),
+      label: charge.label,
+      amount: String(charge.amount),
+      vatRate: String(charge.vatRate)
+    })));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   function updateLine(lineId: string, patch: Partial<PurchaseDraftLine>) {
     setLines((current) => current.map((line) => (line.id === lineId ? { ...line, ...patch } : line)));
@@ -1740,7 +1780,7 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
       throw new Error('Creer un fournisseur produit avant de creer une commande fournisseur.');
     }
 
-    await api.createPurchaseOrder({
+    const payload = {
       supplierId: selectedSupplierId,
       warehouseId: warehouseId || null,
       expectedAt: expectedAt || null,
@@ -1755,17 +1795,23 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
       charges: charges
         .filter((charge) => charge.label.trim() || Number(charge.amount) > 0)
         .map((charge) => ({ label: charge.label, amount: Number(charge.amount), vatRate: Number(charge.vatRate) }))
-    });
-    setLines([createPurchaseDraftLine()]);
-    setCharges([]);
-    setComment('');
-    setExpectedAt('');
-    setWarehouseId('');
+    };
+
+    if (editingOrderId) {
+      await api.updatePurchaseOrder(editingOrderId, payload);
+    } else {
+      await api.createPurchaseOrder(payload);
+    }
+
+    resetPurchaseForm();
     await onChanged();
   }
 
   async function changeStatus(order: PurchaseOrder, status: string) {
     await api.changePurchaseOrderStatus(order.id, status);
+    if (editingOrderId === order.id) {
+      resetPurchaseForm();
+    }
     await onChanged();
   }
 
@@ -1808,7 +1854,7 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
 
   return (
     <>
-      <Panel title="Nouvelle commande fournisseur">
+      <Panel title={editingOrder ? `Modifier commande fournisseur ${editingOrder.number}` : 'Nouvelle commande fournisseur'}>
         <form className="purchase-builder" onSubmit={submit}>
           <div className="form-grid">
             <label className="field">
@@ -1954,9 +2000,14 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
             <DetailItem label="Total TTC" value={purchaseAmount(orderTotal)} />
           </div>
           <div className="form-actions">
+            {editingOrder && (
+              <button className="secondary" type="button" onClick={resetPurchaseForm}>
+                Annuler la modification
+              </button>
+            )}
             <button className="primary" type="submit">
-              <Plus size={16} />
-              Creer la commande
+              {editingOrder ? <Save size={16} /> : <Plus size={16} />}
+              {editingOrder ? 'Enregistrer les modifications' : 'Creer la commande'}
             </button>
           </div>
         </form>
@@ -2030,6 +2081,12 @@ function Purchases({ items, suppliers, products, warehouses, onChanged }: { item
             purchaseAmount(item.total),
             orderLines.map((line) => line.productReference ?? line.description).join(', '),
             <div className="table-actions">
+              {canEditPurchaseOrder(item) && (
+                <button className="secondary" type="button" onClick={() => startEdit(item)}>
+                  <Pencil size={16} />
+                  Modifier
+                </button>
+              )}
               {item.status === 'Draft' && (
                 <button className="secondary" type="button" onClick={() => changeStatus(item, 'Ordered')}>
                   Commander

@@ -39,6 +39,7 @@ public sealed record PurchaseOrderChargeDto(Guid Id, string Label, decimal Amoun
 public sealed record CreatePurchaseOrderRequest(Guid SupplierId, DateOnly? ExpectedAt, IReadOnlyList<CreatePurchaseOrderLineRequest> Lines, string? Comment = null, IReadOnlyList<CreatePurchaseOrderChargeRequest>? Charges = null, Guid? WarehouseId = null);
 public sealed record CreatePurchaseOrderLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice, decimal? VatRate = null);
 public sealed record CreatePurchaseOrderChargeRequest(string Label, decimal Amount, decimal VatRate);
+public sealed record UpdatePurchaseOrderRequest(Guid SupplierId, DateOnly? ExpectedAt, IReadOnlyList<CreatePurchaseOrderLineRequest> Lines, string? Comment = null, IReadOnlyList<CreatePurchaseOrderChargeRequest>? Charges = null, Guid? WarehouseId = null);
 public sealed record UpdatePurchaseOrderStatusRequest(string Status);
 public sealed record UpdatePurchaseOrderExpectedAtRequest(DateOnly? ExpectedAt);
 public sealed record UpdatePurchaseOrderWarehouseRequest(Guid? WarehouseId);
@@ -49,6 +50,7 @@ public interface IPurchaseOrderService
     Task<PagedResult<PurchaseOrderDto>> SearchAsync(int page, int pageSize, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> GetAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken);
+    Task<Result<PurchaseOrderDto>> UpdateAsync(Guid id, UpdatePurchaseOrderRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> ChangeStatusAsync(Guid id, UpdatePurchaseOrderStatusRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> UpdateExpectedAtAsync(Guid id, UpdatePurchaseOrderExpectedAtRequest request, CancellationToken cancellationToken);
     Task<Result<PurchaseOrderDto>> UpdateWarehouseAsync(Guid id, UpdatePurchaseOrderWarehouseRequest request, CancellationToken cancellationToken);

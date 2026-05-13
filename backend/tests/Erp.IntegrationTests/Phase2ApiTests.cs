@@ -285,6 +285,47 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task PurchaseOrder_CanBeUpdatedBeforeStockReceipt()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var firstProduct = await CreateProductAsync(client);
+        var secondProduct = await CreateProductAsync(client);
+        var supplier = (await client.GetFromJsonAsync<IReadOnlyList<ProductSupplierDto>>("/api/products/suppliers"))!.First();
+        var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+
+        var createResponse = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
+            supplier.Id,
+            null,
+            [new CreatePurchaseOrderLineRequest(firstProduct.Id, $"{firstProduct.Reference} - achat initial", 1, 10, 20)]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var order = await createResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+        var expectedAt = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(8));
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/purchases/orders/{order!.Id}", new UpdatePurchaseOrderRequest(
+            supplier.Id,
+            expectedAt,
+            [new CreatePurchaseOrderLineRequest(secondProduct.Id, $"{secondProduct.Reference} - achat modifie", 5, 4, 10)],
+            "Commande modifiee",
+            [new CreatePurchaseOrderChargeRequest("Livraison", 6, 20)],
+            warehouse.Id));
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+
+        Assert.Equal("Commande modifiee", updated!.Comment);
+        Assert.Equal(warehouse.Id, updated.WarehouseId);
+        Assert.Equal(expectedAt, updated.ExpectedAt);
+        var line = Assert.Single(updated.Lines);
+        Assert.Equal(secondProduct.Id, line.ProductId);
+        Assert.Equal(5, line.Quantity);
+        Assert.Equal(20m, updated.LinesNetTotal);
+        Assert.Equal(2m, updated.LinesVatTotal);
+        var charge = Assert.Single(updated.Charges);
+        Assert.Equal("Livraison", charge.Label);
+        Assert.Equal(29.2m, updated.Total);
+    }
+
+    [Fact]
     public async Task PurchaseOrder_CanRollbackStatusAndReceiveLinesToStock()
     {
         using var client = await CreateAuthenticatedClientAsync();
@@ -332,6 +373,12 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var movements = await client.GetFromJsonAsync<IReadOnlyList<StockMovementDto>>("/api/stock/movements");
         var movement = Assert.Single(movements!, x => x.ReferenceModule == "PurchaseOrder" && x.ReferenceId == order.Id);
         Assert.Equal(4, movement.Quantity);
+
+        var blockedUpdateResponse = await client.PutAsJsonAsync($"/api/purchases/orders/{order.Id}", new UpdatePurchaseOrderRequest(
+            supplier.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10)),
+            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - stock modifie", 1, product.PurchasePrice, product.VatRate)]));
+        Assert.Equal(HttpStatusCode.BadRequest, blockedUpdateResponse.StatusCode);
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
