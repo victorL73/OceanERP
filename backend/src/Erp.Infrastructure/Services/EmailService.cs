@@ -268,12 +268,15 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             foreach (var uid in latestUids)
             {
                 var mime = await inbox.GetMessageAsync(uid, cancellationToken);
-                var externalMessageId = string.IsNullOrWhiteSpace(mime.MessageId) ? $"imap:{uid.Id}" : mime.MessageId.Trim();
+                var externalMessageId = NormalizeLength(
+                    string.IsNullOrWhiteSpace(mime.MessageId) ? $"imap:{uid.Id}" : mime.MessageId,
+                    512) ?? $"imap:{uid.Id}";
                 if (await db.EmailMessages.AnyAsync(x => x.MailAccountId == account.Id && x.ExternalMessageId == externalMessageId, cancellationToken))
                 {
                     continue;
                 }
 
+                var body = CleanDatabaseText(mime.TextBody ?? StripHtmlFallback(mime.HtmlBody));
                 var message = new EmailMessage
                 {
                     MailAccountId = account.Id,
@@ -281,11 +284,11 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
                     Subject = NormalizeLength(mime.Subject, 300) ?? "(Sans sujet)",
                     From = NormalizeLength(mime.From.Mailboxes.FirstOrDefault()?.Address ?? mime.From.ToString(), 320) ?? string.Empty,
                     To = NormalizeLength(mime.To.ToString(), 1000) ?? account.Email,
-                    Body = mime.TextBody ?? StripHtmlFallback(mime.HtmlBody),
+                    Body = body,
                     Direction = "Incoming",
                     Status = "Received",
                     IsRead = false,
-                    ReceivedAt = mime.Date == DateTimeOffset.MinValue ? DateTimeOffset.UtcNow : mime.Date
+                    ReceivedAt = NormalizeMailDate(mime.Date)
                 };
 
                 db.EmailMessages.Add(message);
@@ -296,6 +299,10 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             await db.SaveChangesAsync(cancellationToken);
             await imap.DisconnectAsync(true, cancellationToken);
             return Result<int>.Success(imported);
+        }
+        catch (DbUpdateException ex)
+        {
+            return Result<int>.Failure($"Synchronisation IMAP impossible: {FormatDatabaseError(ex)}");
         }
         catch (Exception ex)
         {
@@ -582,7 +589,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
     {
         foreach (var attachment in mime.Attachments.OfType<MimePart>())
         {
-            var fileName = string.IsNullOrWhiteSpace(attachment.FileName) ? $"piece-jointe-{Guid.NewGuid():N}.bin" : attachment.FileName;
+            var sourceFileName = string.IsNullOrWhiteSpace(attachment.FileName) ? $"piece-jointe-{Guid.NewGuid():N}.bin" : attachment.FileName;
+            var fileName = NormalizeLength(sourceFileName, 260) ?? $"piece-jointe-{Guid.NewGuid():N}.bin";
             if (attachment.Content is null)
             {
                 continue;
@@ -596,7 +604,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             {
                 EmailMessageId = message.Id,
                 FileName = fileName,
-                MimeType = attachment.ContentType.MimeType,
+                MimeType = NormalizeLength(attachment.ContentType.MimeType, 120) ?? "application/octet-stream",
                 StoragePath = stored.StoragePath,
                 Size = stored.Size
             });
@@ -882,7 +890,10 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         => !string.IsNullOrWhiteSpace(value) && System.Text.RegularExpressions.Regex.IsMatch(value, "<\\s*[a-zA-Z][^>]*>");
 
     private static string? NormalizeOptional(string? value)
-        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    {
+        var cleaned = CleanDatabaseText(value);
+        return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned.Trim();
+    }
 
     private static string? NormalizeSignature(string? value)
     {
@@ -894,6 +905,20 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
     {
         var normalized = NormalizeOptional(value);
         return normalized is null || normalized.Length <= maxLength ? normalized : normalized[..maxLength];
+    }
+
+    private static string CleanDatabaseText(string? value)
+        => string.IsNullOrEmpty(value) ? string.Empty : value.Replace("\0", string.Empty);
+
+    private static DateTimeOffset NormalizeMailDate(DateTimeOffset value)
+        => value == DateTimeOffset.MinValue ? DateTimeOffset.UtcNow : value.ToUniversalTime();
+
+    private static string FormatDatabaseError(DbUpdateException ex)
+    {
+        var detail = ex.InnerException?.Message;
+        return string.IsNullOrWhiteSpace(detail)
+            ? ex.Message
+            : $"{ex.Message} Detail: {detail}";
     }
 
     private static bool HasPassword(MailAccount account)
