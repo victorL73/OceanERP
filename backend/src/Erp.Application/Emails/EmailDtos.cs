@@ -4,3 +4,5 @@ public sealed record MailAccountDto(Guid Id, string Email, string SmtpHost, int 
 public sealed record EmailMessageDto(Guid Id, string Subject, string From, string To, string Direction, string Status, bool IsRead, DateTimeOffset CreatedAt, DateTimeOffset? SentAt);
 public sealed record CreateMailAccountRequest(string Email, string SmtpHost, string ImapHost, int SmtpPort = 587, int ImapPort = 993, bool UseSsl = true, string? UserName = null, string? PasswordSecretName = null);
 public sealed record SendEmailRequest(Guid MailAccountId, string To, string Subject, string Body);
+public sealed record StoredEmailAttachment(string FileName, string MimeType, string StoragePath);
+public sealed record EmailLinkTarget(string Module, Guid EntityId);

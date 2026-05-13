@@ -86,6 +86,11 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
             return Result<SalesOrderDto>.Failure("Quote not found.");
         }
 
+        if (quote.Status != QuoteStatus.Signed)
+        {
+            return Result<SalesOrderDto>.Failure("Only a signed quote can be converted to an order.");
+        }
+
         var created = await CreateAsync(new CreateSalesOrderRequest(
             quote.CustomerId,
             request.WarehouseId,
@@ -93,7 +98,13 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
 
         if (created.Succeeded)
         {
-            quote.ChangeStatus(QuoteStatus.ConvertedToOrder, null, $"Converted to order {created.Value!.Number}");
+            quote.SetStatus(QuoteStatus.ConvertedToOrder);
+            db.QuoteStatusHistories.Add(new QuoteStatusHistory
+            {
+                QuoteId = quote.Id,
+                Status = QuoteStatus.ConvertedToOrder,
+                Comment = $"Converted to order {created.Value!.Number}"
+            });
             await db.SaveChangesAsync(cancellationToken);
         }
 

@@ -550,12 +550,14 @@ h1 {
 }
 
 .purchase-lines,
+.quote-lines,
 .purchase-charges {
   display: grid;
   gap: 10px;
 }
 
 .purchase-line-row,
+.quote-line-row,
 .purchase-charge-row {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.55fr) repeat(3, minmax(96px, 0.55fr)) minmax(116px, 0.65fr) 42px;
@@ -568,6 +570,10 @@ h1 {
   padding: 12px;
 }
 
+.quote-line-row {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.5fr) repeat(4, minmax(86px, 0.5fr)) minmax(116px, 0.65fr) 42px;
+}
+
 .purchase-charge-row {
   grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(120px, 0.7fr)) minmax(116px, 0.7fr) 42px;
 }
@@ -577,12 +583,15 @@ h1 {
 }
 
 .purchase-line-row .field,
+.quote-line-row .field,
 .purchase-charge-row .field {
   min-width: 0;
 }
 
 .purchase-line-row input,
 .purchase-line-row select,
+.quote-line-row input,
+.quote-line-row select,
 .purchase-charge-row input,
 .purchase-charge-row select {
   overflow: hidden;
@@ -611,14 +620,21 @@ h1 {
   font-size: 14px;
 }
 
-.purchase-line-row .muted-text {
+.purchase-line-row .muted-text,
+.quote-line-row .muted-text {
   grid-column: 1 / -1;
 }
 
-.purchase-summary {
+.purchase-summary,
+.summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.quote-builder {
+  display: grid;
+  gap: 14px;
 }
 
 .icon-only {
@@ -767,6 +783,10 @@ th {
 
 .stock-modal {
   width: min(860px, 100%);
+}
+
+.quote-modal {
+  width: min(1100px, 100%);
 }
 
 .modal-header {
@@ -1254,6 +1274,7 @@ th {
   .product-facts,
   .product-edit-form .form-grid,
   .purchase-line-row,
+  .quote-line-row,
   .purchase-charge-row {
     grid-template-columns: 1fr;
   }

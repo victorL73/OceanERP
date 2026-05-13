@@ -30,6 +30,14 @@ public sealed class QuotesController(IQuoteService quotes) : ControllerBase
         return result.Succeeded ? CreatedAtAction(nameof(Get), new { id = result.Value!.Id }, result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteDto>> Update(Guid id, UpdateQuoteRequest request, CancellationToken cancellationToken)
+    {
+        var result = await quotes.UpdateAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpPost("{id:guid}/status")]
     [Authorize(Policy = "quotes.write")]
     public async Task<ActionResult<QuoteDto>> ChangeStatus(Guid id, UpdateQuoteStatusRequest request, CancellationToken cancellationToken)
@@ -43,6 +51,14 @@ public sealed class QuotesController(IQuoteService quotes) : ControllerBase
     public async Task<ActionResult<QuoteDocumentDto>> GeneratePdf(Guid id, CancellationToken cancellationToken)
     {
         var result = await quotes.GeneratePdfAsync(id, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("{id:guid}/email")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteDto>> SendByEmail(Guid id, SendQuoteEmailRequest request, CancellationToken cancellationToken)
+    {
+        var result = await quotes.SendByEmailAsync(id, request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 

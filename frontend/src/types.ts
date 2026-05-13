@@ -76,15 +76,21 @@ export type Quote = {
   currency: string;
   lines: QuoteLine[];
   documents: QuoteDocument[];
+  statusHistory: QuoteStatusHistory[];
 };
 
 export type QuoteLine = {
   id: string;
+  productId?: string;
+  productReference?: string;
+  productName?: string;
   description: string;
   quantity: number;
   unitPrice: number;
   discountRate: number;
   vatRate: number;
+  lineNetTotal: number;
+  lineVatTotal: number;
   lineTotal: number;
 };
 
@@ -95,6 +101,16 @@ export type QuoteDocument = {
   size: number;
   version: number;
   createdAt: string;
+};
+
+export type QuoteStatusHistory = {
+  id: string;
+  status: string;
+  comment?: string;
+  changedByUserId?: string;
+  changedByDisplayName?: string;
+  changedByEmail?: string;
+  changedAt: string;
 };
 
 export type DriveItem = {

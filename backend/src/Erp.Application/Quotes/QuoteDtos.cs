@@ -7,7 +7,7 @@ public sealed record QuoteDto(
     string Number,
     Guid CustomerId,
     string? CustomerName,
-    QuoteStatus Status,
+    string Status,
     DateOnly IssueDate,
     DateOnly ValidUntil,
     decimal Subtotal,
@@ -15,11 +15,14 @@ public sealed record QuoteDto(
     decimal Total,
     string Currency,
     IReadOnlyList<QuoteLineDto> Lines,
-    IReadOnlyList<QuoteDocumentDto> Documents);
+    IReadOnlyList<QuoteDocumentDto> Documents,
+    IReadOnlyList<QuoteStatusHistoryDto> StatusHistory);
 
-public sealed record QuoteLineDto(Guid Id, Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice, decimal DiscountRate, decimal VatRate, decimal LineNetTotal, decimal LineVatTotal, decimal LineTotal);
+public sealed record QuoteLineDto(Guid Id, Guid? ProductId, string? ProductReference, string? ProductName, string Description, decimal Quantity, decimal UnitPrice, decimal DiscountRate, decimal VatRate, decimal LineNetTotal, decimal LineVatTotal, decimal LineTotal);
 public sealed record QuoteDocumentDto(Guid Id, string FileName, string MimeType, long Size, int Version, DateTimeOffset CreatedAt);
+public sealed record QuoteStatusHistoryDto(Guid Id, string Status, string? Comment, Guid? ChangedByUserId, string? ChangedByDisplayName, string? ChangedByEmail, DateTimeOffset ChangedAt);
 public sealed record CreateQuoteRequest(Guid CustomerId, DateOnly ValidUntil, IReadOnlyList<UpsertQuoteLineRequest> Lines);
-public sealed record UpdateQuoteStatusRequest(QuoteStatus Status, string? Comment);
+public sealed record UpdateQuoteRequest(Guid CustomerId, DateOnly ValidUntil, IReadOnlyList<UpsertQuoteLineRequest> Lines);
+public sealed record UpdateQuoteStatusRequest(string Status, string? Comment);
 public sealed record UpsertQuoteLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice, decimal DiscountRate, decimal VatRate);
-
+public sealed record SendQuoteEmailRequest(Guid MailAccountId, string To, string? Subject = null, string? Body = null);

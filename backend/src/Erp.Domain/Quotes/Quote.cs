@@ -21,13 +21,19 @@ public sealed class Quote : AuditableEntity
 
     public void RecalculateTotals()
     {
-        foreach (var line in Lines)
+        RecalculateTotalsFrom(Lines);
+    }
+
+    public void RecalculateTotalsFrom(IEnumerable<QuoteLine> lines)
+    {
+        var quoteLines = lines.ToList();
+        foreach (var line in quoteLines)
         {
             line.Recalculate();
         }
 
-        Subtotal = Lines.Sum(line => line.LineNetTotal);
-        VatTotal = Lines.Sum(line => line.LineVatTotal);
+        Subtotal = quoteLines.Sum(line => line.LineNetTotal);
+        VatTotal = quoteLines.Sum(line => line.LineVatTotal);
         Total = Subtotal + VatTotal;
     }
 
@@ -47,5 +53,15 @@ public sealed class Quote : AuditableEntity
             Comment = comment
         });
     }
-}
 
+    public bool SetStatus(QuoteStatus status)
+    {
+        if (Status == status)
+        {
+            return false;
+        }
+
+        Status = status;
+        return true;
+    }
+}

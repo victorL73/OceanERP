@@ -1,4 +1,5 @@
 using Erp.Application.Common;
+using Erp.Application.Documents;
 using Erp.Application.Emails;
 using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
@@ -9,7 +10,7 @@ using MimeKit;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class EmailService(ErpDbContext db, IConfiguration configuration) : IEmailService
+public sealed class EmailService(ErpDbContext db, IConfiguration configuration, IFileStorageService fileStorageService) : IEmailService
 {
     public async Task<IReadOnlyList<MailAccountDto>> GetAccountsAsync(CancellationToken cancellationToken)
         => await db.MailAccounts.OrderBy(x => x.Email).Select(x => Map(x)).ToListAsync(cancellationToken);
@@ -53,7 +54,10 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration) 
         return new PagedResult<EmailMessageDto>(items, total, page, pageSize);
     }
 
-    public async Task<Result<EmailMessageDto>> SendAsync(SendEmailRequest request, CancellationToken cancellationToken)
+    public Task<Result<EmailMessageDto>> SendAsync(SendEmailRequest request, CancellationToken cancellationToken)
+        => SendAsync(request, [], [], cancellationToken);
+
+    public async Task<Result<EmailMessageDto>> SendAsync(SendEmailRequest request, IReadOnlyList<StoredEmailAttachment> attachments, IReadOnlyList<EmailLinkTarget> links, CancellationToken cancellationToken)
     {
         var account = await db.MailAccounts.FirstOrDefaultAsync(x => x.Id == request.MailAccountId, cancellationToken);
         if (account is null)
@@ -78,9 +82,28 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration) 
 
         db.EmailMessages.Add(message);
 
+        foreach (var attachment in attachments)
+        {
+            db.EmailAttachments.Add(new EmailAttachment
+            {
+                EmailMessageId = message.Id,
+                StoragePath = attachment.StoragePath
+            });
+        }
+
+        foreach (var link in links)
+        {
+            db.EmailLinks.Add(new EmailLink
+            {
+                EmailMessageId = message.Id,
+                Module = link.Module,
+                EntityId = link.EntityId
+            });
+        }
+
         if (configuration.GetValue<bool>("Email:EnableSmtpSending"))
         {
-            var sendResult = await TrySendSmtpAsync(account, request, cancellationToken);
+            var sendResult = await TrySendSmtpAsync(account, request, attachments, cancellationToken);
             if (!sendResult.Succeeded)
             {
                 message.Status = "Failed";
@@ -96,7 +119,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration) 
         return Result<EmailMessageDto>.Success(Map(message));
     }
 
-    private async Task<Result> TrySendSmtpAsync(MailAccount account, SendEmailRequest request, CancellationToken cancellationToken)
+    private async Task<Result> TrySendSmtpAsync(MailAccount account, SendEmailRequest request, IReadOnlyList<StoredEmailAttachment> attachments, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(account.PasswordSecretName))
         {
@@ -113,7 +136,21 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration) 
         mime.From.Add(MailboxAddress.Parse(account.Email));
         mime.To.Add(MailboxAddress.Parse(request.To));
         mime.Subject = request.Subject;
-        mime.Body = new TextPart("plain") { Text = request.Body };
+        if (attachments.Count == 0)
+        {
+            mime.Body = new TextPart("plain") { Text = request.Body };
+        }
+        else
+        {
+            var builder = new BodyBuilder { TextBody = request.Body };
+            foreach (var attachment in attachments)
+            {
+                await using var content = await fileStorageService.OpenReadAsync(attachment.StoragePath, cancellationToken);
+                await builder.Attachments.AddAsync(attachment.FileName, content, ContentType.Parse(attachment.MimeType), cancellationToken);
+            }
+
+            mime.Body = builder.ToMessageBody();
+        }
 
         using var smtp = new SmtpClient();
         await smtp.ConnectAsync(account.SmtpHost, account.SmtpPort, account.UseSsl, cancellationToken);

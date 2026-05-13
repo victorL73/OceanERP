@@ -157,9 +157,12 @@ export default function App() {
         setProducts(await api.products());
       }
       if (target === 'quotes') {
-        const [nextQuotes, nextCustomers] = await Promise.all([api.quotes(), api.customers()]);
+        const [nextQuotes, nextCustomers, nextProducts, nextMailAccounts, nextWarehouses] = await Promise.all([api.quotes(), api.customers(), api.products(), api.mailAccounts(), api.warehouses()]);
         setQuotes(nextQuotes);
         setCustomers(nextCustomers);
+        setProducts(nextProducts);
+        setMailAccounts(nextMailAccounts);
+        setWarehouses(nextWarehouses);
       }
       if (target === 'drive') {
         const [nextFolders, nextFiles] = await Promise.all([api.folders(), api.files()]);
@@ -382,7 +385,7 @@ export default function App() {
         )}
         {!loading && view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
         {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
-        {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} onChanged={() => load('quotes')} />}
+        {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} onChanged={() => load('quotes')} />}
         {!loading && view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
         {!loading && view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
@@ -1439,30 +1442,141 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
-function Quotes({ items, customers, onChanged }: { items: Quote[]; customers: Customer[]; onChanged: () => Promise<void> }) {
+type QuoteDraftLine = {
+  id: string;
+  productId: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  discountRate: string;
+  vatRate: string;
+};
+
+const quoteStatusLabels: Record<string, string> = {
+  Draft: 'Brouillon',
+  Sent: 'Envoye',
+  Signed: 'Signe',
+  Refused: 'Refuse',
+  Expired: 'Expire',
+  ConvertedToOrder: 'Transforme en commande'
+};
+
+function createQuoteDraftLine(): QuoteDraftLine {
+  return { id: createClientId('quote-line'), productId: '', description: '', quantity: '1', unitPrice: '0', discountRate: '0', vatRate: '20' };
+}
+
+function defaultQuoteValidUntil() {
+  return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function nextQuoteStatuses(status: string) {
+  const map: Record<string, string[]> = {
+    Draft: ['Sent', 'Refused', 'Expired'],
+    Sent: ['Draft', 'Signed', 'Refused', 'Expired'],
+    Signed: [],
+    Refused: ['Draft'],
+    Expired: ['Draft'],
+    ConvertedToOrder: []
+  };
+  return map[status] ?? [];
+}
+
+function Quotes({ items, customers, products, mailAccounts, warehouses, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; mailAccounts: MailAccount[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [customerId, setCustomerId] = useState('');
-  const [description, setDescription] = useState('');
-  const [quantity, setQuantity] = useState('1');
-  const [unitPrice, setUnitPrice] = useState('0');
-  const [vatRate, setVatRate] = useState('20');
+  const [validUntil, setValidUntil] = useState(defaultQuoteValidUntil());
+  const [lines, setLines] = useState<QuoteDraftLine[]>(() => [createQuoteDraftLine()]);
+  const [editingQuoteId, setEditingQuoteId] = useState('');
+  const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
+  const [emailQuoteId, setEmailQuoteId] = useState<string | null>(null);
+  const [mailAccountId, setMailAccountId] = useState('');
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [orderQuoteId, setOrderQuoteId] = useState<string | null>(null);
+  const [orderWarehouseId, setOrderWarehouseId] = useState('');
+
+  const editingQuote = items.find((item) => item.id === editingQuoteId);
+  const selectedQuote = selectedQuoteId ? items.find((item) => item.id === selectedQuoteId) : undefined;
+  const emailQuote = emailQuoteId ? items.find((item) => item.id === emailQuoteId) : undefined;
+  const orderQuote = orderQuoteId ? items.find((item) => item.id === orderQuoteId) : undefined;
+  const activeProducts = products.filter((product) => product.isActive);
+
+  const totals = lines.reduce(
+    (sum, line) => {
+      const net = Number(line.quantity || 0) * Number(line.unitPrice || 0) * (1 - Math.min(100, Math.max(0, Number(line.discountRate || 0))) / 100);
+      const vat = net * Number(line.vatRate || 0) / 100;
+      return { net: sum.net + net, vat: sum.vat + vat };
+    },
+    { net: 0, vat: 0 }
+  );
+
+  function resetForm() {
+    setCustomerId('');
+    setValidUntil(defaultQuoteValidUntil());
+    setLines([createQuoteDraftLine()]);
+    setEditingQuoteId('');
+  }
+
+  function updateLine(lineId: string, patch: Partial<QuoteDraftLine>) {
+    setLines((current) => current.map((line) => (line.id === lineId ? { ...line, ...patch } : line)));
+  }
+
+  function selectProduct(lineId: string, productId: string) {
+    const product = activeProducts.find((item) => item.id === productId);
+    updateLine(lineId, {
+      productId,
+      description: product ? `${product.reference} - ${product.name}` : '',
+      unitPrice: product ? String(product.salePrice) : '0',
+      vatRate: product ? String(product.vatRate) : '20'
+    });
+  }
+
+  function startEdit(quote: Quote) {
+    setEditingQuoteId(quote.id);
+    setCustomerId(quote.customerId);
+    setValidUntil(quote.validUntil);
+    setLines(
+      quote.lines.length > 0
+        ? quote.lines.map((line) => ({
+            id: createClientId('quote-line'),
+            productId: line.productId ?? '',
+            description: line.description,
+            quantity: String(line.quantity),
+            unitPrice: String(line.unitPrice),
+            discountRate: String(line.discountRate),
+            vatRate: String(line.vatRate)
+          }))
+        : [createQuoteDraftLine()]
+    );
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const selectedCustomerId = customerId || customers[0]?.id;
-    if (!selectedCustomerId) {
+    if (!customerId) {
       throw new Error('Creer un client avant de creer un devis.');
     }
 
-    const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    await api.createQuote({
-      customerId: selectedCustomerId,
+    const payload = {
+      customerId,
       validUntil,
-      lines: [{ description, quantity: Number(quantity), unitPrice: Number(unitPrice), discountRate: 0, vatRate: Number(vatRate) }]
-    });
-    setDescription('');
-    setQuantity('1');
-    setUnitPrice('0');
-    setVatRate('20');
+      lines: lines.map((line) => ({
+        productId: line.productId || null,
+        description: line.description,
+        quantity: Number(line.quantity),
+        unitPrice: Number(line.unitPrice),
+        discountRate: Number(line.discountRate),
+        vatRate: Number(line.vatRate)
+      }))
+    };
+
+    if (editingQuoteId) {
+      await api.updateQuote(editingQuoteId, payload);
+    } else {
+      await api.createQuote(payload);
+    }
+
+    resetForm();
     await onChanged();
   }
 
@@ -1478,48 +1592,332 @@ function Quotes({ items, customers, onChanged }: { items: Quote[]; customers: Cu
     }
   }
 
+  async function changeStatus(quote: Quote, status: string) {
+    await api.changeQuoteStatus(quote.id, status, null);
+    await onChanged();
+  }
+
+  function openEmailModal(quote: Quote) {
+    setEmailQuoteId(quote.id);
+    setMailAccountId(mailAccounts[0]?.id ?? '');
+    setEmailTo('');
+    setEmailSubject(`Devis ${quote.number}`);
+    setEmailBody(`Bonjour,\n\nVeuillez trouver ci-joint le devis ${quote.number}.\n\nCordialement`);
+  }
+
+  async function sendEmail(event: FormEvent) {
+    event.preventDefault();
+    if (!emailQuoteId) {
+      return;
+    }
+
+    await api.sendQuoteEmail(emailQuoteId, { mailAccountId, to: emailTo, subject: emailSubject, body: emailBody });
+    setEmailQuoteId(null);
+    await onChanged();
+  }
+
+  async function convertToOrder(event: FormEvent) {
+    event.preventDefault();
+    if (!orderQuoteId) {
+      return;
+    }
+
+    await api.createOrderFromQuote(orderQuoteId, orderWarehouseId || null);
+    setOrderQuoteId(null);
+    setOrderWarehouseId('');
+    await onChanged();
+  }
+
   return (
     <>
-      <Panel title="Nouveau devis">
-        <form className="form-grid" onSubmit={submit}>
-          <select value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
-            <option value="">Client</option>
-            {customers.map((customer) => (
-              <option key={customer.id} value={customer.id}>
-                {customer.companyName}
-              </option>
-            ))}
-          </select>
-          <input required placeholder="Ligne de devis" value={description} onChange={(event) => setDescription(event.target.value)} />
-          <input required type="number" step="0.001" placeholder="Quantite" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-          <input required type="number" step="0.01" placeholder="Prix HT" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
-          <input required type="number" step="0.01" placeholder="TVA" value={vatRate} onChange={(event) => setVatRate(event.target.value)} />
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Creer
-          </button>
+      <Panel title={editingQuote ? `Modifier devis ${editingQuote.number}` : 'Nouveau devis'}>
+        <form className="quote-builder" onSubmit={submit}>
+          <div className="form-grid">
+            <label className="field">
+              <span>Client</span>
+              <select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
+                <option value="">Selectionner un client</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.companyName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Validite</span>
+              <input required type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} />
+            </label>
+          </div>
+          <section className="purchase-section">
+            <div className="section-heading">
+              <h3>Lignes devis</h3>
+              <button className="secondary" type="button" onClick={() => setLines((current) => [...current, createQuoteDraftLine()])}>
+                <Plus size={16} />
+                Ajouter une ligne
+              </button>
+            </div>
+            <div className="quote-lines">
+              {lines.map((line, index) => {
+                const net = Number(line.quantity || 0) * Number(line.unitPrice || 0) * (1 - Number(line.discountRate || 0) / 100);
+                const vat = net * Number(line.vatRate || 0) / 100;
+                return (
+                  <div className="quote-line-row" key={line.id}>
+                    <label className="field">
+                      <span>Produit</span>
+                      <select value={line.productId} onChange={(event) => selectProduct(line.id, event.target.value)}>
+                        <option value="">Ligne libre</option>
+                        {activeProducts.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.reference} - {product.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field description-cell">
+                      <span>Description</span>
+                      <input required value={line.description} onChange={(event) => updateLine(line.id, { description: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Quantite</span>
+                      <input required type="number" step="0.001" min="0.001" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Prix HT</span>
+                      <input required type="number" step="0.01" min="0" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Remise (%)</span>
+                      <input required type="number" step="0.01" min="0" max="100" value={line.discountRate} onChange={(event) => updateLine(line.id, { discountRate: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>TVA (%)</span>
+                      <input required type="number" step="0.01" min="0" max="100" value={line.vatRate} onChange={(event) => updateLine(line.id, { vatRate: event.target.value })} />
+                    </label>
+                    <div className="purchase-row-total">
+                      <span>Total TTC</span>
+                      <strong>{purchaseAmount(net + vat)}</strong>
+                    </div>
+                    <button className="danger icon-only" type="button" aria-label="Supprimer la ligne" title="Supprimer la ligne" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))}>
+                      <Trash2 size={16} />
+                    </button>
+                    <small className="muted-text">Ligne {index + 1}: HT {purchaseAmount(net)} / TVA {purchaseAmount(vat)}</small>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+          <div className="summary-grid">
+            <DetailItem label="Total HT" value={purchaseAmount(totals.net)} />
+            <DetailItem label="TVA" value={purchaseAmount(totals.vat)} />
+            <DetailItem label="Total TTC" value={purchaseAmount(totals.net + totals.vat)} />
+          </div>
+          <div className="modal-footer">
+            {editingQuote && (
+              <button className="secondary" type="button" onClick={resetForm}>
+                Annuler
+              </button>
+            )}
+            <button className="primary" type="submit">
+              <Save size={16} />
+              {editingQuote ? 'Enregistrer' : 'Creer le devis'}
+            </button>
+          </div>
         </form>
       </Panel>
       <DataTable
-        columns={['Numero', 'Client', 'Statut', 'Total TTC', 'PDF']}
+        columns={['Numero', 'Client', 'Validite', 'Statut', 'Total TTC', 'Actions']}
+        onRowClick={(index) => setSelectedQuoteId(items[index].id)}
         rows={items.map((item) => [
           item.number,
           item.customerName ?? item.customerId,
-          item.status,
+          item.validUntil,
+          quoteStatusLabels[item.status] ?? item.status,
           `${item.total.toFixed(2)} ${item.currency}`,
           <div className="table-actions">
-            <button className="secondary" onClick={() => generatePdf(item)} type="button">
+            <button className="secondary" disabled={item.status === 'Signed' || item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); startEdit(item); }} type="button">
+              <Pencil size={15} />
+              Modifier
+            </button>
+            {nextQuoteStatuses(item.status).map((status) => (
+              <button key={status} className="secondary" onClick={(event) => { event.stopPropagation(); void changeStatus(item, status); }} type="button">
+                {quoteStatusLabels[status] ?? status}
+              </button>
+            ))}
+            <button className="secondary" onClick={(event) => { event.stopPropagation(); void generatePdf(item); }} type="button">
               <FileText size={15} />
               Generer
             </button>
-            <button className="secondary" disabled={item.documents.length === 0} onClick={() => downloadPdf(item)} type="button">
+            <button className="secondary" disabled={item.documents.length === 0} onClick={(event) => { event.stopPropagation(); void downloadPdf(item); }} type="button">
               <Download size={15} />
               PDF
+            </button>
+            <button className="secondary" disabled={mailAccounts.length === 0 || item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); openEmailModal(item); }} type="button">
+              <Mail size={15} />
+              Email
+            </button>
+            <button className="secondary" disabled={item.status !== 'Signed'} onClick={(event) => { event.stopPropagation(); setOrderQuoteId(item.id); }} type="button">
+              <ShoppingCart size={15} />
+              Commander
             </button>
           </div>
         ])}
       />
+      {selectedQuote && <QuoteDetailsModal quote={selectedQuote} onClose={() => setSelectedQuoteId(null)} onDownloadPdf={downloadPdf} />}
+      {emailQuote && (
+        <div className="modal-backdrop" onClick={() => setEmailQuoteId(null)}>
+          <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="quote-email-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <span className="eyebrow">EMAIL</span>
+                <h2 id="quote-email-title">Envoyer {emailQuote.number}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setEmailQuoteId(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <form className="product-edit-form" onSubmit={sendEmail}>
+              <div className="form-grid">
+                <label className="field">
+                  <span>Compte email</span>
+                  <select required value={mailAccountId} onChange={(event) => setMailAccountId(event.target.value)}>
+                    <option value="">Compte email</option>
+                    {mailAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.email}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Destinataire</span>
+                  <input required type="email" value={emailTo} onChange={(event) => setEmailTo(event.target.value)} />
+                </label>
+                <label className="field full-field">
+                  <span>Sujet</span>
+                  <input required value={emailSubject} onChange={(event) => setEmailSubject(event.target.value)} />
+                </label>
+                <label className="field full-field">
+                  <span>Message</span>
+                  <textarea value={emailBody} onChange={(event) => setEmailBody(event.target.value)} />
+                </label>
+              </div>
+              <div className="modal-footer">
+                <button className="secondary" type="button" onClick={() => setEmailQuoteId(null)}>
+                  Annuler
+                </button>
+                <button className="primary" type="submit">
+                  <Mail size={16} />
+                  Envoyer
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {orderQuote && (
+        <div className="modal-backdrop" onClick={() => setOrderQuoteId(null)}>
+          <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="quote-order-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <span className="eyebrow">COMMANDE</span>
+                <h2 id="quote-order-title">Transformer {orderQuote.number}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setOrderQuoteId(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <form className="product-edit-form" onSubmit={convertToOrder}>
+              <label className="field">
+                <span>Entrepot de reservation</span>
+                <select value={orderWarehouseId} onChange={(event) => setOrderWarehouseId(event.target.value)}>
+                  <option value="">Sans entrepot pour le moment</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="panel-note">La reservation de stock se fera quand la commande sera confirmee.</p>
+              <div className="modal-footer">
+                <button className="secondary" type="button" onClick={() => setOrderQuoteId(null)}>
+                  Annuler
+                </button>
+                <button className="primary" type="submit">
+                  <ShoppingCart size={16} />
+                  Transformer
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </>
+  );
+}
+
+function QuoteDetailsModal({ quote, onClose, onDownloadPdf }: { quote: Quote; onClose: () => void; onDownloadPdf: (quote: Quote) => Promise<void> }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="modal-panel quote-modal" role="dialog" aria-modal="true" aria-labelledby="quote-detail-title" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-header">
+          <div>
+            <span className="eyebrow">DEVIS</span>
+            <h2 id="quote-detail-title">{quote.number}</h2>
+            <p>{quote.customerName ?? quote.customerId}</p>
+          </div>
+          <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+        <div className="summary-grid">
+          <DetailItem label="Statut" value={quoteStatusLabels[quote.status] ?? quote.status} />
+          <DetailItem label="Emission" value={quote.issueDate} />
+          <DetailItem label="Validite" value={quote.validUntil} />
+          <DetailItem label="Total HT" value={purchaseAmount(quote.subtotal)} />
+          <DetailItem label="TVA" value={purchaseAmount(quote.vatTotal)} />
+          <DetailItem label="Total TTC" value={purchaseAmount(quote.total)} />
+        </div>
+        <h3>Lignes</h3>
+        <DataTable
+          columns={['Produit', 'Description', 'Qte', 'PU HT', 'Remise', 'TVA', 'Total TTC']}
+          rows={quote.lines.map((line) => [
+            line.productReference ? `${line.productReference} - ${line.productName ?? ''}` : 'Ligne libre',
+            line.description,
+            line.quantity,
+            purchaseAmount(line.unitPrice),
+            `${line.discountRate}%`,
+            `${line.vatRate}%`,
+            purchaseAmount(line.lineTotal)
+          ])}
+        />
+        <h3>Documents</h3>
+        <DataTable
+          columns={['Version', 'Fichier', 'Taille', 'Date', 'Action']}
+          rows={quote.documents.map((document) => [
+            document.version,
+            document.fileName,
+            `${Math.round(document.size / 1024)} Ko`,
+            document.createdAt,
+            <button className="secondary" type="button" onClick={() => onDownloadPdf(quote)}>
+              <Download size={15} />
+              PDF
+            </button>
+          ])}
+        />
+        <h3>Historique</h3>
+        <DataTable
+          columns={['Statut', 'Commentaire', 'Utilisateur', 'Date']}
+          rows={quote.statusHistory.map((history) => [
+            quoteStatusLabels[history.status] ?? history.status,
+            history.comment ?? '-',
+            history.changedByDisplayName || history.changedByEmail || history.changedByUserId || 'Systeme',
+            history.changedAt
+          ])}
+        />
+      </section>
+    </div>
   );
 }
 

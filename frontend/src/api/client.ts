@@ -122,7 +122,7 @@ export class ApiClient {
     return this.request<PagedResult<Quote>>('/api/quotes', { auth: true });
   }
 
-  createQuote(payload: { customerId: string; validUntil: string; lines: Array<{ description: string; quantity: number; unitPrice: number; discountRate: number; vatRate: number }> }) {
+  createQuote(payload: { customerId: string; validUntil: string; lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number; discountRate: number; vatRate: number }> }) {
     return this.request<Quote>('/api/quotes', {
       method: 'POST',
       auth: true,
@@ -130,8 +130,24 @@ export class ApiClient {
     });
   }
 
+  updateQuote(quoteId: string, payload: { customerId: string; validUntil: string; lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number; discountRate: number; vatRate: number }> }) {
+    return this.request<Quote>(`/api/quotes/${quoteId}`, {
+      method: 'PUT',
+      auth: true,
+      body: JSON.stringify(payload)
+    });
+  }
+
+  changeQuoteStatus(quoteId: string, status: string, comment?: string | null) {
+    return this.request<Quote>(`/api/quotes/${quoteId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status, comment }) });
+  }
+
   generateQuotePdf(quoteId: string) {
     return this.request<QuoteDocument>(`/api/quotes/${quoteId}/pdf`, { method: 'POST', auth: true });
+  }
+
+  sendQuoteEmail(quoteId: string, payload: { mailAccountId: string; to: string; subject?: string | null; body?: string | null }) {
+    return this.request<Quote>(`/api/quotes/${quoteId}/email`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
   async downloadQuoteDocument(quoteId: string, documentId: string, fileName: string) {
@@ -215,6 +231,10 @@ export class ApiClient {
 
   createOrder(payload: { customerId: string; warehouseId?: string | null; lines: Array<{ productId?: string | null; description: string; quantity: number; unitPrice: number }> }) {
     return this.request<SalesOrder>('/api/orders', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  createOrderFromQuote(quoteId: string, warehouseId?: string | null) {
+    return this.request<SalesOrder>('/api/orders/from-quote', { method: 'POST', auth: true, body: JSON.stringify({ quoteId, warehouseId }) });
   }
 
   changeOrderStatus(orderId: string, status: string) {
