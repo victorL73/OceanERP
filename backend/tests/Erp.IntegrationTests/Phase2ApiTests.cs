@@ -240,7 +240,8 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var purchaseResponse = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
             supplier.Id,
             DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
-            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - {product.Name}", 10, product.PurchasePrice)]));
+            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - {product.Name}", 10, product.PurchasePrice)],
+            WarehouseId: warehouse.Id));
 
         Assert.Equal(HttpStatusCode.Created, purchaseResponse.StatusCode);
         var purchaseOrder = await purchaseResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
@@ -260,6 +261,9 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var firstProduct = await CreateProductAsync(client);
         var secondProduct = await CreateProductAsync(client);
         var supplier = (await client.GetFromJsonAsync<IReadOnlyList<ProductSupplierDto>>("/api/products/suppliers"))!.First();
+        var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(firstProduct.Id, warehouse.Id, 0, "Rattachement achat", 0))).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(secondProduct.Id, warehouse.Id, 0, "Rattachement achat", 0))).EnsureSuccessStatusCode();
 
         var response = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
             supplier.Id,
@@ -269,7 +273,8 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
                 new CreatePurchaseOrderLineRequest(secondProduct.Id, $"{secondProduct.Reference} - achat", 3, 5, 5)
             ],
             "Commande test avec frais",
-            [new CreatePurchaseOrderChargeRequest("Livraison", 12, 20), new CreatePurchaseOrderChargeRequest("Douane", 8, 0)]));
+            [new CreatePurchaseOrderChargeRequest("Livraison", 12, 20), new CreatePurchaseOrderChargeRequest("Douane", 8, 0)],
+            warehouse.Id));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var order = await response.Content.ReadFromJsonAsync<PurchaseOrderDto>();
@@ -292,11 +297,14 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var secondProduct = await CreateProductAsync(client);
         var supplier = (await client.GetFromJsonAsync<IReadOnlyList<ProductSupplierDto>>("/api/products/suppliers"))!.First();
         var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(firstProduct.Id, warehouse.Id, 0, "Rattachement achat", 0))).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(secondProduct.Id, warehouse.Id, 0, "Rattachement achat", 0))).EnsureSuccessStatusCode();
 
         var createResponse = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
             supplier.Id,
             null,
-            [new CreatePurchaseOrderLineRequest(firstProduct.Id, $"{firstProduct.Reference} - achat initial", 1, 10, 20)]));
+            [new CreatePurchaseOrderLineRequest(firstProduct.Id, $"{firstProduct.Reference} - achat initial", 1, 10, 20)],
+            WarehouseId: warehouse.Id));
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         var order = await createResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
         var expectedAt = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(8));
@@ -332,15 +340,18 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var product = await CreateProductAsync(client);
         var supplier = (await client.GetFromJsonAsync<IReadOnlyList<ProductSupplierDto>>("/api/products/suppliers"))!.First();
         var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 0, "Rattachement achat", 0))).EnsureSuccessStatusCode();
 
         var createResponse = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
             supplier.Id,
             DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5)),
-            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - stock", 4, product.PurchasePrice, product.VatRate)]));
+            [new CreatePurchaseOrderLineRequest(product.Id, $"{product.Reference} - stock", 4, product.PurchasePrice, product.VatRate)],
+            WarehouseId: warehouse.Id));
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         var order = await createResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
+        Assert.Equal(warehouse.Id, order!.WarehouseId);
 
-        var ordered = await client.PostAsJsonAsync($"/api/purchases/orders/{order!.Id}/status", new UpdatePurchaseOrderStatusRequest("Ordered"));
+        var ordered = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Ordered"));
         Assert.Equal(HttpStatusCode.OK, ordered.StatusCode);
 
         var rollback = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Draft"));
@@ -350,14 +361,6 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
 
         (await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Ordered"))).EnsureSuccessStatusCode();
         (await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/status", new UpdatePurchaseOrderStatusRequest("Received"))).EnsureSuccessStatusCode();
-
-        var missingWarehouseResponse = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/receive-to-stock", new ReceivePurchaseOrderToStockRequest());
-        Assert.Equal(HttpStatusCode.BadRequest, missingWarehouseResponse.StatusCode);
-
-        var warehouseResponse = await client.PutAsJsonAsync($"/api/purchases/orders/{order.Id}/warehouse", new UpdatePurchaseOrderWarehouseRequest(warehouse.Id));
-        Assert.Equal(HttpStatusCode.OK, warehouseResponse.StatusCode);
-        var warehouseOrder = await warehouseResponse.Content.ReadFromJsonAsync<PurchaseOrderDto>();
-        Assert.Equal(warehouse.Id, warehouseOrder!.WarehouseId);
 
         var receiveResponse = await client.PostAsJsonAsync($"/api/purchases/orders/{order.Id}/receive-to-stock", new ReceivePurchaseOrderToStockRequest());
         Assert.Equal(HttpStatusCode.OK, receiveResponse.StatusCode);

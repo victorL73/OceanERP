@@ -57,7 +57,12 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             return Result<PurchaseOrderDto>.Failure("Une commande fournisseur requiert au moins une ligne.");
         }
 
-        if (request.WarehouseId.HasValue && !await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
+        if (!request.WarehouseId.HasValue)
+        {
+            return Result<PurchaseOrderDto>.Failure("Selectionnez l'entrepot de reception avant de saisir une commande fournisseur.");
+        }
+
+        if (!await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
         {
             return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
         }
@@ -68,11 +73,18 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             return Result<PurchaseOrderDto>.Failure(warehouseResult.Error!);
         }
 
+        var effectiveWarehouseId = warehouseResult.Value ?? request.WarehouseId.Value;
+        var productWarehouseResult = await ValidateProductsInWarehouseAsync(request.Lines.Select(x => x.ProductId), effectiveWarehouseId, cancellationToken);
+        if (!productWarehouseResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(productWarehouseResult.Error!);
+        }
+
         var order = new PurchaseOrder
         {
             Number = await NextNumberAsync(cancellationToken),
             SupplierId = request.SupplierId,
-            WarehouseId = warehouseResult.Value ?? request.WarehouseId,
+            WarehouseId = effectiveWarehouseId,
             ExpectedAt = request.ExpectedAt,
             Comment = NormalizeOptional(request.Comment),
             Status = "Draft"
@@ -134,7 +146,12 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             return Result<PurchaseOrderDto>.Failure("Une commande fournisseur requiert au moins une ligne.");
         }
 
-        if (request.WarehouseId.HasValue && !await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
+        if (!request.WarehouseId.HasValue)
+        {
+            return Result<PurchaseOrderDto>.Failure("Selectionnez l'entrepot de reception avant de modifier la commande fournisseur.");
+        }
+
+        if (!await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
         {
             return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
         }
@@ -143,6 +160,13 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         if (!warehouseResult.Succeeded)
         {
             return Result<PurchaseOrderDto>.Failure(warehouseResult.Error!);
+        }
+
+        var effectiveWarehouseId = warehouseResult.Value ?? request.WarehouseId.Value;
+        var productWarehouseResult = await ValidateProductsInWarehouseAsync(request.Lines.Select(x => x.ProductId), effectiveWarehouseId, cancellationToken);
+        if (!productWarehouseResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(productWarehouseResult.Error!);
         }
 
         var nextLines = new List<PurchaseOrderLine>();
@@ -175,7 +199,7 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         db.PurchaseOrderCharges.RemoveRange(oldCharges);
 
         order.SupplierId = request.SupplierId;
-        order.WarehouseId = warehouseResult.Value ?? request.WarehouseId;
+        order.WarehouseId = effectiveWarehouseId;
         order.ExpectedAt = request.ExpectedAt;
         order.Comment = NormalizeOptional(request.Comment);
         db.PurchaseOrderLines.AddRange(nextLines);
@@ -640,6 +664,38 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             .Select(x => x.Name)
             .FirstOrDefaultAsync(cancellationToken)
             ?? warehouseId.ToString();
+
+    private async Task<Result> ValidateProductsInWarehouseAsync(IEnumerable<Guid?> productIds, Guid warehouseId, CancellationToken cancellationToken)
+    {
+        var ids = productIds
+            .Where(x => x.HasValue)
+            .Select(x => x!.Value)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        var assignedIds = await db.StockItems
+            .Where(x => x.WarehouseId == warehouseId && ids.Contains(x.ProductId))
+            .Select(x => x.ProductId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var missingIds = ids.Except(assignedIds).ToList();
+        if (missingIds.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        var products = await db.Products
+            .Where(x => missingIds.Contains(x.Id))
+            .OrderBy(x => x.Reference)
+            .Select(x => $"{x.Reference} - {x.Name}")
+            .ToListAsync(cancellationToken);
+
+        return Result.Failure($"Ces produits ne sont pas rattaches a l'entrepot selectionne: {string.Join(", ", products)}.");
+    }
 
     private static string? NormalizeOptional(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
