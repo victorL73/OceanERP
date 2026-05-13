@@ -48,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IQuoteService, QuoteService>();
+        services.AddScoped<IQuoteSettingsService, QuoteSettingsService>();
         services.AddScoped<IQuotePdfService, QuotePdfService>();
         services.AddScoped<IInvoicePdfService, InvoicePdfService>();
         services.AddScoped<IFileStorageService, FileSystemStorageService>();

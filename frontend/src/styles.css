@@ -439,6 +439,42 @@ h1 {
   line-height: 1.5;
 }
 
+.quote-settings-form textarea {
+  min-height: 92px;
+}
+
+.quote-logo-settings {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 18px;
+  align-items: center;
+}
+
+.quote-logo-preview {
+  min-height: 120px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #f8fafc;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.quote-logo-preview img {
+  max-width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+}
+
+.quote-logo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
 .check-field,
 .multi-select {
   display: grid;

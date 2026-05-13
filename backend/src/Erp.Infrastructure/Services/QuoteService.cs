@@ -368,7 +368,8 @@ public sealed class QuoteService(
             .Select(x => (int?)x.Version)
             .MaxAsync(cancellationToken) ?? 0;
         var nextVersion = lastVersion + 1;
-        var pdfBytes = quotePdfService.Generate(quote);
+        var (settings, logoBytes) = await LoadPdfSettingsAsync(cancellationToken);
+        var pdfBytes = quotePdfService.Generate(quote, settings, logoBytes);
         await using var stream = new MemoryStream(pdfBytes);
         var fileName = $"{quote.Number}-v{nextVersion}.pdf";
         var stored = await fileStorageService.SaveAsync("quotes", fileName, stream, cancellationToken);
@@ -413,6 +414,51 @@ public sealed class QuoteService(
             .Include(x => x.Lines)
             .Include(x => x.Documents)
             .Include(x => x.StatusHistory);
+
+    private async Task<(QuotePdfSettings Settings, byte[]? LogoBytes)> LoadPdfSettingsAsync(CancellationToken cancellationToken)
+    {
+        var settings = await db.QuoteDocumentSettings
+            .AsNoTracking()
+            .OrderBy(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (settings is null)
+        {
+            return (QuotePdfSettings.Default, null);
+        }
+
+        byte[]? logoBytes = null;
+        if (!string.IsNullOrWhiteSpace(settings.LogoStoragePath))
+        {
+            try
+            {
+                await using var stream = await fileStorageService.OpenReadAsync(settings.LogoStoragePath, cancellationToken);
+                await using var memory = new MemoryStream();
+                await stream.CopyToAsync(memory, cancellationToken);
+                logoBytes = memory.ToArray();
+            }
+            catch
+            {
+                logoBytes = null;
+            }
+        }
+
+        return (
+            new QuotePdfSettings(
+                settings.CompanyName,
+                settings.AddressLine1,
+                settings.AddressLine2,
+                settings.PostalCode,
+                settings.City,
+                settings.Country,
+                settings.Phone,
+                settings.Email,
+                settings.Website,
+                settings.VatNumber,
+                settings.Siret,
+                settings.LegalText,
+                settings.FooterText),
+            logoBytes);
+    }
 
     private async Task<string> NextQuoteNumberAsync(CancellationToken cancellationToken)
     {

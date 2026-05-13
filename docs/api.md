@@ -23,6 +23,10 @@ Swagger est activé en environnement `Development`.
 - `POST /api/products`
 - `GET /api/quotes`
 - `POST /api/quotes`
+- `GET /api/quotes/settings`
+- `PUT /api/quotes/settings`
+- `POST /api/quotes/settings/logo`
+- `DELETE /api/quotes/settings/logo`
 - `POST /api/quotes/{id}/pdf`
 - `GET /api/quotes/{id}/documents/{documentId}/download`
 - `GET /api/drive/folders`
@@ -97,6 +101,7 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Les utilisateurs autorises ne voient dans l'onglet Emails et dans l'envoi des devis que les boites auxquelles ils ont acces. Ils peuvent ajuster les informations non sensibles de leur boite, notamment la signature HTML.
 - Le module email journalise les envois, stocke les pieces jointes hors PostgreSQL et permet la synchronisation IMAP. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true`; sinon l'email reste journalise avec le statut `Logged`.
 - Les mots de passe SMTP/IMAP peuvent etre stockes chiffres en base avec `Secrets:EncryptionKey`, ou references par un secret d'environnement via `PasswordSecretName`. Les signatures HTML sont ajoutees automatiquement aux emails sortants.
+- Les administrateurs configurent la personnalisation des devis dans `Parametres > Devis` : nom et adresse de l'entreprise, telephone, email, site, TVA/SIRET, mentions, pied de page et logo. Le logo est stocke hors PostgreSQL dans le stockage documents.
 - La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations.
 - L'URL PrestaShop peut etre saisie sous forme `https://boutique.example.com` ou `https://boutique.example.com/api`. Le backend evite automatiquement le doublon `/api/api`.
 - `POST /api/prestashop/connections/{id}/sync` cree un journal `Queued` et retourne immediatement. Un worker serveur passe ensuite le journal en `Running`, puis importe les produits, clients, stocks et commandes dans les modules ERP via `ExternalReference`.

@@ -92,6 +92,7 @@ La Phase 2 contient maintenant :
 - factures depuis commandes expediees, paiements et PDF facture ;
 - stock avec quantite physique, reservee, disponible, seuil bas et mouvements ;
 - module email avec serveurs SMTP/IMAP globaux geres par admin, boites affectees aux utilisateurs, signature HTML, synchronisation IMAP et journal d'envoi ;
+- personnalisation admin des devis depuis `Parametres > Devis` : identite entreprise, logo, mentions et pied de page PDF ;
 - PrestaShop avec connexions, cle API configurable par admin dans `Parametres`, import produits/clients/stocks/commandes et journal de synchronisation traite par worker (`Queued`, `Running`, `Completed`, `CompletedWithWarnings`, `Failed`).
 
 Apres `git pull`, redeployer sur Ubuntu :

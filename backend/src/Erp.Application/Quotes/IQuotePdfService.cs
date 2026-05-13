@@ -4,6 +4,5 @@ namespace Erp.Application.Quotes;
 
 public interface IQuotePdfService
 {
-    byte[] Generate(Quote quote);
+    byte[] Generate(Quote quote, QuotePdfSettings settings, byte[]? logoBytes);
 }
-

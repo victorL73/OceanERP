@@ -13,6 +13,7 @@
 - Serveurs SMTP/IMAP globaux configurables uniquement par un administrateur dans `Parametres > Boites mail`.
 - Boites mail creees par un administrateur : adresse, mot de passe ou secret sont geres par l'admin, puis les utilisateurs autorises peuvent utiliser la boite et maintenir une signature HTML.
 - Mots de passe de boites mail stockes sous forme protegee avec `Secrets:EncryptionKey` ou references par secret d'environnement.
+- Personnalisation des devis reservee aux administrateurs : logo stocke hors base de donnees, metadonnees uniquement en PostgreSQL.
 - Audit logs de connexion.
 - Middleware centralisé d'erreurs.
 - CORS configurable.

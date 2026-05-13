@@ -7,8 +7,39 @@ namespace Erp.Api.Controllers;
 [ApiController]
 [Route("api/quotes")]
 [Authorize]
-public sealed class QuotesController(IQuoteService quotes) : ControllerBase
+public sealed class QuotesController(IQuoteService quotes, IQuoteSettingsService quoteSettings) : ControllerBase
 {
+    [HttpGet("settings")]
+    [Authorize(Policy = "quotes.read")]
+    public async Task<ActionResult<QuoteSettingsDto>> Settings(CancellationToken cancellationToken)
+        => Ok(await quoteSettings.GetAsync(cancellationToken));
+
+    [HttpPut("settings")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteSettingsDto>> UpdateSettings(UpdateQuoteSettingsRequest request, CancellationToken cancellationToken)
+    {
+        var result = await quoteSettings.UpdateAsync(request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("settings/logo")]
+    [Authorize(Policy = "quotes.write")]
+    [RequestSizeLimit(2_000_000)]
+    public async Task<ActionResult<QuoteSettingsDto>> UploadLogo([FromForm] IFormFile file, CancellationToken cancellationToken)
+    {
+        await using var stream = file.OpenReadStream();
+        var result = await quoteSettings.UploadLogoAsync(file.FileName, file.ContentType, stream, file.Length, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpDelete("settings/logo")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteSettingsDto>> DeleteLogo(CancellationToken cancellationToken)
+    {
+        var result = await quoteSettings.DeleteLogoAsync(cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpGet]
     [Authorize(Policy = "quotes.read")]
     public async Task<ActionResult> Search([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)

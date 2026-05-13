@@ -113,6 +113,28 @@ export type QuoteStatusHistory = {
   changedAt: string;
 };
 
+export type QuoteSettings = {
+  id?: string;
+  companyName: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  postalCode?: string;
+  city?: string;
+  country?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  vatNumber?: string;
+  siret?: string;
+  legalText?: string;
+  footerText?: string;
+  logoFileName?: string;
+  logoMimeType?: string;
+  logoSize?: number;
+  logoDataUrl?: string;
+  hasLogo: boolean;
+};
+
 export type DriveItem = {
   id: string;
   folderId?: string;

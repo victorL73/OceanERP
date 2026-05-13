@@ -2,7 +2,7 @@ import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEf
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
+import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
@@ -95,6 +95,7 @@ export default function App() {
   const [customers, setCustomers] = useState<PagedResult<Customer> | null>(null);
   const [products, setProducts] = useState<PagedResult<Product> | null>(null);
   const [quotes, setQuotes] = useState<PagedResult<Quote> | null>(null);
+  const [quoteSettings, setQuoteSettings] = useState<QuoteSettings | null>(null);
   const [folders, setFolders] = useState<DriveFolder[]>([]);
   const [files, setFiles] = useState<DriveItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -156,6 +157,9 @@ export default function App() {
           setMailAccounts(nextMailAccounts);
           setEmailTemplates(nextTemplates);
           setMailServerSettings(nextServerSettings);
+        }
+        if (user.roles.includes('Administrator') && hasPermission(user, 'quotes.read')) {
+          setQuoteSettings(await api.quoteSettings());
         }
       }
       if (target === 'customers') {
@@ -383,11 +387,13 @@ export default function App() {
             warehouses={warehouses}
             mailAccounts={mailAccounts}
             mailServerSettings={mailServerSettings}
+            quoteSettings={quoteSettings}
             onUsersRolesChanged={() => load('settings')}
             onPrestashopChanged={() => load('settings')}
             onWarehousesChanged={() => load('settings')}
             onMailAccountsChanged={() => load('settings')}
             onMailServerSettingsChanged={() => load('settings')}
+            onQuoteSettingsChanged={() => load('settings')}
             onUserChanged={setCurrentUser}
             onSignedOut={() => {
               api.logout();
@@ -494,11 +500,13 @@ function Settings({
   warehouses,
   mailAccounts,
   mailServerSettings,
+  quoteSettings,
   onUsersRolesChanged,
   onPrestashopChanged,
   onWarehousesChanged,
   onMailAccountsChanged,
   onMailServerSettingsChanged,
+  onQuoteSettingsChanged,
   onUserChanged,
   onSignedOut
 }: {
@@ -510,11 +518,13 @@ function Settings({
   warehouses: Warehouse[];
   mailAccounts: MailAccount[];
   mailServerSettings: MailServerSettings | null;
+  quoteSettings: QuoteSettings | null;
   onUsersRolesChanged: () => Promise<void>;
   onPrestashopChanged: () => Promise<void>;
   onWarehousesChanged: () => Promise<void>;
   onMailAccountsChanged: () => Promise<void>;
   onMailServerSettingsChanged: () => Promise<void>;
+  onQuoteSettingsChanged: () => Promise<void>;
   onUserChanged: (user: User) => void;
   onSignedOut: () => void;
 }) {
@@ -523,7 +533,8 @@ function Settings({
   const canManageWarehouses = hasPermission(currentUser, 'stock.read') && hasPermission(currentUser, 'stock.write');
   const canManageEmails = hasPermission(currentUser, 'emails.read') && hasPermission(currentUser, 'emails.write');
   const isAdministrator = Boolean(currentUser?.roles.includes('Administrator'));
-  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'access' | 'warehouses' | 'prestashop'>('account');
+  const canManageQuoteSettings = isAdministrator && hasPermission(currentUser, 'quotes.read') && hasPermission(currentUser, 'quotes.write');
+  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'warehouses' | 'prestashop'>('account');
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -538,10 +549,10 @@ function Settings({
   }, [currentUser]);
 
   useEffect(() => {
-    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'access' && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
+    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'quotes' && !canManageQuoteSettings) || (activeTab === 'access' && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
       setActiveTab('account');
     }
-  }, [activeTab, canManageEmails, canManagePrestashop, canManageUsers, canManageWarehouses]);
+  }, [activeTab, canManageEmails, canManagePrestashop, canManageQuoteSettings, canManageUsers, canManageWarehouses]);
 
   async function updateProfile(event: FormEvent) {
     event.preventDefault();
@@ -578,6 +589,7 @@ function Settings({
   const tabs = [
     { key: 'account' as const, label: 'Compte' },
     ...(canManageEmails ? [{ key: 'emails' as const, label: 'Boites mail' }] : []),
+    ...(canManageQuoteSettings ? [{ key: 'quotes' as const, label: 'Devis' }] : []),
     ...(canManageUsers ? [{ key: 'access' as const, label: 'Utilisateurs/Roles' }] : []),
     ...(canManageWarehouses ? [{ key: 'warehouses' as const, label: 'Entrepots' }] : []),
     ...(canManagePrestashop ? [{ key: 'prestashop' as const, label: 'PrestaShop' }] : [])
@@ -625,10 +637,177 @@ function Settings({
         )}
 
         {activeTab === 'emails' && canManageEmails && <MailAccountSettings accounts={mailAccounts} serverSettings={mailServerSettings} users={users} currentUser={currentUser} canAssignUsers={canManageUsers} canManageServerSettings={isAdministrator} onChanged={onMailAccountsChanged} onServerSettingsChanged={onMailServerSettingsChanged} />}
+        {activeTab === 'quotes' && canManageQuoteSettings && <QuoteSettingsPanel settings={quoteSettings} onChanged={onQuoteSettingsChanged} />}
         {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
         {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
         {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettings connections={prestashopConnections} warehouses={warehouses} onChanged={onPrestashopChanged} />}
       </section>
+    </>
+  );
+}
+
+function QuoteSettingsPanel({ settings, onChanged }: { settings: QuoteSettings | null; onChanged: () => Promise<void> }) {
+  const [companyName, setCompanyName] = useState(settings?.companyName ?? 'OceanERP');
+  const [addressLine1, setAddressLine1] = useState(settings?.addressLine1 ?? '');
+  const [addressLine2, setAddressLine2] = useState(settings?.addressLine2 ?? '');
+  const [postalCode, setPostalCode] = useState(settings?.postalCode ?? '');
+  const [city, setCity] = useState(settings?.city ?? '');
+  const [country, setCountry] = useState(settings?.country ?? '');
+  const [phone, setPhone] = useState(settings?.phone ?? '');
+  const [email, setEmail] = useState(settings?.email ?? '');
+  const [website, setWebsite] = useState(settings?.website ?? '');
+  const [vatNumber, setVatNumber] = useState(settings?.vatNumber ?? '');
+  const [siret, setSiret] = useState(settings?.siret ?? '');
+  const [legalText, setLegalText] = useState(settings?.legalText ?? '');
+  const [footerText, setFooterText] = useState(settings?.footerText ?? '');
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCompanyName(settings?.companyName ?? 'OceanERP');
+    setAddressLine1(settings?.addressLine1 ?? '');
+    setAddressLine2(settings?.addressLine2 ?? '');
+    setPostalCode(settings?.postalCode ?? '');
+    setCity(settings?.city ?? '');
+    setCountry(settings?.country ?? '');
+    setPhone(settings?.phone ?? '');
+    setEmail(settings?.email ?? '');
+    setWebsite(settings?.website ?? '');
+    setVatNumber(settings?.vatNumber ?? '');
+    setSiret(settings?.siret ?? '');
+    setLegalText(settings?.legalText ?? '');
+    setFooterText(settings?.footerText ?? '');
+  }, [settings]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setFeedback(null);
+    try {
+      await api.updateQuoteSettings({ companyName, addressLine1, addressLine2, postalCode, city, country, phone, email, website, vatNumber, siret, legalText, footerText });
+      setFeedback('Personnalisation des devis enregistree.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Enregistrement impossible.');
+    }
+  }
+
+  async function uploadLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setFeedback(null);
+    try {
+      await api.uploadQuoteLogo(file);
+      setFeedback('Logo des devis mis a jour.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Upload du logo impossible.');
+    } finally {
+      event.target.value = '';
+    }
+  }
+
+  async function deleteLogo() {
+    setFeedback(null);
+    try {
+      await api.deleteQuoteLogo();
+      setFeedback('Logo supprime.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Suppression du logo impossible.');
+    }
+  }
+
+  return (
+    <>
+      <Panel title="Identite devis">
+        <form className="form-grid quote-settings-form" onSubmit={save}>
+          <label className="field">
+            <span>Nom entreprise</span>
+            <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Adresse</span>
+            <input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Complement</span>
+            <input value={addressLine2} onChange={(event) => setAddressLine2(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Code postal</span>
+            <input value={postalCode} onChange={(event) => setPostalCode(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Ville</span>
+            <input value={city} onChange={(event) => setCity(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Pays</span>
+            <input value={country} onChange={(event) => setCountry(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Telephone</span>
+            <input value={phone} onChange={(event) => setPhone(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Email</span>
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Site web</span>
+            <input value={website} onChange={(event) => setWebsite(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>TVA intracom</span>
+            <input value={vatNumber} onChange={(event) => setVatNumber(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>SIRET</span>
+            <input value={siret} onChange={(event) => setSiret(event.target.value)} />
+          </label>
+          <label className="field full-field">
+            <span>Mentions legales / conditions devis</span>
+            <textarea value={legalText} onChange={(event) => setLegalText(event.target.value)} />
+          </label>
+          <label className="field full-field">
+            <span>Pied de page</span>
+            <textarea value={footerText} onChange={(event) => setFooterText(event.target.value)} />
+          </label>
+          <div className="form-actions">
+            <button className="primary" type="submit">
+              <Save size={16} />
+              Enregistrer
+            </button>
+          </div>
+        </form>
+        {feedback && <div className="inline-message">{feedback}</div>}
+        <p className="panel-note">Ces informations seront appliquees aux prochains PDF de devis generes.</p>
+      </Panel>
+
+      <Panel title="Logo devis">
+        <div className="quote-logo-settings">
+          <div className="quote-logo-preview">
+            {settings?.logoDataUrl ? <img src={settings.logoDataUrl} alt="Logo devis" /> : <span>Aucun logo</span>}
+          </div>
+          <div className="quote-logo-actions">
+            <strong>{settings?.logoFileName ?? 'Logo non configure'}</strong>
+            {settings?.logoSize && <span>{Math.round(settings.logoSize / 1024)} Ko</span>}
+            <label className="upload-button">
+              <Upload size={16} />
+              Importer un logo
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadLogo} />
+            </label>
+            {settings?.hasLogo && (
+              <button className="danger" type="button" onClick={deleteLogo}>
+                <Trash2 size={16} />
+                Supprimer le logo
+              </button>
+            )}
+          </div>
+        </div>
+      </Panel>
     </>
   );
 }

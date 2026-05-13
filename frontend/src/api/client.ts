@@ -20,6 +20,7 @@ import type {
   PurchaseOrder,
   Quote,
   QuoteDocument,
+  QuoteSettings,
   Role,
   SalesOrder,
   StockItem,
@@ -150,6 +151,38 @@ export class ApiClient {
 
   sendQuoteEmail(quoteId: string, payload: { mailAccountId: string; to: string; subject?: string | null; body?: string | null }) {
     return this.request<Quote>(`/api/quotes/${quoteId}/email`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  quoteSettings() {
+    return this.request<QuoteSettings>('/api/quotes/settings', { auth: true });
+  }
+
+  updateQuoteSettings(payload: {
+    companyName: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    postalCode?: string;
+    city?: string;
+    country?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    vatNumber?: string;
+    siret?: string;
+    legalText?: string;
+    footerText?: string;
+  }) {
+    return this.request<QuoteSettings>('/api/quotes/settings', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  uploadQuoteLogo(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request<QuoteSettings>('/api/quotes/settings/logo', { method: 'POST', auth: true, body: form });
+  }
+
+  deleteQuoteLogo() {
+    return this.request<QuoteSettings>('/api/quotes/settings/logo', { method: 'DELETE', auth: true });
   }
 
   async downloadQuoteDocument(quoteId: string, documentId: string, fileName: string) {

@@ -8,6 +8,7 @@ La migration initiale est disponible dans `backend/src/Erp.Infrastructure/Persis
 - `Customers`, `CustomerContacts`, `CustomerAddresses`.
 - `Products`, `ProductCategories`, `ProductSuppliers`.
 - `Quotes`, `QuoteLines`, `QuoteDocuments`, `QuoteStatusHistories`.
+- `QuoteDocumentSettings` pour la personnalisation PDF des devis.
 - `DriveFolders`, `DriveItems`, `DriveFileVersions`, `DrivePermissions`, `DriveShares`, `DriveActivityLogs`, `DocumentLinks`.
 - `Notifications`, `NotificationPreferences`.
 
@@ -58,6 +59,11 @@ La migration `EmailModuleCompletion` finalise le module email :
 - `MailAccountAccesses` relie les boites generiques aux utilisateurs autorises.
 - `EmailMessages` rattache chaque message a une boite, stocke l'identifiant IMAP externe, les erreurs et la date de reception.
 - `EmailAttachments` stocke uniquement les metadonnees; le binaire reste dans le stockage documents.
+
+La migration `QuoteDocumentSettings` ajoute :
+
+- `QuoteDocumentSettings` pour stocker les metadonnees d'identite entreprise utilisees sur les PDF de devis.
+- `LogoStoragePath`, `LogoFileName`, `LogoMimeType`, `LogoSize` pour rattacher un logo stocke hors base de donnees.
 
 La migration `PrestashopProtectedApiKey` ajoute :
 

@@ -66,6 +66,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
     public DbSet<EmailLink> EmailLinks => Set<EmailLink>();
     public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
+    public DbSet<QuoteDocumentSettings> QuoteDocumentSettings => Set<QuoteDocumentSettings>();
     public DbSet<PrestashopConnection> PrestashopConnections => Set<PrestashopConnection>();
     public DbSet<PrestashopSyncLog> PrestashopSyncLogs => Set<PrestashopSyncLog>();
     public DbSet<ExternalReference> ExternalReferences => Set<ExternalReference>();
@@ -407,6 +408,26 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         {
             entity.Property(x => x.Name).HasMaxLength(160);
             entity.Property(x => x.Subject).HasMaxLength(300);
+        });
+
+        modelBuilder.Entity<QuoteDocumentSettings>(entity =>
+        {
+            entity.Property(x => x.CompanyName).HasMaxLength(240);
+            entity.Property(x => x.AddressLine1).HasMaxLength(240);
+            entity.Property(x => x.AddressLine2).HasMaxLength(240);
+            entity.Property(x => x.PostalCode).HasMaxLength(40);
+            entity.Property(x => x.City).HasMaxLength(120);
+            entity.Property(x => x.Country).HasMaxLength(120);
+            entity.Property(x => x.Phone).HasMaxLength(80);
+            entity.Property(x => x.Email).HasMaxLength(320);
+            entity.Property(x => x.Website).HasMaxLength(240);
+            entity.Property(x => x.VatNumber).HasMaxLength(80);
+            entity.Property(x => x.Siret).HasMaxLength(80);
+            entity.Property(x => x.LegalText).HasMaxLength(2000);
+            entity.Property(x => x.FooterText).HasMaxLength(2000);
+            entity.Property(x => x.LogoStoragePath).HasMaxLength(1024);
+            entity.Property(x => x.LogoFileName).HasMaxLength(260);
+            entity.Property(x => x.LogoMimeType).HasMaxLength(120);
         });
 
         modelBuilder.Entity<PrestashopConnection>(entity =>
