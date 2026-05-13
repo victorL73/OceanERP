@@ -10,6 +10,9 @@
 - Espace utilisateur pour modifier email, nom affiche et mot de passe.
 - Revocation des refresh tokens actifs apres changement de mot de passe.
 - Cle API PrestaShop configurable uniquement depuis `Parametres` par un compte ayant `prestashop.write`, avec stockage chiffre en base via `Secrets:EncryptionKey`.
+- Serveurs SMTP/IMAP globaux configurables uniquement par un administrateur dans `Parametres > Boites mail`.
+- Boites mail creees par un administrateur : adresse, mot de passe ou secret sont geres par l'admin, puis les utilisateurs autorises peuvent utiliser la boite et maintenir une signature HTML.
+- Mots de passe de boites mail stockes sous forme protegee avec `Secrets:EncryptionKey` ou references par secret d'environnement.
 - Audit logs de connexion.
 - Middleware centralisé d'erreurs.
 - CORS configurable.
@@ -24,7 +27,7 @@
 - Activer HTTPS via Nginx et Certbot ou un reverse proxy TLS managé.
 - Définir une politique de rotation des refresh tokens.
 - Ajouter verrouillage de compte et 2FA.
-- Etendre le stockage chiffre aux secrets SMTP/IMAP/API keys externes qui ne sont pas encore en coffre applicatif.
+- Etendre le coffre applicatif aux futurs secrets API externes qui ne sont pas encore couverts.
 - Compléter les permissions Drive par dossier/fichier.
 - Ajouter antivirus ou sandbox d'analyse documentaire si nécessaire.
 

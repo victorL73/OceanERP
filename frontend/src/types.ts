@@ -280,6 +280,8 @@ export type StockMovement = {
 export type MailAccount = {
   id: string;
   email: string;
+  displayName?: string;
+  signatureHtml?: string;
   smtpHost: string;
   smtpPort: number;
   imapHost: string;
@@ -287,18 +289,60 @@ export type MailAccount = {
   useSsl: boolean;
   userName?: string;
   passwordSecretName?: string;
+  hasPassword: boolean;
+  isActive: boolean;
+  authorizedUserIds: string[];
+};
+
+export type MailServerSettings = {
+  id?: string;
+  smtpHost: string;
+  smtpPort: number;
+  imapHost: string;
+  imapPort: number;
+  useSsl: boolean;
+  isConfigured: boolean;
+};
+
+export type EmailAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  storagePath: string;
+};
+
+export type EmailLink = {
+  id: string;
+  module: string;
+  entityId: string;
 };
 
 export type EmailMessage = {
   id: string;
+  mailAccountId?: string;
   subject: string;
   from: string;
   to: string;
+  body: string;
   direction: string;
   status: string;
   isRead: boolean;
+  errorMessage?: string;
   createdAt: string;
   sentAt?: string;
+  receivedAt?: string;
+  attachments: EmailAttachment[];
+  links: EmailLink[];
+};
+
+export type EmailTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  isActive: boolean;
+  createdAt: string;
 };
 
 export type PrestashopConnection = {

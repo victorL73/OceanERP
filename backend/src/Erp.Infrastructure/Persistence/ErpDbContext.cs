@@ -59,7 +59,9 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
     public DbSet<PurchaseOrderCharge> PurchaseOrderCharges => Set<PurchaseOrderCharge>();
+    public DbSet<MailServerSettings> MailServerSettings => Set<MailServerSettings>();
     public DbSet<MailAccount> MailAccounts => Set<MailAccount>();
+    public DbSet<MailAccountAccess> MailAccountAccesses => Set<MailAccountAccess>();
     public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
     public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
     public DbSet<EmailLink> EmailLinks => Set<EmailLink>();
@@ -351,20 +353,48 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
 
         modelBuilder.Entity<MailAccount>(entity =>
         {
+            entity.HasIndex(x => x.Email);
             entity.Property(x => x.Email).HasMaxLength(320);
+            entity.Property(x => x.DisplayName).HasMaxLength(160);
+            entity.Property(x => x.SignatureHtml).HasMaxLength(10000);
             entity.Property(x => x.SmtpHost).HasMaxLength(240);
             entity.Property(x => x.ImapHost).HasMaxLength(240);
             entity.Property(x => x.UserName).HasMaxLength(320);
             entity.Property(x => x.PasswordSecretName).HasMaxLength(160);
+            entity.Property(x => x.PasswordProtectedValue).HasMaxLength(2000);
+        });
+
+        modelBuilder.Entity<MailServerSettings>(entity =>
+        {
+            entity.Property(x => x.SmtpHost).HasMaxLength(240);
+            entity.Property(x => x.ImapHost).HasMaxLength(240);
+        });
+
+        modelBuilder.Entity<MailAccountAccess>(entity =>
+        {
+            entity.HasKey(x => new { x.MailAccountId, x.UserId });
+            entity.HasIndex(x => x.UserId);
+            entity.HasOne<MailAccount>().WithMany(x => x.Accesses).HasForeignKey(x => x.MailAccountId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<EmailMessage>(entity =>
         {
+            entity.HasIndex(x => new { x.MailAccountId, x.ExternalMessageId });
             entity.Property(x => x.Subject).HasMaxLength(300);
             entity.Property(x => x.From).HasMaxLength(320);
             entity.Property(x => x.To).HasMaxLength(1000);
+            entity.Property(x => x.ExternalMessageId).HasMaxLength(512);
             entity.Property(x => x.Direction).HasMaxLength(40);
             entity.Property(x => x.Status).HasMaxLength(80);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<EmailAttachment>(entity =>
+        {
+            entity.Property(x => x.FileName).HasMaxLength(260);
+            entity.Property(x => x.MimeType).HasMaxLength(120);
+            entity.Property(x => x.StoragePath).HasMaxLength(1024);
         });
 
         modelBuilder.Entity<EmailLink>(entity =>
@@ -376,6 +406,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         modelBuilder.Entity<EmailTemplate>(entity =>
         {
             entity.Property(x => x.Name).HasMaxLength(160);
+            entity.Property(x => x.Subject).HasMaxLength(300);
         });
 
         modelBuilder.Entity<PrestashopConnection>(entity =>

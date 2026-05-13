@@ -253,7 +253,7 @@ public sealed class QuoteService(
 
         var sendResult = await emailService.SendAsync(
             new SendEmailRequest(request.MailAccountId, request.To, subject, body),
-            [new StoredEmailAttachment(document.FileName, document.MimeType, document.StoragePath)],
+            [new StoredEmailAttachment(document.FileName, document.MimeType, document.StoragePath, document.Size)],
             [new EmailLinkTarget("quotes", quote.Id)],
             cancellationToken);
         if (!sendResult.Succeeded)

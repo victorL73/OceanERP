@@ -51,10 +51,23 @@ Swagger est activé en environnement `Development`.
 - `GET /api/stock/items`
 - `GET /api/stock/movements`
 - `POST /api/stock/adjustments`
+- `GET /api/emails/server-settings`
+- `PUT /api/emails/server-settings`
 - `GET /api/emails/accounts`
 - `POST /api/emails/accounts`
+- `PUT /api/emails/accounts/{id}`
+- `DELETE /api/emails/accounts/{id}`
+- `POST /api/emails/accounts/{id}/test-smtp`
+- `POST /api/emails/accounts/{id}/sync-imap`
 - `GET /api/emails/messages`
+- `GET /api/emails/messages/{id}`
+- `POST /api/emails/messages/{id}/read`
+- `GET /api/emails/messages/{messageId}/attachments/{attachmentId}/download`
 - `POST /api/emails/send`
+- `GET /api/emails/templates`
+- `POST /api/emails/templates`
+- `PUT /api/emails/templates/{id}`
+- `DELETE /api/emails/templates/{id}`
 - `GET /api/prestashop/connections`
 - `POST /api/prestashop/connections`
 - `PUT /api/prestashop/connections/{id}`
@@ -80,7 +93,10 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Les commandes avec lignes produit peuvent etre confirmees puis expediees. La confirmation reserve le stock, l'expedition decremente le stock physique.
 - Une facture ne peut etre creee que depuis une commande `Shipped` ou `Completed`.
 - `POST /api/invoices/{id}/pdf` genere un PDF facture via QuestPDF et stocke uniquement ses metadonnees en PostgreSQL.
-- Le module email journalise les envois. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true` et si le secret du mot de passe SMTP est present en configuration.
+- Le module email se configure dans `Parametres > Boites mail`. Les administrateurs gerent les serveurs SMTP/IMAP globaux, creent les boites, renseignent l'adresse, le mot de passe ou le secret, et affectent les utilisateurs autorises.
+- Les utilisateurs autorises ne voient dans l'onglet Emails et dans l'envoi des devis que les boites auxquelles ils ont acces. Ils peuvent ajuster les informations non sensibles de leur boite, notamment la signature HTML.
+- Le module email journalise les envois, stocke les pieces jointes hors PostgreSQL et permet la synchronisation IMAP. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true`; sinon l'email reste journalise avec le statut `Logged`.
+- Les mots de passe SMTP/IMAP peuvent etre stockes chiffres en base avec `Secrets:EncryptionKey`, ou references par un secret d'environnement via `PasswordSecretName`. Les signatures HTML sont ajoutees automatiquement aux emails sortants.
 - La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations.
 - L'URL PrestaShop peut etre saisie sous forme `https://boutique.example.com` ou `https://boutique.example.com/api`. Le backend evite automatiquement le doublon `/api/api`.
 - `POST /api/prestashop/connections/{id}/sync` cree un journal `Queued` et retourne immediatement. Un worker serveur passe ensuite le journal en `Running`, puis importe les produits, clients, stocks et commandes dans les modules ERP via `ExternalReference`.

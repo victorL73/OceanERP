@@ -98,9 +98,9 @@ Variables minimales a changer avant production :
 
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
-`SECRETS_ENCRYPTION_KEY` doit rester stable entre les redeploiements : elle sert a relire les cles API PrestaShop chiffrees en base.
+`SECRETS_ENCRYPTION_KEY` doit rester stable entre les redeploiements : elle sert a relire les cles API PrestaShop et les mots de passe mail chiffres en base.
 
-Pour activer un compte SMTP plus tard, creer le compte dans l'ERP avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis ajouter dans `.env` :
+Pour activer l'envoi SMTP plus tard, un administrateur renseigne les serveurs dans `Parametres > Boites mail`, cree les boites et saisit les mots de passe. Il est aussi possible de creer une boite avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis d'ajouter dans `.env` :
 
 ```env
 EMAIL_ENABLE_SMTP_SENDING=true

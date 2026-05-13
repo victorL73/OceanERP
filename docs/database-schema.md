@@ -37,7 +37,7 @@ La migration `Phase2Core` ajoute le socle :
 - `Warehouses`, `StockItems`, `StockMovements`
 - `SalesOrders`, `SalesOrderLines`, `SalesOrderStatusHistories`
 - `Invoices`, `InvoiceLines`, `InvoicePayments`, `InvoiceDocuments`, `InvoiceStatusHistories`
-- `MailAccounts`, `EmailMessages`, `EmailAttachments`, `EmailLinks`, `EmailTemplates`
+- `MailServerSettings`, `MailAccounts`, `MailAccountAccesses`, `EmailMessages`, `EmailAttachments`, `EmailLinks`, `EmailTemplates`
 - `PrestashopConnections`, `PrestashopSyncLogs`, `ExternalReferences`
 
 La migration `Phase2Workflows` complete ce socle :
@@ -50,6 +50,14 @@ La migration `Phase2Workflows` complete ce socle :
 - `InvoiceDocuments` recoit les metadonnees completes des PDF facture.
 - `MailAccounts` recoit les ports SMTP/IMAP, SSL, utilisateur et nom de secret.
 - `EmailMessages` recoit corps, direction, statut, lu/non lu et date d'envoi.
+
+La migration `EmailModuleCompletion` finalise le module email :
+
+- `MailServerSettings` stocke les hotes SMTP/IMAP globaux geres par les administrateurs.
+- `MailAccounts` recoit le nom affiche, la signature HTML, l'etat actif, le mot de passe protege et les donnees serveur recopiees pour compatibilite.
+- `MailAccountAccesses` relie les boites generiques aux utilisateurs autorises.
+- `EmailMessages` rattache chaque message a une boite, stocke l'identifiant IMAP externe, les erreurs et la date de reception.
+- `EmailAttachments` stocke uniquement les metadonnees; le binaire reste dans le stockage documents.
 
 La migration `PrestashopProtectedApiKey` ajoute :
 

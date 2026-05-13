@@ -2,7 +2,7 @@ import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEf
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, Invoice, MailAccount, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
+import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
@@ -106,7 +106,9 @@ export default function App() {
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [mailAccounts, setMailAccounts] = useState<MailAccount[]>([]);
+  const [mailServerSettings, setMailServerSettings] = useState<MailServerSettings | null>(null);
   const [emailMessages, setEmailMessages] = useState<PagedResult<EmailMessage> | null>(null);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
@@ -148,6 +150,12 @@ export default function App() {
         }
         if (hasPermission(user, 'stock.read')) {
           setWarehouses(await api.warehouses());
+        }
+        if (hasPermission(user, 'emails.read')) {
+          const [nextMailAccounts, nextTemplates, nextServerSettings] = await Promise.all([api.mailAccounts(), api.emailTemplates(), api.mailServerSettings()]);
+          setMailAccounts(nextMailAccounts);
+          setEmailTemplates(nextTemplates);
+          setMailServerSettings(nextServerSettings);
         }
       }
       if (target === 'customers') {
@@ -206,9 +214,10 @@ export default function App() {
         setPurchaseOrders(nextPurchaseOrders);
       }
       if (target === 'emails') {
-        const [nextAccounts, nextMessages] = await Promise.all([api.mailAccounts(), api.emailMessages()]);
+        const [nextAccounts, nextMessages, nextTemplates] = await Promise.all([api.mailAccounts(), api.emailMessages(), api.emailTemplates()]);
         setMailAccounts(nextAccounts);
         setEmailMessages(nextMessages);
+        setEmailTemplates(nextTemplates);
       }
       if (target === 'prestashop') {
         await refreshPrestashopData();
@@ -372,9 +381,13 @@ export default function App() {
             permissions={permissions}
             prestashopConnections={prestashopConnections}
             warehouses={warehouses}
+            mailAccounts={mailAccounts}
+            mailServerSettings={mailServerSettings}
             onUsersRolesChanged={() => load('settings')}
             onPrestashopChanged={() => load('settings')}
             onWarehousesChanged={() => load('settings')}
+            onMailAccountsChanged={() => load('settings')}
+            onMailServerSettingsChanged={() => load('settings')}
             onUserChanged={setCurrentUser}
             onSignedOut={() => {
               api.logout();
@@ -390,7 +403,7 @@ export default function App() {
         {!loading && view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
-        {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} onChanged={() => load('emails')} />}
+        {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} onChanged={() => load('emails')} />}
         {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
         {!loading && view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {!loading && view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
@@ -479,9 +492,13 @@ function Settings({
   permissions,
   prestashopConnections,
   warehouses,
+  mailAccounts,
+  mailServerSettings,
   onUsersRolesChanged,
   onPrestashopChanged,
   onWarehousesChanged,
+  onMailAccountsChanged,
+  onMailServerSettingsChanged,
   onUserChanged,
   onSignedOut
 }: {
@@ -491,16 +508,22 @@ function Settings({
   permissions: Permission[];
   prestashopConnections: PrestashopConnection[];
   warehouses: Warehouse[];
+  mailAccounts: MailAccount[];
+  mailServerSettings: MailServerSettings | null;
   onUsersRolesChanged: () => Promise<void>;
   onPrestashopChanged: () => Promise<void>;
   onWarehousesChanged: () => Promise<void>;
+  onMailAccountsChanged: () => Promise<void>;
+  onMailServerSettingsChanged: () => Promise<void>;
   onUserChanged: (user: User) => void;
   onSignedOut: () => void;
 }) {
   const canManageUsers = hasPermission(currentUser, 'auth.users.read') && hasPermission(currentUser, 'auth.users.write');
   const canManagePrestashop = hasPermission(currentUser, 'prestashop.read') && hasPermission(currentUser, 'prestashop.write');
   const canManageWarehouses = hasPermission(currentUser, 'stock.read') && hasPermission(currentUser, 'stock.write');
-  const [activeTab, setActiveTab] = useState<'account' | 'access' | 'warehouses' | 'prestashop'>('account');
+  const canManageEmails = hasPermission(currentUser, 'emails.read') && hasPermission(currentUser, 'emails.write');
+  const isAdministrator = Boolean(currentUser?.roles.includes('Administrator'));
+  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'access' | 'warehouses' | 'prestashop'>('account');
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -515,10 +538,10 @@ function Settings({
   }, [currentUser]);
 
   useEffect(() => {
-    if ((activeTab === 'access' && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
+    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'access' && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
       setActiveTab('account');
     }
-  }, [activeTab, canManagePrestashop, canManageUsers, canManageWarehouses]);
+  }, [activeTab, canManageEmails, canManagePrestashop, canManageUsers, canManageWarehouses]);
 
   async function updateProfile(event: FormEvent) {
     event.preventDefault();
@@ -554,6 +577,7 @@ function Settings({
 
   const tabs = [
     { key: 'account' as const, label: 'Compte' },
+    ...(canManageEmails ? [{ key: 'emails' as const, label: 'Boites mail' }] : []),
     ...(canManageUsers ? [{ key: 'access' as const, label: 'Utilisateurs/Roles' }] : []),
     ...(canManageWarehouses ? [{ key: 'warehouses' as const, label: 'Entrepots' }] : []),
     ...(canManagePrestashop ? [{ key: 'prestashop' as const, label: 'PrestaShop' }] : [])
@@ -600,10 +624,296 @@ function Settings({
           </>
         )}
 
+        {activeTab === 'emails' && canManageEmails && <MailAccountSettings accounts={mailAccounts} serverSettings={mailServerSettings} users={users} currentUser={currentUser} canAssignUsers={canManageUsers} canManageServerSettings={isAdministrator} onChanged={onMailAccountsChanged} onServerSettingsChanged={onMailServerSettingsChanged} />}
         {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
         {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
         {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettings connections={prestashopConnections} warehouses={warehouses} onChanged={onPrestashopChanged} />}
       </section>
+    </>
+  );
+}
+
+function MailAccountSettings({
+  accounts,
+  serverSettings,
+  users,
+  currentUser,
+  canAssignUsers,
+  canManageServerSettings,
+  onChanged,
+  onServerSettingsChanged
+}: {
+  accounts: MailAccount[];
+  serverSettings: MailServerSettings | null;
+  users: User[];
+  currentUser: User | null;
+  canAssignUsers: boolean;
+  canManageServerSettings: boolean;
+  onChanged: () => Promise<void>;
+  onServerSettingsChanged: () => Promise<void>;
+}) {
+  const [editingAccountId, setEditingAccountId] = useState('');
+  const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [signatureHtml, setSignatureHtml] = useState('');
+  const [smtpHost, setSmtpHost] = useState(serverSettings?.smtpHost ?? '');
+  const [smtpPort, setSmtpPort] = useState(String(serverSettings?.smtpPort ?? 587));
+  const [imapHost, setImapHost] = useState(serverSettings?.imapHost ?? '');
+  const [imapPort, setImapPort] = useState(String(serverSettings?.imapPort ?? 993));
+  const [useSsl, setUseSsl] = useState(serverSettings?.useSsl ?? true);
+  const [userName, setUserName] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordSecretName, setPasswordSecretName] = useState('');
+  const [clearPassword, setClearPassword] = useState(false);
+  const [accountActive, setAccountActive] = useState(true);
+  const [authorizedUserIds, setAuthorizedUserIds] = useState<string[]>(currentUser?.id ? [currentUser.id] : []);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+
+  useEffect(() => {
+    setSmtpHost(serverSettings?.smtpHost ?? '');
+    setSmtpPort(String(serverSettings?.smtpPort ?? 587));
+    setImapHost(serverSettings?.imapHost ?? '');
+    setImapPort(String(serverSettings?.imapPort ?? 993));
+    setUseSsl(serverSettings?.useSsl ?? true);
+  }, [serverSettings]);
+
+  function resetAccountForm() {
+    setEditingAccountId('');
+    setEmail('');
+    setDisplayName('');
+    setSignatureHtml('');
+    setUserName('');
+    setPassword('');
+    setPasswordSecretName('');
+    setClearPassword(false);
+    setAccountActive(true);
+    setAuthorizedUserIds(currentUser?.id ? [currentUser.id] : []);
+  }
+
+  function startEditAccount(account: MailAccount) {
+    setEditingAccountId(account.id);
+    setEmail(account.email);
+    setDisplayName(account.displayName ?? '');
+    setSignatureHtml(account.signatureHtml ?? '');
+    setUserName(account.userName ?? account.email);
+    setPassword('');
+    setPasswordSecretName(account.passwordSecretName === 'DATABASE_PROTECTED' ? '' : account.passwordSecretName ?? '');
+    setClearPassword(false);
+    setAccountActive(account.isActive);
+    setAuthorizedUserIds(account.authorizedUserIds.length > 0 ? account.authorizedUserIds : currentUser?.id ? [currentUser.id] : []);
+  }
+
+  async function saveServerSettings(event: FormEvent) {
+    event.preventDefault();
+    setFeedback(null);
+    try {
+      await api.updateMailServerSettings({
+        smtpHost,
+        smtpPort: Number(smtpPort),
+        imapHost,
+        imapPort: Number(imapPort),
+        useSsl
+      });
+      setFeedback('Serveurs SMTP/IMAP mis a jour.');
+      await onServerSettingsChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Configuration serveurs impossible.');
+    }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setFeedback(null);
+    const payload = {
+      email,
+      displayName,
+      signatureHtml,
+      userName,
+      password,
+      passwordSecretName,
+      clearPassword,
+      isActive: accountActive,
+      authorizedUserIds: canAssignUsers ? authorizedUserIds : undefined
+    };
+
+    try {
+      if (editingAccountId) {
+        await api.updateMailAccount(editingAccountId, payload);
+        setFeedback('Boite mail mise a jour.');
+      } else {
+        await api.createMailAccount(payload);
+        setFeedback('Boite mail creee.');
+      }
+
+      resetAccountForm();
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Configuration mail impossible.');
+    }
+  }
+
+  async function testAccount(account: MailAccount) {
+    setFeedback(null);
+    try {
+      await api.testMailAccount(account.id);
+      setFeedback('Test SMTP OK. Si EMAIL_ENABLE_SMTP_SENDING=false, le test valide seulement la configuration locale.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Test SMTP impossible.');
+    }
+  }
+
+  async function syncAccount(account: MailAccount) {
+    setFeedback(null);
+    try {
+      const result = await api.syncMailAccount(account.id);
+      setFeedback(`${result.imported} email(s) importe(s) depuis IMAP.`);
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Synchronisation IMAP impossible.');
+    }
+  }
+
+  async function deleteAccount(account: MailAccount) {
+    if (!window.confirm(`Supprimer la boite ${account.email} ?`)) {
+      return;
+    }
+
+    setFeedback(null);
+    try {
+      await api.deleteMailAccount(account.id);
+      setFeedback('Boite mail supprimee.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Suppression impossible.');
+    }
+  }
+
+  function accessLabel(account: MailAccount) {
+    if (account.authorizedUserIds.length === 0) {
+      return 'Aucun utilisateur affecte';
+    }
+
+    return account.authorizedUserIds
+      .map((id) => userById.get(id)?.displayName ?? userById.get(id)?.email ?? id)
+      .join(', ');
+  }
+
+  return (
+    <>
+      {canManageServerSettings && (
+        <Panel title="Serveurs SMTP / IMAP">
+          <form className="email-account-form" onSubmit={saveServerSettings}>
+            <label className="field">
+              <span>SMTP</span>
+              <input required placeholder="smtp.exemple.fr" value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Port SMTP</span>
+              <input required type="number" min="1" max="65535" value={smtpPort} onChange={(event) => setSmtpPort(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>IMAP</span>
+              <input required placeholder="imap.exemple.fr" value={imapHost} onChange={(event) => setImapHost(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Port IMAP</span>
+              <input required type="number" min="1" max="65535" value={imapPort} onChange={(event) => setImapPort(event.target.value)} />
+            </label>
+            <label className="check-field">
+              <input type="checkbox" checked={useSsl} onChange={(event) => setUseSsl(event.target.checked)} />
+              TLS/SSL actif
+            </label>
+            <div className="form-actions">
+              <button className="primary" type="submit">
+                <Save size={16} />
+                Enregistrer les serveurs
+              </button>
+            </div>
+          </form>
+          <p className="panel-note">Ces serveurs sont communs a toutes les boites. Les utilisateurs ne gerent pas les hôtes SMTP/IMAP.</p>
+        </Panel>
+      )}
+
+      <Panel title={editingAccountId ? 'Modifier boite mail' : 'Nouvelle boite mail'}>
+        <form className="email-account-form" onSubmit={submit}>
+          <label className="field">
+            <span>Email</span>
+            <input required readOnly={!canManageServerSettings} type="email" placeholder="contact@entreprise.fr" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Nom affiche</span>
+            <input placeholder="Commercial, SAV, Direction..." value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Utilisateur</span>
+            <input readOnly={!canManageServerSettings} placeholder="Souvent identique a l'email" value={userName} onChange={(event) => setUserName(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Mot de passe</span>
+            <input disabled={!canManageServerSettings} type="password" placeholder={editingAccountId ? 'Laisser vide pour conserver' : 'Mot de passe SMTP/IMAP'} value={password} onChange={(event) => setPassword(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Secret env optionnel</span>
+            <input disabled={!canManageServerSettings} placeholder="SMTP_MAIN_PASSWORD" value={passwordSecretName} onChange={(event) => setPasswordSecretName(event.target.value)} />
+          </label>
+          <label className="field full-field">
+            <span>Signature HTML</span>
+            <textarea className="mail-body-input" placeholder="<p>Cordialement,<br>OceanERP</p>" value={signatureHtml} onChange={(event) => setSignatureHtml(event.target.value)} />
+          </label>
+          {canAssignUsers && (
+            <MultiSelect label="Utilisateurs autorises" values={authorizedUserIds} options={users.map((user) => user.id)} labels={Object.fromEntries(users.map((user) => [user.id, `${user.displayName} <${user.email}>`]))} onChange={setAuthorizedUserIds} />
+          )}
+          {canManageServerSettings && <label className="check-field">
+            <input type="checkbox" checked={accountActive} onChange={(event) => setAccountActive(event.target.checked)} />
+            Boite active
+          </label>}
+          {editingAccountId && canManageServerSettings && (
+            <label className="check-field">
+              <input type="checkbox" checked={clearPassword} onChange={(event) => setClearPassword(event.target.checked)} />
+              Effacer le mot de passe stocke
+            </label>
+          )}
+          <div className="form-actions">
+            {editingAccountId && (
+              <button className="secondary" type="button" onClick={resetAccountForm}>
+                Annuler
+              </button>
+            )}
+            <button className="primary" type="submit">
+              <Save size={16} />
+              Enregistrer
+            </button>
+          </div>
+        </form>
+        {feedback && <div className="inline-message">{feedback}</div>}
+        <p className="panel-note">Les boites configurees ici apparaissent ensuite dans l'onglet Emails et dans l'envoi des devis uniquement pour les utilisateurs autorises.</p>
+      </Panel>
+      <DataTable
+        columns={['Boite', 'Signature', 'Acces', 'Mot de passe', 'Statut', 'Actions']}
+        rows={accounts.map((account) => [
+          account.displayName ? `${account.displayName} <${account.email}>` : account.email,
+          account.signatureHtml ? 'Configuree' : '-',
+          accessLabel(account),
+          account.hasPassword ? 'Configure' : 'Manquant',
+          account.isActive ? 'Actif' : 'Inactif',
+          <div className="table-actions" key={account.id}>
+            <button className="secondary icon-button" title="Modifier" type="button" onClick={() => startEditAccount(account)}>
+              <Pencil size={16} />
+            </button>
+            <button className="secondary" type="button" onClick={() => testAccount(account)}>
+              Test SMTP
+            </button>
+            <button className="secondary" type="button" onClick={() => syncAccount(account)}>
+              Sync IMAP
+            </button>
+            <button className="danger icon-button" title="Supprimer" type="button" onClick={() => deleteAccount(account)}>
+              <Trash2 size={16} />
+            </button>
+          </div>
+        ])}
+      />
     </>
   );
 }
@@ -1040,14 +1350,14 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
   );
 }
 
-function MultiSelect({ label, values, options, onChange }: { label: string; values: string[]; options: string[]; onChange: (values: string[]) => void }) {
+function MultiSelect({ label, values, options, labels, onChange }: { label: string; values: string[]; options: string[]; labels?: Record<string, string>; onChange: (values: string[]) => void }) {
   return (
     <label className="multi-select">
       {label}
       <select multiple value={values} onChange={(event) => onChange(Array.from(event.currentTarget.selectedOptions).map((option) => option.value))}>
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {labels?.[option] ?? option}
           </option>
         ))}
       </select>
@@ -1500,6 +1810,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
   const emailQuote = emailQuoteId ? items.find((item) => item.id === emailQuoteId) : undefined;
   const orderQuote = orderQuoteId ? items.find((item) => item.id === orderQuoteId) : undefined;
   const activeProducts = products.filter((product) => product.isActive);
+  const activeMailAccounts = mailAccounts.filter((account) => account.isActive);
 
   const totals = lines.reduce(
     (sum, line) => {
@@ -1599,7 +1910,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
 
   function openEmailModal(quote: Quote) {
     setEmailQuoteId(quote.id);
-    setMailAccountId(mailAccounts[0]?.id ?? '');
+    setMailAccountId(activeMailAccounts[0]?.id ?? '');
     setEmailTo('');
     setEmailSubject(`Devis ${quote.number}`);
     setEmailBody(`Bonjour,\n\nVeuillez trouver ci-joint le devis ${quote.number}.\n\nCordialement`);
@@ -1752,7 +2063,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
               <Download size={15} />
               PDF
             </button>
-            <button className="secondary" disabled={mailAccounts.length === 0 || item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); openEmailModal(item); }} type="button">
+            <button className="secondary" disabled={activeMailAccounts.length === 0 || item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); openEmailModal(item); }} type="button">
               <Mail size={15} />
               Email
             </button>
@@ -1782,7 +2093,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
                   <span>Compte email</span>
                   <select required value={mailAccountId} onChange={(event) => setMailAccountId(event.target.value)}>
                     <option value="">Compte email</option>
-                    {mailAccounts.map((account) => (
+                    {activeMailAccounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.email}
                       </option>
@@ -3264,27 +3575,142 @@ function WarehouseInfoBubble({ warehouse, onClose }: { warehouse: Warehouse; onC
   );
 }
 
-function Emails({ accounts, messages, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; onChanged: () => Promise<void> }) {
+function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; onChanged: () => Promise<void> }) {
+  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('compose');
+  const [editingAccountId, setEditingAccountId] = useState('');
   const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('587');
   const [imapHost, setImapHost] = useState('');
+  const [imapPort, setImapPort] = useState('993');
+  const [useSsl, setUseSsl] = useState(true);
+  const [userName, setUserName] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordSecretName, setPasswordSecretName] = useState('');
+  const [clearPassword, setClearPassword] = useState(false);
+  const [accountActive, setAccountActive] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [messageSearch, setMessageSearch] = useState('');
+  const [messageAccountFilter, setMessageAccountFilter] = useState('');
+  const [editingTemplateId, setEditingTemplateId] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [templateSubject, setTemplateSubject] = useState('');
+  const [templateBody, setTemplateBody] = useState('');
+  const [templateActive, setTemplateActive] = useState(true);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const selectedMessage = selectedMessageId ? messages.find((message) => message.id === selectedMessageId) : undefined;
+  const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
+  const activeAccounts = accounts.filter((account) => account.isActive);
+  const visibleMessages = useMemo(() => {
+    const term = messageSearch.trim().toLowerCase();
+    return messages.filter((message) => {
+      if (messageAccountFilter && message.mailAccountId !== messageAccountFilter) {
+        return false;
+      }
+
+      if (!term) {
+        return true;
+      }
+
+      return [message.subject, message.from, message.to, message.body, message.status]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(term));
+    });
+  }, [messages, messageAccountFilter, messageSearch]);
+
+  function resetAccountForm() {
+    setEditingAccountId('');
+    setEmail('');
+    setDisplayName('');
+    setSmtpHost('');
+    setSmtpPort('587');
+    setImapHost('');
+    setImapPort('993');
+    setUseSsl(true);
+    setUserName('');
+    setPassword('');
+    setPasswordSecretName('');
+    setClearPassword(false);
+    setAccountActive(true);
+  }
+
+  function startEditAccount(account: MailAccount) {
+    setEditingAccountId(account.id);
+    setEmail(account.email);
+    setDisplayName(account.displayName ?? '');
+    setSmtpHost(account.smtpHost);
+    setSmtpPort(String(account.smtpPort));
+    setImapHost(account.imapHost);
+    setImapPort(String(account.imapPort));
+    setUseSsl(account.useSsl);
+    setUserName(account.userName ?? account.email);
+    setPassword('');
+    setPasswordSecretName(account.passwordSecretName === 'DATABASE_PROTECTED' ? '' : account.passwordSecretName ?? '');
+    setClearPassword(false);
+    setAccountActive(account.isActive);
+    setTab('accounts');
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await api.createMailAccount({ email, smtpHost, imapHost });
-    setEmail('');
-    setSmtpHost('');
-    setImapHost('');
+    const payload = {
+      email,
+      displayName,
+      smtpHost,
+      smtpPort: Number(smtpPort),
+      imapHost,
+      imapPort: Number(imapPort),
+      useSsl,
+      userName,
+      password,
+      passwordSecretName,
+      clearPassword,
+      isActive: accountActive
+    };
+
+    if (editingAccountId) {
+      await api.updateMailAccount(editingAccountId, payload);
+      setFeedback('Compte mail mis a jour.');
+    } else {
+      await api.createMailAccount(payload);
+      setFeedback('Compte mail cree.');
+    }
+
+    resetAccountForm();
+    await onChanged();
+  }
+
+  async function testAccount(account: MailAccount) {
+    await api.testMailAccount(account.id);
+    setFeedback('Test SMTP OK. Si EMAIL_ENABLE_SMTP_SENDING=false, le test valide seulement la configuration locale.');
+    await onChanged();
+  }
+
+  async function syncAccount(account: MailAccount) {
+    const result = await api.syncMailAccount(account.id);
+    setFeedback(`${result.imported} email(s) importe(s) depuis IMAP.`);
+    await onChanged();
+  }
+
+  async function deleteAccount(account: MailAccount) {
+    if (!window.confirm(`Supprimer le compte ${account.email} ?`)) {
+      return;
+    }
+
+    await api.deleteMailAccount(account.id);
+    setFeedback('Compte mail supprime.');
     await onChanged();
   }
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    const mailAccountId = selectedAccountId || accounts[0]?.id;
+    const mailAccountId = selectedAccountId || activeAccounts[0]?.id;
     if (!mailAccountId) {
       throw new Error('Creer un compte mail avant envoyer un email.');
     }
@@ -3293,43 +3719,371 @@ function Emails({ accounts, messages, onChanged }: { accounts: MailAccount[]; me
     setTo('');
     setSubject('');
     setBody('');
+    setFeedback('Email enregistre/envoye selon la configuration SMTP.');
     await onChanged();
+  }
+
+  function applyTemplate(templateId: string) {
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) {
+      return;
+    }
+
+    setSubject(template.subject);
+    setBody(template.body);
+  }
+
+  function resetTemplateForm() {
+    setEditingTemplateId('');
+    setTemplateName('');
+    setTemplateSubject('');
+    setTemplateBody('');
+    setTemplateActive(true);
+  }
+
+  function startEditTemplate(template: EmailTemplate) {
+    setEditingTemplateId(template.id);
+    setTemplateName(template.name);
+    setTemplateSubject(template.subject);
+    setTemplateBody(template.body);
+    setTemplateActive(template.isActive);
+  }
+
+  async function saveTemplate(event: FormEvent) {
+    event.preventDefault();
+    const payload = { name: templateName, subject: templateSubject, body: templateBody, isActive: templateActive };
+    if (editingTemplateId) {
+      await api.updateEmailTemplate(editingTemplateId, payload);
+    } else {
+      await api.createEmailTemplate(payload);
+    }
+
+    resetTemplateForm();
+    setFeedback('Modele email enregistre.');
+    await onChanged();
+  }
+
+  async function deleteTemplate(template: EmailTemplate) {
+    if (!window.confirm(`Supprimer le modele ${template.name} ?`)) {
+      return;
+    }
+
+    await api.deleteEmailTemplate(template.id);
+    setFeedback('Modele email supprime.');
+    await onChanged();
+  }
+
+  async function markSelectedMessage(isRead: boolean) {
+    if (!selectedMessage) {
+      return;
+    }
+
+    await api.markEmailRead(selectedMessage.id, isRead);
+    setFeedback(isRead ? 'Email marque comme lu.' : 'Email marque comme non lu.');
+    await onChanged();
+  }
+
+  function formatEmailDate(value?: string) {
+    return value ? new Date(value).toLocaleString('fr-FR') : '-';
   }
 
   return (
     <>
-      <Panel title="Compte mail">
-        <form className="form-grid" onSubmit={submit}>
-          <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <input required placeholder="SMTP" value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} />
-          <input required placeholder="IMAP" value={imapHost} onChange={(event) => setImapHost(event.target.value)} />
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Ajouter
-          </button>
-        </form>
-      </Panel>
-      <Panel title="Envoyer un email">
-        <form className="form-grid" onSubmit={send}>
-          <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
-            <option value="">Compte</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.email}
-              </option>
-            ))}
-          </select>
-          <input required type="email" placeholder="Destinataire" value={to} onChange={(event) => setTo(event.target.value)} />
-          <input required placeholder="Sujet" value={subject} onChange={(event) => setSubject(event.target.value)} />
-          <input required placeholder="Message" value={body} onChange={(event) => setBody(event.target.value)} />
-          <button className="primary" type="submit">
-            <Mail size={16} />
-            Envoyer
-          </button>
-        </form>
-      </Panel>
-      <DataTable columns={['Compte', 'SMTP', 'IMAP', 'SSL']} rows={accounts.map((item) => [item.email, `${item.smtpHost}:${item.smtpPort}`, `${item.imapHost}:${item.imapPort}`, item.useSsl ? 'Oui' : 'Non'])} />
-      <DataTable columns={['Sujet', 'De', 'A', 'Statut']} rows={messages.map((item) => [item.subject, item.from, item.to, item.status])} />
+      {feedback && <div className="sync-note">{feedback}</div>}
+      <div className="browser-tabs">
+        <button className={tab === 'compose' ? 'active' : ''} type="button" onClick={() => setTab('compose')}>
+          Nouveau mail
+        </button>
+        <button className={tab === 'messages' ? 'active' : ''} type="button" onClick={() => setTab('messages')}>
+          Journal
+        </button>
+        <button className={tab === 'templates' ? 'active' : ''} type="button" onClick={() => setTab('templates')}>
+          Modeles
+        </button>
+      </div>
+
+      {false && tab === 'accounts' && (
+        <div className="tab-page">
+          <Panel title={editingAccountId ? 'Modifier compte mail' : 'Compte mail'}>
+            <form className="email-account-form" onSubmit={submit}>
+              <label className="field">
+                <span>Email</span>
+                <input required type="email" placeholder="contact@entreprise.fr" value={email} onChange={(event) => setEmail(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Nom affiche</span>
+                <input placeholder="OceanERP" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Utilisateur</span>
+                <input placeholder="Souvent identique a l'email" value={userName} onChange={(event) => setUserName(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>SMTP</span>
+                <input required placeholder="smtp.exemple.fr" value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Port SMTP</span>
+                <input required type="number" min="1" max="65535" value={smtpPort} onChange={(event) => setSmtpPort(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>IMAP</span>
+                <input required placeholder="imap.exemple.fr" value={imapHost} onChange={(event) => setImapHost(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Port IMAP</span>
+                <input required type="number" min="1" max="65535" value={imapPort} onChange={(event) => setImapPort(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Mot de passe</span>
+                <input type="password" placeholder={editingAccountId ? 'Laisser vide pour conserver' : 'Mot de passe SMTP/IMAP'} value={password} onChange={(event) => setPassword(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Secret env optionnel</span>
+                <input placeholder="EMAIL_SMTP_PASSWORD" value={passwordSecretName} onChange={(event) => setPasswordSecretName(event.target.value)} />
+              </label>
+              <label className="check-field">
+                <input type="checkbox" checked={useSsl} onChange={(event) => setUseSsl(event.target.checked)} />
+                TLS/SSL actif
+              </label>
+              <label className="check-field">
+                <input type="checkbox" checked={accountActive} onChange={(event) => setAccountActive(event.target.checked)} />
+                Compte actif
+              </label>
+              {editingAccountId && (
+                <label className="check-field">
+                  <input type="checkbox" checked={clearPassword} onChange={(event) => setClearPassword(event.target.checked)} />
+                  Effacer le mot de passe stocke
+                </label>
+              )}
+              <div className="form-actions">
+                {editingAccountId && (
+                  <button className="secondary" type="button" onClick={resetAccountForm}>
+                    Annuler
+                  </button>
+                )}
+                <button className="primary" type="submit">
+                  <Save size={16} />
+                  Enregistrer
+                </button>
+              </div>
+            </form>
+          </Panel>
+          <DataTable
+            columns={['Compte', 'SMTP', 'IMAP', 'Mot de passe', 'Statut', 'Actions']}
+            rows={accounts.map((account) => [
+              account.displayName ? `${account.displayName} <${account.email}>` : account.email,
+              `${account.smtpHost}:${account.smtpPort}`,
+              `${account.imapHost}:${account.imapPort}`,
+              account.hasPassword ? 'Configure' : 'Manquant',
+              account.isActive ? 'Actif' : 'Inactif',
+              <div className="table-actions" key={account.id}>
+                <button className="secondary icon-button" title="Modifier" type="button" onClick={() => startEditAccount(account)}>
+                  <Pencil size={16} />
+                </button>
+                <button className="secondary" type="button" onClick={() => testAccount(account)}>
+                  Test SMTP
+                </button>
+                <button className="secondary" type="button" onClick={() => syncAccount(account)}>
+                  Sync IMAP
+                </button>
+                <button className="danger icon-button" title="Supprimer" type="button" onClick={() => deleteAccount(account)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ])}
+          />
+        </div>
+      )}
+
+      {tab === 'compose' && (
+        <Panel title="Envoyer un email">
+          <form className="email-compose-form" onSubmit={send}>
+            <div className="form-grid">
+              <label className="field">
+                <span>Compte expediteur</span>
+                <select required value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
+                  <option value="">Compte</option>
+                  {activeAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Modele</span>
+                <select defaultValue="" onChange={(event) => applyTemplate(event.target.value)}>
+                  <option value="">Aucun modele</option>
+                  {templates.filter((template) => template.isActive).map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Destinataire</span>
+                <input required type="email" placeholder="client@example.com" value={to} onChange={(event) => setTo(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Sujet</span>
+                <input required placeholder="Sujet" value={subject} onChange={(event) => setSubject(event.target.value)} />
+              </label>
+            </div>
+            <label className="field full-field">
+              <span>Message</span>
+              <textarea required className="mail-body-input" placeholder="Message" value={body} onChange={(event) => setBody(event.target.value)} />
+            </label>
+            <div className="modal-footer">
+              <button className="primary" type="submit" disabled={activeAccounts.length === 0}>
+                <Mail size={16} />
+                Envoyer
+              </button>
+            </div>
+          </form>
+        </Panel>
+      )}
+
+      {tab === 'messages' && (
+        <>
+          <Panel title="Filtres emails">
+            <div className="form-grid filter-grid">
+              <label className="field">
+                <span>Recherche</span>
+                <input placeholder="Sujet, expediteur, destinataire, contenu..." value={messageSearch} onChange={(event) => setMessageSearch(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Compte</span>
+                <select value={messageAccountFilter} onChange={(event) => setMessageAccountFilter(event.target.value)}>
+                  <option value="">Tous les comptes</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="secondary" type="button" onClick={() => { setMessageSearch(''); setMessageAccountFilter(''); }}>
+                Reinitialiser
+              </button>
+            </div>
+          </Panel>
+          <DataTable
+            columns={['Sujet', 'De', 'A', 'Sens', 'Statut', 'Lu', 'Date']}
+            rows={visibleMessages.map((item) => [
+              item.isRead ? item.subject : `[Non lu] ${item.subject}`,
+              item.from,
+              item.to,
+              item.direction === 'Incoming' ? 'Recu' : 'Envoye',
+              item.status,
+              item.isRead ? 'Oui' : 'Non',
+              formatEmailDate(item.sentAt ?? item.receivedAt ?? item.createdAt)
+            ])}
+            onRowClick={(index) => setSelectedMessageId(visibleMessages[index]?.id ?? null)}
+          />
+        </>
+      )}
+
+      {tab === 'templates' && (
+        <div className="tab-page">
+          <Panel title={editingTemplateId ? 'Modifier modele' : 'Modele email'}>
+            <form className="email-template-form" onSubmit={saveTemplate}>
+              <div className="form-grid">
+                <label className="field">
+                  <span>Nom</span>
+                  <input required value={templateName} onChange={(event) => setTemplateName(event.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Sujet</span>
+                  <input required value={templateSubject} onChange={(event) => setTemplateSubject(event.target.value)} />
+                </label>
+                <label className="check-field">
+                  <input type="checkbox" checked={templateActive} onChange={(event) => setTemplateActive(event.target.checked)} />
+                  Actif
+                </label>
+              </div>
+              <label className="field full-field">
+                <span>Corps</span>
+                <textarea required className="mail-body-input" value={templateBody} onChange={(event) => setTemplateBody(event.target.value)} />
+              </label>
+              <div className="modal-footer">
+                {editingTemplateId && (
+                  <button className="secondary" type="button" onClick={resetTemplateForm}>
+                    Annuler
+                  </button>
+                )}
+                <button className="primary" type="submit">
+                  <Save size={16} />
+                  Enregistrer
+                </button>
+              </div>
+            </form>
+          </Panel>
+          <DataTable
+            columns={['Nom', 'Sujet', 'Statut', 'Actions']}
+            rows={templates.map((template) => [
+              template.name,
+              template.subject,
+              template.isActive ? 'Actif' : 'Inactif',
+              <div className="table-actions" key={template.id}>
+                <button className="secondary icon-button" type="button" title="Modifier" onClick={() => startEditTemplate(template)}>
+                  <Pencil size={16} />
+                </button>
+                <button className="danger icon-button" type="button" title="Supprimer" onClick={() => deleteTemplate(template)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ])}
+          />
+        </div>
+      )}
+
+      {selectedMessage && (
+        <div className="modal-backdrop" onClick={() => setSelectedMessageId(null)}>
+          <aside className="modal-panel email-modal" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Email</p>
+                <h2>{selectedMessage.subject}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setSelectedMessageId(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className="detail-grid">
+              <DetailItem label="Compte" value={selectedMessage.mailAccountId ? accountById.get(selectedMessage.mailAccountId)?.email ?? selectedMessage.mailAccountId : '-'} />
+              <DetailItem label="De" value={selectedMessage.from} />
+              <DetailItem label="A" value={selectedMessage.to} />
+              <DetailItem label="Statut" value={selectedMessage.status} />
+              <DetailItem label="Lecture" value={selectedMessage.isRead ? 'Lu' : 'Non lu'} />
+              <DetailItem label="Date" value={formatEmailDate(selectedMessage.sentAt ?? selectedMessage.receivedAt ?? selectedMessage.createdAt)} />
+              {selectedMessage.errorMessage && <DetailItem label="Erreur" value={selectedMessage.errorMessage} />}
+            </div>
+            <section className="email-body-preview">{selectedMessage.body || '-'}</section>
+            {selectedMessage.attachments.length > 0 && (
+              <section className="email-attachments">
+                <h3>Pieces jointes</h3>
+                {selectedMessage.attachments.map((attachment) => (
+                  <div key={attachment.id} className="attachment-row">
+                    <span>{attachment.fileName}</span>
+                    <span>{Math.round(attachment.size / 1024)} Ko</span>
+                    <button className="secondary" type="button" onClick={() => api.downloadEmailAttachment(selectedMessage.id, attachment.id, attachment.fileName)}>
+                      <Download size={15} />
+                      Ouvrir
+                    </button>
+                  </div>
+                ))}
+              </section>
+            )}
+            <div className="modal-footer">
+              <button className="secondary" type="button" onClick={() => markSelectedMessage(!selectedMessage.isRead)}>
+                {selectedMessage.isRead ? 'Marquer non lu' : 'Marquer lu'}
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
     </>
   );
 }

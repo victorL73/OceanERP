@@ -375,6 +375,15 @@ h1 {
 .form-grid input,
 .form-grid select,
 .form-grid textarea,
+.email-account-form input,
+.email-account-form select,
+.email-account-form textarea,
+.email-compose-form input,
+.email-compose-form select,
+.email-compose-form textarea,
+.email-template-form input,
+.email-template-form select,
+.email-template-form textarea,
 .inline-form input,
 .purchase-builder input,
 .purchase-builder select,
@@ -389,6 +398,8 @@ h1 {
 }
 
 .form-grid textarea,
+.email-compose-form textarea,
+.email-template-form textarea,
 .purchase-builder textarea {
   min-height: 82px;
   padding: 10px 12px;
@@ -409,6 +420,23 @@ h1 {
 
 .form-actions {
   grid-column: 1 / -1;
+}
+
+.email-account-form,
+.email-compose-form,
+.email-template-form {
+  display: grid;
+  gap: 12px;
+}
+
+.email-account-form {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: end;
+}
+
+.mail-body-input {
+  min-height: 180px;
+  line-height: 1.5;
 }
 
 .check-field,

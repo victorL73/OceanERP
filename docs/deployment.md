@@ -69,7 +69,9 @@ Variables importantes :
 
 Par securite, `EMAIL_ENABLE_SMTP_SENDING=false` par defaut. Dans ce mode, les emails sont journalises dans l'ERP mais ne sont pas envoyes au serveur SMTP.
 
-`SECRETS_ENCRYPTION_KEY` sert a proteger les secrets applicatifs stockes en base, notamment la cle API PrestaShop configuree dans `Parametres`.
+`SECRETS_ENCRYPTION_KEY` sert a proteger les secrets applicatifs stockes en base, notamment la cle API PrestaShop et les mots de passe de boites mail configures dans `Parametres`.
+
+Les hotes SMTP/IMAP ne sont pas definis dans `.env` : un administrateur les renseigne dans `Parametres > Boites mail`. Les boites mail utilisent ces serveurs communs; l'adresse et le mot de passe de chaque boite restent geres par l'administrateur. `SMTP_MAIN_PASSWORD` reste utile uniquement si une boite reference ce secret au lieu de stocker son mot de passe chiffre en base.
 
 ## Commandes utiles
 

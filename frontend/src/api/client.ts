@@ -5,9 +5,11 @@ import type {
   DriveFolder,
   DriveItem,
   EmailMessage,
+  EmailTemplate,
   Invoice,
   InvoiceDocument,
   MailAccount,
+  MailServerSettings,
   NotificationItem,
   PagedResult,
   Permission,
@@ -339,16 +341,77 @@ export class ApiClient {
     return this.request<MailAccount[]>('/api/emails/accounts', { auth: true });
   }
 
-  emailMessages() {
-    return this.request<PagedResult<EmailMessage>>('/api/emails/messages', { auth: true });
+  mailServerSettings() {
+    return this.request<MailServerSettings>('/api/emails/server-settings', { auth: true });
   }
 
-  createMailAccount(payload: { email: string; smtpHost: string; imapHost: string; smtpPort?: number; imapPort?: number; useSsl?: boolean; userName?: string; passwordSecretName?: string }) {
+  updateMailServerSettings(payload: { smtpHost: string; smtpPort: number; imapHost: string; imapPort: number; useSsl: boolean }) {
+    return this.request<MailServerSettings>('/api/emails/server-settings', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  emailMessages(search?: string, accountId?: string) {
+    const query = new URLSearchParams();
+    query.set('pageSize', '100');
+    if (search) {
+      query.set('search', search);
+    }
+    if (accountId) {
+      query.set('accountId', accountId);
+    }
+    const suffix = query.toString() ? `?${query}` : '';
+    return this.request<PagedResult<EmailMessage>>(`/api/emails/messages${suffix}`, { auth: true });
+  }
+
+  emailMessage(messageId: string) {
+    return this.request<EmailMessage>(`/api/emails/messages/${messageId}`, { auth: true });
+  }
+
+  createMailAccount(payload: { email: string; displayName?: string; signatureHtml?: string; smtpHost?: string; imapHost?: string; smtpPort?: number; imapPort?: number; useSsl?: boolean; userName?: string; passwordSecretName?: string; password?: string; isActive?: boolean; authorizedUserIds?: string[] }) {
     return this.request<MailAccount>('/api/emails/accounts', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateMailAccount(accountId: string, payload: { email: string; displayName?: string; signatureHtml?: string; smtpHost?: string; imapHost?: string; smtpPort?: number; imapPort?: number; useSsl?: boolean; userName?: string; passwordSecretName?: string; password?: string; clearPassword?: boolean; isActive?: boolean; authorizedUserIds?: string[] }) {
+    return this.request<MailAccount>(`/api/emails/accounts/${accountId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  deleteMailAccount(accountId: string) {
+    return this.request<void>(`/api/emails/accounts/${accountId}`, { method: 'DELETE', auth: true });
+  }
+
+  testMailAccount(accountId: string) {
+    return this.request<{ status: string }>(`/api/emails/accounts/${accountId}/test-smtp`, { method: 'POST', auth: true });
+  }
+
+  syncMailAccount(accountId: string) {
+    return this.request<{ imported: number }>(`/api/emails/accounts/${accountId}/sync-imap`, { method: 'POST', auth: true });
+  }
+
+  markEmailRead(messageId: string, isRead: boolean) {
+    return this.request<EmailMessage>(`/api/emails/messages/${messageId}/read?isRead=${isRead}`, { method: 'POST', auth: true });
+  }
+
+  async downloadEmailAttachment(messageId: string, attachmentId: string, fileName: string) {
+    await this.download(`/api/emails/messages/${messageId}/attachments/${attachmentId}/download`, fileName);
   }
 
   sendEmail(payload: { mailAccountId: string; to: string; subject: string; body: string }) {
     return this.request<EmailMessage>('/api/emails/send', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  emailTemplates() {
+    return this.request<EmailTemplate[]>('/api/emails/templates', { auth: true });
+  }
+
+  createEmailTemplate(payload: { name: string; subject: string; body: string; isActive?: boolean }) {
+    return this.request<EmailTemplate>('/api/emails/templates', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateEmailTemplate(templateId: string, payload: { name: string; subject: string; body: string; isActive?: boolean }) {
+    return this.request<EmailTemplate>(`/api/emails/templates/${templateId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  deleteEmailTemplate(templateId: string) {
+    return this.request<void>(`/api/emails/templates/${templateId}`, { method: 'DELETE', auth: true });
   }
 
   prestashopConnections() {
