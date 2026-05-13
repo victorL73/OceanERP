@@ -64,6 +64,12 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         }
 
         var effectiveWarehouseId = request.WarehouseId.Value;
+        var productSupplierResult = await ValidateProductsForSupplierAsync(request.Lines.Select(x => x.ProductId), request.SupplierId, cancellationToken);
+        if (!productSupplierResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(productSupplierResult.Error!);
+        }
+
         var productWarehouseResult = await ValidateProductsInWarehouseAsync(request.Lines.Select(x => x.ProductId), effectiveWarehouseId, cancellationToken);
         if (!productWarehouseResult.Succeeded)
         {
@@ -147,6 +153,12 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         }
 
         var effectiveWarehouseId = request.WarehouseId.Value;
+        var productSupplierResult = await ValidateProductsForSupplierAsync(request.Lines.Select(x => x.ProductId), request.SupplierId, cancellationToken);
+        if (!productSupplierResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(productSupplierResult.Error!);
+        }
+
         var productWarehouseResult = await ValidateProductsInWarehouseAsync(request.Lines.Select(x => x.ProductId), effectiveWarehouseId, cancellationToken);
         if (!productWarehouseResult.Succeeded)
         {
@@ -595,6 +607,38 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             .ToListAsync(cancellationToken);
 
         return Result.Failure($"Ces produits ne sont pas rattaches a l'entrepot selectionne: {string.Join(", ", products)}.");
+    }
+
+    private async Task<Result> ValidateProductsForSupplierAsync(IEnumerable<Guid?> productIds, Guid supplierId, CancellationToken cancellationToken)
+    {
+        var ids = productIds
+            .Where(x => x.HasValue)
+            .Select(x => x!.Value)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        var assignedIds = await db.Products
+            .Where(x => ids.Contains(x.Id) && x.MainSupplierId == supplierId)
+            .Select(x => x.Id)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var missingIds = ids.Except(assignedIds).ToList();
+        if (missingIds.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        var products = await db.Products
+            .Where(x => missingIds.Contains(x.Id))
+            .OrderBy(x => x.Reference)
+            .Select(x => $"{x.Reference} - {x.Name}")
+            .ToListAsync(cancellationToken);
+
+        return Result.Failure($"Ces produits ne sont pas rattaches au fournisseur selectionne: {string.Join(", ", products)}.");
     }
 
     private static string? NormalizeOptional(string? value)

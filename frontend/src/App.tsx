@@ -1689,7 +1689,11 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
   const selectedDateOrder = items.find((item) => item.id === dateOrderId);
   const selectedWarehouseOrder = items.find((item) => item.id === warehouseOrderId);
   const selectedWarehouseProductIds = useMemo(() => new Set(stockItems.filter((item) => item.warehouseId === warehouseId).map((item) => item.productId)), [stockItems, warehouseId]);
-  const warehouseProducts = useMemo(() => (warehouseId ? products.filter((product) => product.isActive && selectedWarehouseProductIds.has(product.id)) : []), [products, selectedWarehouseProductIds, warehouseId]);
+  const availablePurchaseProducts = useMemo(
+    () => (warehouseId && supplierId ? products.filter((product) => product.isActive && product.mainSupplierId === supplierId && selectedWarehouseProductIds.has(product.id)) : []),
+    [products, selectedWarehouseProductIds, supplierId, warehouseId]
+  );
+  const availablePurchaseProductIds = useMemo(() => new Set(availablePurchaseProducts.map((product) => product.id)), [availablePurchaseProducts]);
 
   useEffect(() => {
     setDateValue(selectedDateOrder?.expectedAt ?? '');
@@ -1703,7 +1707,7 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
     setLines((current) => {
       let changed = false;
       const next = current.map((line) => {
-        if (!line.productId || selectedWarehouseProductIds.has(line.productId)) {
+        if (!line.productId || availablePurchaseProductIds.has(line.productId)) {
           return line;
         }
 
@@ -1712,7 +1716,7 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
       });
       return changed ? next : current;
     });
-  }, [selectedWarehouseProductIds]);
+  }, [availablePurchaseProductIds]);
 
   function resetPurchaseForm() {
     setSupplierId('');
@@ -1753,12 +1757,12 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
   }
 
   function productsForLine(currentProductId: string) {
-    if (!currentProductId || warehouseProducts.some((product) => product.id === currentProductId)) {
-      return warehouseProducts;
+    if (!currentProductId || availablePurchaseProducts.some((product) => product.id === currentProductId)) {
+      return availablePurchaseProducts;
     }
 
     const currentProduct = products.find((product) => product.id === currentProductId);
-    return currentProduct ? [currentProduct, ...warehouseProducts] : warehouseProducts;
+    return currentProduct ? [currentProduct, ...availablePurchaseProducts] : availablePurchaseProducts;
   }
 
   function updateLine(lineId: string, patch: Partial<PurchaseDraftLine>) {
@@ -1766,20 +1770,25 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
   }
 
   function selectProduct(lineId: string, nextProductId: string) {
+    if (!supplierId) {
+      throw new Error('Selectionner le fournisseur avant de choisir un produit.');
+    }
+
     if (!warehouseId) {
       throw new Error("Selectionner l'entrepot de reception avant de choisir un produit.");
     }
 
     const product = products.find((item) => item.id === nextProductId);
+    if (product && product.mainSupplierId !== supplierId) {
+      throw new Error("Ce produit n'est pas rattache au fournisseur selectionne.");
+    }
+
     updateLine(lineId, {
       productId: nextProductId,
       description: product ? `${product.reference} - ${product.name}` : '',
       unitPrice: product ? String(product.purchasePrice) : '0',
       vatRate: product ? String(product.vatRate) : '20'
     });
-    if (product?.mainSupplierId && !supplierId) {
-      setSupplierId(product.mainSupplierId);
-    }
   }
 
   function updateCharge(chargeId: string, patch: Partial<PurchaseDraftCharge>) {
@@ -1806,16 +1815,15 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const selectedSupplierId = supplierId || suppliers[0]?.id;
-    if (!selectedSupplierId) {
-      throw new Error('Creer un fournisseur produit avant de creer une commande fournisseur.');
+    if (!supplierId) {
+      throw new Error('Selectionner le fournisseur avant de creer une commande fournisseur.');
     }
     if (!warehouseId) {
       throw new Error("Selectionner l'entrepot de reception avant de saisir les lignes produit.");
     }
 
     const payload = {
-      supplierId: selectedSupplierId,
+      supplierId,
       warehouseId: warehouseId || null,
       expectedAt: expectedAt || null,
       comment: comment || null,
@@ -1893,8 +1901,8 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
           <div className="form-grid">
             <label className="field">
               <span>Fournisseur</span>
-              <select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
-                <option value="">Fournisseur</option>
+              <select required value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
+                <option value="">Selectionner un fournisseur</option>
                 {suppliers.map((supplier) => (
                   <option key={supplier.id} value={supplier.id}>
                     {supplier.name}
@@ -1926,13 +1934,14 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
           <section className="purchase-section">
             <div className="section-heading">
               <h3>Lignes produits</h3>
-              <button className="secondary" type="button" disabled={!warehouseId} title={!warehouseId ? "Selectionner l'entrepot avant d'ajouter une ligne" : undefined} onClick={() => setLines((current) => [...current, createPurchaseDraftLine()])}>
+              <button className="secondary" type="button" disabled={!supplierId || !warehouseId} title={!supplierId ? "Selectionner le fournisseur avant d'ajouter une ligne" : !warehouseId ? "Selectionner l'entrepot avant d'ajouter une ligne" : undefined} onClick={() => setLines((current) => [...current, createPurchaseDraftLine()])}>
                 <Plus size={16} />
                 Ajouter une ligne
               </button>
             </div>
-            {!warehouseId && <p className="panel-note">Selectionnez d'abord l'entrepot de reception pour afficher les produits disponibles.</p>}
-            {warehouseId && warehouseProducts.length === 0 && <p className="panel-note">Aucun produit actif n'est rattache a cet entrepot.</p>}
+            {!supplierId && <p className="panel-note">Selectionnez d'abord le fournisseur pour afficher ses produits.</p>}
+            {supplierId && !warehouseId && <p className="panel-note">Selectionnez ensuite l'entrepot de reception pour afficher les produits disponibles.</p>}
+            {supplierId && warehouseId && availablePurchaseProducts.length === 0 && <p className="panel-note">Aucun produit actif n'est rattache a ce fournisseur dans cet entrepot.</p>}
             <div className="purchase-lines">
               {lines.map((line, index) => {
                 const totals = lineTotals(line);
@@ -1940,7 +1949,7 @@ function Purchases({ items, suppliers, products, warehouses, stockItems, onChang
                   <div className="purchase-line-row" key={line.id}>
                     <label className="field">
                       <span>Produit</span>
-                      <select disabled={!warehouseId} value={line.productId} onChange={(event) => selectProduct(line.id, event.target.value)}>
+                      <select disabled={!supplierId || !warehouseId} value={line.productId} onChange={(event) => selectProduct(line.id, event.target.value)}>
                         <option value="">Ligne libre</option>
                         {productsForLine(line.productId).map((product) => (
                           <option key={product.id} value={product.id}>
