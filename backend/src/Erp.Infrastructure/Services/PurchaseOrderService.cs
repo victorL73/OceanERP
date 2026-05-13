@@ -9,6 +9,10 @@ namespace Erp.Infrastructure.Services;
 
 public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService lowStockAlerts, IStockService stock) : IPurchaseOrderService
 {
+    private const string PrestashopProvider = "PrestaShop";
+    private const string PrestashopProductModule = "products";
+    private const string DefaultPrestashopWarehouseName = "Entrepot principal";
+
     private static readonly IReadOnlyDictionary<string, string[]> AllowedTransitions = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["Draft"] = ["Ordered", "Cancelled"],
@@ -58,11 +62,17 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
         }
 
+        var warehouseResult = await ResolvePrestashopWarehouseForProductsAsync(request.Lines.Select(x => x.ProductId), request.WarehouseId, allowAutoCorrect: true, cancellationToken);
+        if (!warehouseResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(warehouseResult.Error!);
+        }
+
         var order = new PurchaseOrder
         {
             Number = await NextNumberAsync(cancellationToken),
             SupplierId = request.SupplierId,
-            WarehouseId = request.WarehouseId,
+            WarehouseId = warehouseResult.Value ?? request.WarehouseId,
             ExpectedAt = request.ExpectedAt,
             Comment = NormalizeOptional(request.Comment),
             Status = "Draft"
@@ -169,7 +179,17 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
         }
 
-        order.WarehouseId = request.WarehouseId;
+        var productIds = await db.PurchaseOrderLines
+            .Where(x => x.PurchaseOrderId == id)
+            .Select(x => x.ProductId)
+            .ToListAsync(cancellationToken);
+        var warehouseResult = await ResolvePrestashopWarehouseForProductsAsync(productIds, request.WarehouseId, allowAutoCorrect: false, cancellationToken);
+        if (!warehouseResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(warehouseResult.Error!);
+        }
+
+        order.WarehouseId = warehouseResult.Value ?? request.WarehouseId;
         await db.SaveChangesAsync(cancellationToken);
         return Result<PurchaseOrderDto>.Success(await MapAsync(order, cancellationToken));
     }
@@ -187,19 +207,6 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
             return Result<PurchaseOrderDto>.Failure("La commande doit etre au statut recue avant ajout au stock.");
         }
 
-        var warehouseId = request.WarehouseId ?? order.WarehouseId;
-        if (!warehouseId.HasValue)
-        {
-            return Result<PurchaseOrderDto>.Failure("Selectionnez l'entrepot de reception de la commande fournisseur avant ajout au stock.");
-        }
-
-        if (!await db.Warehouses.AnyAsync(x => x.Id == warehouseId.Value, cancellationToken))
-        {
-            return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
-        }
-
-        order.WarehouseId = warehouseId.Value;
-
         var lines = await db.PurchaseOrderLines
             .Where(x => x.PurchaseOrderId == id && x.ProductId.HasValue && x.Quantity > x.ReceivedQuantity)
             .OrderBy(x => x.Id)
@@ -209,6 +216,25 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         {
             return Result<PurchaseOrderDto>.Failure("Aucune ligne produit restante a ajouter au stock.");
         }
+
+        var warehouseResult = await ResolvePrestashopWarehouseForProductsAsync(lines.Select(x => x.ProductId), request.WarehouseId ?? order.WarehouseId, allowAutoCorrect: true, cancellationToken);
+        if (!warehouseResult.Succeeded)
+        {
+            return Result<PurchaseOrderDto>.Failure(warehouseResult.Error!);
+        }
+
+        var warehouseId = warehouseResult.Value ?? request.WarehouseId ?? order.WarehouseId;
+        if (!warehouseId.HasValue)
+        {
+            return Result<PurchaseOrderDto>.Failure("Selectionnez l'entrepot de reception de la commande fournisseur avant ajout au stock.");
+        }
+
+        if (!db.Warehouses.Local.Any(x => x.Id == warehouseId.Value) && !await db.Warehouses.AnyAsync(x => x.Id == warehouseId.Value, cancellationToken))
+        {
+            return Result<PurchaseOrderDto>.Failure("Entrepot de reception introuvable.");
+        }
+
+        order.WarehouseId = warehouseId.Value;
 
         async Task<Result> AddLinesAsync()
         {
@@ -453,6 +479,87 @@ public sealed class PurchaseOrderService(ErpDbContext db, ILowStockAlertService 
         var known = AllowedTransitions.Keys.Concat(AllowedTransitions.Values.SelectMany(x => x)).Distinct(StringComparer.OrdinalIgnoreCase);
         return known.FirstOrDefault(x => string.Equals(x, status.Trim(), StringComparison.OrdinalIgnoreCase));
     }
+
+    private async Task<Result<Guid?>> ResolvePrestashopWarehouseForProductsAsync(IEnumerable<Guid?> productIds, Guid? requestedWarehouseId, bool allowAutoCorrect, CancellationToken cancellationToken)
+    {
+        var ids = productIds
+            .Where(x => x.HasValue)
+            .Select(x => x!.Value)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return Result<Guid?>.Success(requestedWarehouseId);
+        }
+
+        var hasPrestashopProduct = await db.ExternalReferences.AnyAsync(
+            x => x.Provider == PrestashopProvider && x.Module == PrestashopProductModule && ids.Contains(x.EntityId),
+            cancellationToken);
+        if (!hasPrestashopProduct)
+        {
+            return Result<Guid?>.Success(requestedWarehouseId);
+        }
+
+        var prestashopWarehouseId = await GetOrAssignPrestashopWarehouseIdAsync(cancellationToken);
+        if (!prestashopWarehouseId.HasValue)
+        {
+            return Result<Guid?>.Success(requestedWarehouseId);
+        }
+
+        if (requestedWarehouseId.HasValue && requestedWarehouseId.Value != prestashopWarehouseId.Value && !allowAutoCorrect)
+        {
+            var warehouseName = await WarehouseNameAsync(prestashopWarehouseId.Value, cancellationToken);
+            return Result<Guid?>.Failure($"Cette commande contient un produit PrestaShop: l'entrepot de reception doit rester \"{warehouseName}\".");
+        }
+
+        return Result<Guid?>.Success(prestashopWarehouseId.Value);
+    }
+
+    private async Task<Guid?> GetOrAssignPrestashopWarehouseIdAsync(CancellationToken cancellationToken)
+    {
+        var activeConnections = await db.PrestashopConnections
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        if (activeConnections.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var connection in activeConnections.Where(x => x.WarehouseId.HasValue))
+        {
+            if (await db.Warehouses.AnyAsync(x => x.Id == connection.WarehouseId!.Value, cancellationToken))
+            {
+                foreach (var unassigned in activeConnections.Where(x => !x.WarehouseId.HasValue))
+                {
+                    unassigned.WarehouseId = connection.WarehouseId;
+                }
+
+                return connection.WarehouseId;
+            }
+        }
+
+        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Name == DefaultPrestashopWarehouseName, cancellationToken);
+        if (warehouse is null)
+        {
+            warehouse = new Warehouse { Name = DefaultPrestashopWarehouseName };
+            db.Warehouses.Add(warehouse);
+        }
+
+        foreach (var connection in activeConnections)
+        {
+            connection.WarehouseId = warehouse.Id;
+        }
+
+        return warehouse.Id;
+    }
+
+    private async Task<string> WarehouseNameAsync(Guid warehouseId, CancellationToken cancellationToken)
+        => await db.Warehouses
+            .Where(x => x.Id == warehouseId)
+            .Select(x => x.Name)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? warehouseId.ToString();
 
     private static string? NormalizeOptional(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

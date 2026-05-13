@@ -834,7 +834,7 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
           <input required placeholder="URL boutique" value={shopUrl} onChange={(event) => setShopUrl(event.target.value)} />
           <input type="password" placeholder={selectedConnection?.hasApiKey ? 'Nouvelle cle API, vide = conserver' : 'Cle API PrestaShop'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
           <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
-            <option value="">Tous les entrepots ERP</option>
+            <option value="">Entrepot principal automatique</option>
             {warehouses.map((warehouse) => (
               <option key={warehouse.id} value={warehouse.id}>
                 {warehouse.name}
@@ -857,9 +857,9 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
           </button>
         </form>
         {message && <div className="inline-message">{message}</div>}
-        <p className="panel-note">Par defaut, une connexion PrestaShop sans entrepot selectionne publie le stock depuis tous les entrepots ERP.</p>
+        <p className="panel-note">PrestaShop ne gere pas plusieurs entrepots dans ce connecteur. Une connexion utilise un seul entrepot ERP pour le stock boutique.</p>
       </Panel>
-      <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : 'Tous les entrepots', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
+      <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : 'Entrepot principal automatique', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
     </>
   );
 }
@@ -2356,7 +2356,7 @@ function Stock({
   async function submit(event: FormEvent) {
     event.preventDefault();
     const selectedProductId = productId || products[0]?.id;
-    const selectedWarehouseId = warehouseId || warehouses[0]?.id;
+    const selectedWarehouseId = warehouseId;
     if (!selectedProductId || !selectedWarehouseId) {
       throw new Error('Creer un produit et un entrepot avant de modifier le stock.');
     }
@@ -2503,7 +2503,6 @@ function Stock({
           warehouseLabel={warehouseLabel(selectedStock.warehouseId)}
           warehouses={warehouses}
           prestashopConnection={prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) ?? globalPrestashopConnection}
-          prestashopConnectionIsGlobal={!prestashopConnectionByWarehouseId.get(selectedStock.warehouseId) && Boolean(globalPrestashopConnection)}
           activePrestashopConnections={activePrestashopConnections}
           incomingPurchaseOrders={purchaseOrdersForProduct(selectedStock.productId)}
           stockStatus={stockStatus(selectedStock)}
@@ -2532,7 +2531,6 @@ function StockDetailsModal({
   warehouseLabel,
   warehouses,
   prestashopConnection,
-  prestashopConnectionIsGlobal,
   activePrestashopConnections,
   incomingPurchaseOrders,
   stockStatus,
@@ -2544,7 +2542,6 @@ function StockDetailsModal({
   warehouseLabel: string;
   warehouses: Warehouse[];
   prestashopConnection?: PrestashopConnection;
-  prestashopConnectionIsGlobal: boolean;
   activePrestashopConnections: PrestashopConnection[];
   incomingPurchaseOrders: PurchaseOrder[];
   stockStatus: string;
@@ -2571,7 +2568,7 @@ function StockDetailsModal({
   }, [item]);
 
   const prestashopStatus = prestashopConnection
-    ? `${prestashopConnectionIsGlobal ? 'Tous les entrepots lies' : 'Entrepot lie'} a ${prestashopConnection.shopUrl}. Emplacement stock publie: ${warehouseLabel}`
+    ? `Entrepot PrestaShop lie a ${prestashopConnection.shopUrl}. Emplacement stock publie: ${warehouseLabel}`
     : activePrestashopConnections.length > 0
       ? "Non rattache a PrestaShop. La connexion active est limitee a un autre entrepot."
       : "Aucune connexion PrestaShop active.";

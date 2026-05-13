@@ -274,10 +274,19 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 continue;
             }
 
+            var obsoleteStockItems = await db.StockItems
+                .Where(x => x.ProductId == productRef.EntityId && x.WarehouseId != warehouse.Id)
+                .ToListAsync(cancellationToken);
             var stockItem = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == productRef.EntityId && x.WarehouseId == warehouse.Id, cancellationToken);
             if (stockItem is null)
             {
-                stockItem = new StockItem { ProductId = productRef.EntityId, WarehouseId = warehouse.Id, QuantityOnHand = quantity };
+                stockItem = new StockItem
+                {
+                    ProductId = productRef.EntityId,
+                    WarehouseId = warehouse.Id,
+                    QuantityOnHand = quantity,
+                    AlertThreshold = obsoleteStockItems.Select(x => x.AlertThreshold).DefaultIfEmpty(0).Max()
+                };
                 db.StockItems.Add(stockItem);
                 created += 1;
             }
@@ -285,6 +294,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             {
                 var delta = quantity - stockItem.QuantityOnHand;
                 stockItem.QuantityOnHand = quantity;
+                stockItem.AlertThreshold = Math.Max(stockItem.AlertThreshold, obsoleteStockItems.Select(x => x.AlertThreshold).DefaultIfEmpty(0).Max());
                 updated += 1;
                 if (delta != 0)
                 {
@@ -298,6 +308,11 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                         ReferenceModule = "prestashop"
                     });
                 }
+            }
+
+            if (obsoleteStockItems.Count > 0)
+            {
+                db.StockItems.RemoveRange(obsoleteStockItems);
             }
         }
 
@@ -654,19 +669,13 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             }
         }
 
-        var warehouse = await db.Warehouses
-            .Where(x => x.Name != "PrestaShop")
-            .OrderBy(x => x.Name == DefaultWarehouseName ? 0 : 1)
-            .ThenBy(x => x.Name)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (warehouse is not null)
+        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Name == DefaultWarehouseName, cancellationToken);
+        if (warehouse is null)
         {
-            connection.WarehouseId = warehouse.Id;
-            return warehouse;
+            warehouse = new Warehouse { Name = DefaultWarehouseName };
+            db.Warehouses.Add(warehouse);
         }
 
-        warehouse = new Warehouse { Name = DefaultWarehouseName };
-        db.Warehouses.Add(warehouse);
         connection.WarehouseId = warehouse.Id;
         return warehouse;
     }

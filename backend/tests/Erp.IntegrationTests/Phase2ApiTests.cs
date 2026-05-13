@@ -10,6 +10,9 @@ using Erp.Application.Purchases;
 using Erp.Application.Sales;
 using Erp.Application.Stock;
 using Erp.Application.Notifications;
+using Erp.Domain.FutureModules;
+using Erp.Infrastructure.Persistence;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.IntegrationTests;
 
@@ -166,6 +169,38 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(updatedTarget.Id, moved!.WarehouseId);
         Assert.Equal(7, moved.QuantityOnHand);
         Assert.Equal(1, moved.AlertThreshold);
+    }
+
+    [Fact]
+    public async Task PrestashopProductStock_StaysInPrestashopWarehouse()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var product = await CreateProductAsync(client);
+        var canonicalWarehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+        var otherWarehouseResponse = await client.PostAsJsonAsync("/api/stock/warehouses", new CreateWarehouseRequest($"Test-{Guid.NewGuid():N}"[..15]));
+        otherWarehouseResponse.EnsureSuccessStatusCode();
+        var otherWarehouse = await otherWarehouseResponse.Content.ReadFromJsonAsync<WarehouseDto>();
+
+        await MarkProductAsPrestashopAsync(product.Id, canonicalWarehouse.Id);
+
+        var wrongAdjustment = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, otherWarehouse!.Id, 5, "Wrong warehouse", 0));
+        Assert.Equal(HttpStatusCode.BadRequest, wrongAdjustment.StatusCode);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
+            db.StockItems.Add(new StockItem { ProductId = product.Id, WarehouseId = canonicalWarehouse.Id, QuantityOnHand = 0 });
+            db.StockItems.Add(new StockItem { ProductId = product.Id, WarehouseId = otherWarehouse.Id, QuantityOnHand = 12, AlertThreshold = 3 });
+            await db.SaveChangesAsync();
+        }
+
+        var stockItems = await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items");
+        var productStocks = stockItems!.Where(x => x.ProductId == product.Id).ToList();
+
+        var stockItem = Assert.Single(productStocks);
+        Assert.Equal(canonicalWarehouse.Id, stockItem.WarehouseId);
+        Assert.Equal(12, stockItem.QuantityOnHand);
+        Assert.Equal(3, stockItem.AlertThreshold);
     }
 
     [Fact]
@@ -335,5 +370,25 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
             null));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<ProductDto>())!;
+    }
+
+    private async Task MarkProductAsPrestashopAsync(Guid productId, Guid warehouseId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
+        db.PrestashopConnections.Add(new PrestashopConnection
+        {
+            ShopUrl = "https://shop.example.com",
+            IsActive = true,
+            WarehouseId = warehouseId
+        });
+        db.ExternalReferences.Add(new ExternalReference
+        {
+            Provider = "PrestaShop",
+            Module = "products",
+            ExternalId = $"products:{Guid.NewGuid():N}",
+            EntityId = productId
+        });
+        await db.SaveChangesAsync();
     }
 }

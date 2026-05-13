@@ -9,6 +9,8 @@ namespace Erp.Infrastructure.Services;
 
 public sealed class PrestashopService(ErpDbContext db, IConfiguration configuration, IPrestashopSyncQueue queue) : IPrestashopService
 {
+    private const string DefaultPrestashopWarehouseName = "Entrepot principal";
+
     public async Task<IReadOnlyList<PrestashopConnectionDto>> GetConnectionsAsync(CancellationToken cancellationToken)
     {
         var connections = await db.PrestashopConnections.OrderBy(x => x.ShopUrl).ToListAsync(cancellationToken);
@@ -27,7 +29,7 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         {
             ShopUrl = NormalizeShopUrl(request.ShopUrl),
             IsActive = true,
-            WarehouseId = request.WarehouseId
+            WarehouseId = request.WarehouseId ?? await GetOrCreateDefaultPrestashopWarehouseIdAsync(cancellationToken)
         };
         var warehouseValidation = await ValidateWarehouseAsync(connection.WarehouseId, cancellationToken);
         if (!warehouseValidation.Succeeded)
@@ -57,7 +59,7 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
 
         connection.ShopUrl = NormalizeShopUrl(request.ShopUrl);
         connection.IsActive = request.IsActive;
-        connection.WarehouseId = request.WarehouseId;
+        connection.WarehouseId = request.WarehouseId ?? await GetOrCreateDefaultPrestashopWarehouseIdAsync(cancellationToken);
         var warehouseValidation = await ValidateWarehouseAsync(connection.WarehouseId, cancellationToken);
         if (!warehouseValidation.Succeeded)
         {
@@ -133,9 +135,26 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
             return Result.Success();
         }
 
+        if (db.Warehouses.Local.Any(x => x.Id == warehouseId.Value))
+        {
+            return Result.Success();
+        }
+
         return await db.Warehouses.AnyAsync(x => x.Id == warehouseId.Value, cancellationToken)
             ? Result.Success()
             : Result.Failure("Warehouse not found.");
+    }
+
+    private async Task<Guid> GetOrCreateDefaultPrestashopWarehouseIdAsync(CancellationToken cancellationToken)
+    {
+        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Name == DefaultPrestashopWarehouseName, cancellationToken);
+        if (warehouse is null)
+        {
+            warehouse = new Warehouse { Name = DefaultPrestashopWarehouseName };
+            db.Warehouses.Add(warehouse);
+        }
+
+        return warehouse.Id;
     }
 
     private void SetApiKey(PrestashopConnection connection, string? apiKey, bool clearApiKey)
