@@ -12,6 +12,8 @@ public interface IEmailService
     Task<Result> DeleteAccountAsync(Guid id, CancellationToken cancellationToken);
     Task<Result> TestSmtpAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<int>> SyncImapAsync(Guid id, int limit, CancellationToken cancellationToken);
+    Task<Result<EmailSyncSummaryDto>> SyncAccessibleImapAsync(int limit, CancellationToken cancellationToken);
+    Task<EmailSyncSummaryDto> SyncActiveImapAsync(int limit, CancellationToken cancellationToken);
     Task<PagedResult<EmailMessageDto>> GetMessagesAsync(string? search, Guid? accountId, int page, int pageSize, CancellationToken cancellationToken);
     Task<Result<EmailMessageDto>> GetMessageAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<EmailMessageDto>> MarkReadAsync(Guid id, bool isRead, CancellationToken cancellationToken);

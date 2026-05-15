@@ -41,6 +41,11 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return Result<MailServerSettingsDto>.Failure(validation.Error!);
         }
 
+        if (request.ImapSyncIntervalMinutes is < 1 or > 1440)
+        {
+            return Result<MailServerSettingsDto>.Failure("L'intervalle de synchronisation IMAP doit etre compris entre 1 et 1440 minutes.");
+        }
+
         var settings = await db.MailServerSettings
             .OrderBy(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
@@ -50,7 +55,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             db.MailServerSettings.Add(settings);
         }
 
-        ApplyServerSettings(settings, request.SmtpHost, request.SmtpPort, request.ImapHost, request.ImapPort, request.UseSsl);
+        ApplyServerSettings(settings, request.SmtpHost, request.SmtpPort, request.ImapHost, request.ImapPort, request.UseSsl, request.ImapAutoSyncEnabled, request.ImapSyncIntervalMinutes);
 
         var accounts = await db.MailAccounts.ToListAsync(cancellationToken);
         foreach (var account in accounts)
@@ -241,80 +246,38 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return Result<int>.Failure("Vous n'avez pas acces a cette boite mail.");
         }
 
-        var serverValues = await ResolveEffectiveServerValuesAsync(account, cancellationToken);
-        if (!serverValues.Succeeded)
+        return await SyncAccountAsync(account, limit, cancellationToken);
+    }
+
+    public async Task<Result<EmailSyncSummaryDto>> SyncAccessibleImapAsync(int limit, CancellationToken cancellationToken)
+    {
+        var query = db.MailAccounts.Include(x => x.Accesses).Where(x => x.IsActive);
+        if (!await IsAdministratorAsync(cancellationToken))
         {
-            return Result<int>.Failure(serverValues.Error!);
-        }
-
-        var password = ResolvePassword(account);
-        if (!password.Succeeded)
-        {
-            return Result<int>.Failure(password.Error!);
-        }
-
-        try
-        {
-            using var imap = new ImapClient();
-            await imap.ConnectAsync(serverValues.Value!.ImapHost, serverValues.Value.ImapPort, ResolveImapSocketOptions(serverValues.Value), cancellationToken);
-            await imap.AuthenticateAsync(account.UserName ?? account.Email, password.Value!, cancellationToken);
-
-            var inbox = imap.Inbox ?? throw new InvalidOperationException("Boite de reception IMAP introuvable.");
-            await inbox.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
-            var uids = await inbox.SearchAsync(SearchQuery.All, cancellationToken);
-            var latestUids = uids.OrderByDescending(x => x.Id).Take(Math.Clamp(limit, 1, 200)).Reverse().ToList();
-            var imported = 0;
-
-            foreach (var uid in latestUids)
+            if (currentUser.UserId is not { } userId)
             {
-                var mime = await inbox.GetMessageAsync(uid, cancellationToken);
-                var externalMessageId = NormalizeLength(
-                    string.IsNullOrWhiteSpace(mime.MessageId) ? $"imap:{uid.Id}" : mime.MessageId,
-                    512) ?? $"imap:{uid.Id}";
-                var body = BuildIncomingBody(mime);
-                var existingMessage = await db.EmailMessages.FirstOrDefaultAsync(x => x.MailAccountId == account.Id && x.ExternalMessageId == externalMessageId, cancellationToken);
-                if (existingMessage is not null)
-                {
-                    if (LooksLikeHtml(body) && !LooksLikeHtml(existingMessage.Body))
-                    {
-                        existingMessage.Body = body;
-                        existingMessage.ReceivedAt ??= NormalizeMailDate(mime.Date);
-                    }
-
-                    continue;
-                }
-
-                var message = new EmailMessage
-                {
-                    MailAccountId = account.Id,
-                    ExternalMessageId = externalMessageId,
-                    Subject = NormalizeLength(mime.Subject, 300) ?? "(Sans sujet)",
-                    From = NormalizeLength(mime.From.Mailboxes.FirstOrDefault()?.Address ?? mime.From.ToString(), 320) ?? string.Empty,
-                    To = NormalizeLength(mime.To.ToString(), 1000) ?? account.Email,
-                    Body = body,
-                    Direction = "Incoming",
-                    Status = "Received",
-                    IsRead = false,
-                    ReceivedAt = NormalizeMailDate(mime.Date)
-                };
-
-                db.EmailMessages.Add(message);
-                await StoreIncomingAttachmentsAsync(message, mime, cancellationToken);
-                imported++;
+                return Result<EmailSyncSummaryDto>.Failure("Utilisateur non authentifie.");
             }
 
-            await db.SaveChangesAsync(cancellationToken);
-            await imap.DisconnectAsync(true, cancellationToken);
-            return Result<int>.Success(imported);
+            query = query.Where(x => x.CreatedByUserId == userId || x.Accesses.Any(access => access.UserId == userId));
         }
-        catch (DbUpdateException ex)
-        {
-            return Result<int>.Failure($"Synchronisation IMAP impossible: {FormatDatabaseError(ex)}");
-        }
-        catch (Exception ex)
-        {
-            return Result<int>.Failure($"Synchronisation IMAP impossible: {ex.Message}");
-        }
+
+        var accounts = await query
+            .OrderBy(x => x.Email)
+            .ToListAsync(cancellationToken);
+
+        return Result<EmailSyncSummaryDto>.Success(await SyncAccountsAsync(accounts, limit, cancellationToken));
+    }
+
+    public async Task<EmailSyncSummaryDto> SyncActiveImapAsync(int limit, CancellationToken cancellationToken)
+    {
+        var accounts = await db.MailAccounts
+            .Include(x => x.Accesses)
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Email)
+            .ToListAsync(cancellationToken);
+
+        return await SyncAccountsAsync(accounts, limit, cancellationToken);
     }
 
     public async Task<PagedResult<EmailMessageDto>> GetMessagesAsync(string? search, Guid? accountId, int page, int pageSize, CancellationToken cancellationToken)
@@ -600,6 +563,112 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private IQueryable<EmailMessage> BaseMessagesQuery()
         => db.EmailMessages.AsNoTracking();
+
+    private async Task<EmailSyncSummaryDto> SyncAccountsAsync(IReadOnlyList<MailAccount> accounts, int limit, CancellationToken cancellationToken)
+    {
+        var results = new List<EmailSyncAccountResultDto>();
+        foreach (var account in accounts)
+        {
+            var result = await SyncAccountAsync(account, limit, cancellationToken);
+            results.Add(new EmailSyncAccountResultDto(
+                account.Id,
+                account.Email,
+                result.Succeeded ? result.Value : 0,
+                result.Succeeded ? null : result.Error,
+                NotificationUserIds(account)));
+        }
+
+        return new EmailSyncSummaryDto(results.Sum(x => x.Imported), results);
+    }
+
+    private async Task<Result<int>> SyncAccountAsync(MailAccount account, int limit, CancellationToken cancellationToken)
+    {
+        var serverValues = await ResolveEffectiveServerValuesAsync(account, cancellationToken);
+        if (!serverValues.Succeeded)
+        {
+            return Result<int>.Failure(serverValues.Error!);
+        }
+
+        var password = ResolvePassword(account);
+        if (!password.Succeeded)
+        {
+            return Result<int>.Failure(password.Error!);
+        }
+
+        try
+        {
+            using var imap = new ImapClient();
+            await imap.ConnectAsync(serverValues.Value!.ImapHost, serverValues.Value.ImapPort, ResolveImapSocketOptions(serverValues.Value), cancellationToken);
+            await imap.AuthenticateAsync(account.UserName ?? account.Email, password.Value!, cancellationToken);
+
+            var inbox = imap.Inbox ?? throw new InvalidOperationException("Boite de reception IMAP introuvable.");
+            await inbox.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
+            var uids = await inbox.SearchAsync(SearchQuery.All, cancellationToken);
+            var latestUids = uids.OrderByDescending(x => x.Id).Take(Math.Clamp(limit, 1, 200)).Reverse().ToList();
+            var imported = 0;
+
+            foreach (var uid in latestUids)
+            {
+                var mime = await inbox.GetMessageAsync(uid, cancellationToken);
+                var externalMessageId = NormalizeLength(
+                    string.IsNullOrWhiteSpace(mime.MessageId) ? $"imap:{uid.Id}" : mime.MessageId,
+                    512) ?? $"imap:{uid.Id}";
+                var body = BuildIncomingBody(mime);
+                var existingMessage = await db.EmailMessages.FirstOrDefaultAsync(x => x.MailAccountId == account.Id && x.ExternalMessageId == externalMessageId, cancellationToken);
+                if (existingMessage is not null)
+                {
+                    if (LooksLikeHtml(body) && !LooksLikeHtml(existingMessage.Body))
+                    {
+                        existingMessage.Body = body;
+                        existingMessage.ReceivedAt ??= NormalizeMailDate(mime.Date);
+                    }
+
+                    continue;
+                }
+
+                var message = new EmailMessage
+                {
+                    MailAccountId = account.Id,
+                    ExternalMessageId = externalMessageId,
+                    Subject = NormalizeLength(mime.Subject, 300) ?? "(Sans sujet)",
+                    From = NormalizeLength(mime.From.Mailboxes.FirstOrDefault()?.Address ?? mime.From.ToString(), 320) ?? string.Empty,
+                    To = NormalizeLength(mime.To.ToString(), 1000) ?? account.Email,
+                    Body = body,
+                    Direction = "Incoming",
+                    Status = "Received",
+                    IsRead = false,
+                    ReceivedAt = NormalizeMailDate(mime.Date)
+                };
+
+                db.EmailMessages.Add(message);
+                await StoreIncomingAttachmentsAsync(message, mime, cancellationToken);
+                imported++;
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            await imap.DisconnectAsync(true, cancellationToken);
+            return Result<int>.Success(imported);
+        }
+        catch (DbUpdateException ex)
+        {
+            return Result<int>.Failure($"Synchronisation IMAP impossible: {FormatDatabaseError(ex)}");
+        }
+        catch (Exception ex)
+        {
+            return Result<int>.Failure($"Synchronisation IMAP impossible: {ex.Message}");
+        }
+    }
+
+    private static IReadOnlyList<Guid> NotificationUserIds(MailAccount account)
+    {
+        var userIds = account.Accesses.Select(x => x.UserId).ToList();
+        if (account.CreatedByUserId is Guid createdByUserId)
+        {
+            userIds.Add(createdByUserId);
+        }
+
+        return userIds.Distinct().OrderBy(x => x).ToList();
+    }
 
     private async Task StoreIncomingAttachmentsAsync(EmailMessage message, MimeMessage mime, CancellationToken cancellationToken)
     {
@@ -990,13 +1059,15 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             : Result<MailServerValues>.Failure("Serveurs SMTP/IMAP non configures.");
     }
 
-    private static void ApplyServerSettings(MailServerSettings settings, string smtpHost, int smtpPort, string imapHost, int imapPort, bool useSsl)
+    private static void ApplyServerSettings(MailServerSettings settings, string smtpHost, int smtpPort, string imapHost, int imapPort, bool useSsl, bool imapAutoSyncEnabled, int imapSyncIntervalMinutes)
     {
         settings.SmtpHost = smtpHost.Trim();
         settings.SmtpPort = smtpPort;
         settings.ImapHost = imapHost.Trim();
         settings.ImapPort = imapPort;
         settings.UseSsl = useSsl;
+        settings.ImapAutoSyncEnabled = imapAutoSyncEnabled;
+        settings.ImapSyncIntervalMinutes = Math.Clamp(imapSyncIntervalMinutes, 1, 1440);
     }
 
     private static void ApplyAccount(MailAccount account, string email, MailServerValues serverValues, string? userName, string? passwordSecretName, string? displayName, string? signatureHtml, bool isActive)
@@ -1158,8 +1229,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private static MailServerSettingsDto Map(MailServerSettings? settings)
         => settings is null
-            ? new MailServerSettingsDto(null, string.Empty, 587, string.Empty, 993, true, false)
-            : new MailServerSettingsDto(settings.Id, settings.SmtpHost, settings.SmtpPort, settings.ImapHost, settings.ImapPort, settings.UseSsl, IsServerConfigured(settings));
+            ? new MailServerSettingsDto(null, string.Empty, 587, string.Empty, 993, true, true, 5, false)
+            : new MailServerSettingsDto(settings.Id, settings.SmtpHost, settings.SmtpPort, settings.ImapHost, settings.ImapPort, settings.UseSsl, settings.ImapAutoSyncEnabled, Math.Clamp(settings.ImapSyncIntervalMinutes, 1, 1440), IsServerConfigured(settings));
 
     private static MailAccountDto Map(MailAccount account)
         => new(account.Id, account.Email, account.DisplayName, account.SignatureHtml, account.SmtpHost, account.SmtpPort, account.ImapHost, account.ImapPort, account.UseSsl, account.UserName, account.PasswordSecretName, HasPassword(account), account.IsActive, account.Accesses.Select(x => x.UserId).OrderBy(x => x).ToList());

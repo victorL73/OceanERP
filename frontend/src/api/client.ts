@@ -5,6 +5,7 @@ import type {
   DriveFolder,
   DriveItem,
   EmailMessage,
+  EmailSyncSummary,
   EmailTemplate,
   Invoice,
   InvoiceDocument,
@@ -378,7 +379,7 @@ export class ApiClient {
     return this.request<MailServerSettings>('/api/emails/server-settings', { auth: true });
   }
 
-  updateMailServerSettings(payload: { smtpHost: string; smtpPort: number; imapHost: string; imapPort: number; useSsl: boolean }) {
+  updateMailServerSettings(payload: { smtpHost: string; smtpPort: number; imapHost: string; imapPort: number; useSsl: boolean; imapAutoSyncEnabled?: boolean; imapSyncIntervalMinutes?: number }) {
     return this.request<MailServerSettings>('/api/emails/server-settings', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
@@ -417,6 +418,10 @@ export class ApiClient {
 
   syncMailAccount(accountId: string) {
     return this.request<{ imported: number }>(`/api/emails/accounts/${accountId}/sync-imap`, { method: 'POST', auth: true });
+  }
+
+  syncMailAccounts() {
+    return this.request<EmailSyncSummary>('/api/emails/sync-imap', { method: 'POST', auth: true });
   }
 
   markEmailRead(messageId: string, isRead: boolean) {

@@ -2,7 +2,7 @@ import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEf
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
+import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
@@ -246,6 +246,8 @@ export default function App() {
           .filter(Boolean);
         setStockFocusProductIds(productIds);
         setView('stock');
+      } else if (link.pathname === '/emails') {
+        setView('emails');
       }
     }
 
@@ -288,6 +290,14 @@ export default function App() {
 
     connection.on('notificationCreated', (notification: NotificationItem) => {
       setNotifications((items) => [notification, ...items]);
+      if (notification.type === 'emails.new') {
+        api.emailMessages()
+          .then(setEmailMessages)
+          .catch(() => undefined);
+        api.summary()
+          .then(setSummary)
+          .catch(() => undefined);
+      }
     });
 
     connection.start().catch(() => undefined);
@@ -840,6 +850,8 @@ function MailAccountSettings({
   const [imapHost, setImapHost] = useState(serverSettings?.imapHost ?? '');
   const [imapPort, setImapPort] = useState(String(serverSettings?.imapPort ?? 993));
   const [useSsl, setUseSsl] = useState(serverSettings?.useSsl ?? true);
+  const [imapAutoSyncEnabled, setImapAutoSyncEnabled] = useState(serverSettings?.imapAutoSyncEnabled ?? true);
+  const [imapSyncIntervalMinutes, setImapSyncIntervalMinutes] = useState(String(serverSettings?.imapSyncIntervalMinutes ?? 5));
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [passwordSecretName, setPasswordSecretName] = useState('');
@@ -855,6 +867,8 @@ function MailAccountSettings({
     setImapHost(serverSettings?.imapHost ?? '');
     setImapPort(String(serverSettings?.imapPort ?? 993));
     setUseSsl(serverSettings?.useSsl ?? true);
+    setImapAutoSyncEnabled(serverSettings?.imapAutoSyncEnabled ?? true);
+    setImapSyncIntervalMinutes(String(serverSettings?.imapSyncIntervalMinutes ?? 5));
   }, [serverSettings]);
 
   function resetAccountForm() {
@@ -892,7 +906,9 @@ function MailAccountSettings({
         smtpPort: Number(smtpPort),
         imapHost,
         imapPort: Number(imapPort),
-        useSsl
+        useSsl,
+        imapAutoSyncEnabled,
+        imapSyncIntervalMinutes: Number(imapSyncIntervalMinutes)
       });
       setFeedback('Serveurs SMTP/IMAP mis a jour.');
       await onServerSettingsChanged();
@@ -1003,6 +1019,14 @@ function MailAccountSettings({
             <label className="check-field">
               <input type="checkbox" checked={useSsl} onChange={(event) => setUseSsl(event.target.checked)} />
               TLS/SSL actif
+            </label>
+            <label className="check-field">
+              <input type="checkbox" checked={imapAutoSyncEnabled} onChange={(event) => setImapAutoSyncEnabled(event.target.checked)} />
+              Synchronisation IMAP automatique
+            </label>
+            <label className="field">
+              <span>Frequence IMAP automatique (minutes)</span>
+              <input required type="number" min="1" max="1440" value={imapSyncIntervalMinutes} onChange={(event) => setImapSyncIntervalMinutes(event.target.value)} />
             </label>
             <div className="form-actions">
               <button className="primary" type="submit">
@@ -3931,6 +3955,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [selectedMessageDetail, setSelectedMessageDetail] = useState<EmailMessage | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
   const [messageAccountFilter, setMessageAccountFilter] = useState('');
+  const [syncingMessages, setSyncingMessages] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [templateSubject, setTemplateSubject] = useState('');
@@ -4165,6 +4190,34 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     return value ? new Date(value).toLocaleString('fr-FR') : '-';
   }
 
+  function summarizeSyncResult(result: EmailSyncSummary) {
+    if (result.accounts.some((account) => account.error)) {
+      const failures = result.accounts.filter((account) => account.error).map((account) => `${account.email}: ${account.error}`).join(' | ');
+      return `Synchronisation terminee avec erreurs. ${result.imported} email(s) importe(s). ${failures}`;
+    }
+
+    return `${result.imported} email(s) importe(s) depuis IMAP.`;
+  }
+
+  async function refreshMessagesFromImap() {
+    setFeedback(null);
+    setSyncingMessages(true);
+    try {
+      if (messageAccountFilter) {
+        const result = await api.syncMailAccount(messageAccountFilter);
+        setFeedback(`${result.imported} email(s) importe(s) depuis IMAP.`);
+      } else {
+        setFeedback(summarizeSyncResult(await api.syncMailAccounts()));
+      }
+
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Synchronisation IMAP impossible.');
+    } finally {
+      setSyncingMessages(false);
+    }
+  }
+
   return (
     <>
       {feedback && <div className="sync-note">{feedback}</div>}
@@ -4344,6 +4397,10 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               </label>
               <button className="secondary" type="button" onClick={() => { setMessageSearch(''); setMessageAccountFilter(''); }}>
                 Reinitialiser
+              </button>
+              <button className="primary" type="button" disabled={syncingMessages} onClick={() => void refreshMessagesFromImap()}>
+                <Mail size={16} />
+                {syncingMessages ? 'Synchronisation...' : 'Actualiser'}
               </button>
             </div>
           </Panel>

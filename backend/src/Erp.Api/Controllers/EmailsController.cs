@@ -1,4 +1,6 @@
+using Erp.Api.Services;
 using Erp.Application.Emails;
+using Erp.Application.Notifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,7 +9,7 @@ namespace Erp.Api.Controllers;
 [ApiController]
 [Route("api/emails")]
 [Authorize]
-public sealed class EmailsController(IEmailService emails) : ControllerBase
+public sealed class EmailsController(IEmailService emails, IRealtimeNotificationPublisher notificationPublisher) : ControllerBase
 {
     [HttpGet("server-settings")]
     [Authorize(Policy = "emails.read")]
@@ -65,6 +67,20 @@ public sealed class EmailsController(IEmailService emails) : ControllerBase
     {
         var result = await emails.SyncImapAsync(id, limit, cancellationToken);
         return result.Succeeded ? Ok(new { imported = result.Value }) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("sync-imap")]
+    [Authorize(Policy = "emails.write")]
+    public async Task<ActionResult<EmailSyncSummaryDto>> SyncAccessibleImap([FromQuery] int limit = 50, CancellationToken cancellationToken = default)
+    {
+        var result = await emails.SyncAccessibleImapAsync(limit, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        await PublishEmailNotificationsAsync(result.Value!, cancellationToken);
+        return Ok(result.Value);
     }
 
     [HttpGet("messages")]
@@ -137,5 +153,26 @@ public sealed class EmailsController(IEmailService emails) : ControllerBase
     {
         var result = await emails.DeleteTemplateAsync(id, cancellationToken);
         return result.Succeeded ? NoContent() : BadRequest(new { error = result.Error });
+    }
+
+    private async Task PublishEmailNotificationsAsync(EmailSyncSummaryDto summary, CancellationToken cancellationToken)
+    {
+        foreach (var account in summary.Accounts.Where(x => x.Imported > 0))
+        {
+            var message = account.Imported == 1
+                ? $"1 nouveau mail dans {account.Email}."
+                : $"{account.Imported} nouveaux mails dans {account.Email}.";
+
+            if (account.NotificationUserIds.Count == 0)
+            {
+                await notificationPublisher.PublishAsync(new CreateNotificationRequest(null, "emails.new", "Nouveaux emails", message, "/emails"), cancellationToken);
+                continue;
+            }
+
+            foreach (var userId in account.NotificationUserIds)
+            {
+                await notificationPublisher.PublishAsync(new CreateNotificationRequest(userId, "emails.new", "Nouveaux emails", message, "/emails"), cancellationToken);
+            }
+        }
     }
 }

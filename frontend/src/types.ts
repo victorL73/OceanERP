@@ -323,7 +323,22 @@ export type MailServerSettings = {
   imapHost: string;
   imapPort: number;
   useSsl: boolean;
+  imapAutoSyncEnabled: boolean;
+  imapSyncIntervalMinutes: number;
   isConfigured: boolean;
+};
+
+export type EmailSyncAccountResult = {
+  mailAccountId: string;
+  email: string;
+  imported: number;
+  error?: string;
+  notificationUserIds: string[];
+};
+
+export type EmailSyncSummary = {
+  imported: number;
+  accounts: EmailSyncAccountResult[];
 };
 
 export type EmailAttachment = {

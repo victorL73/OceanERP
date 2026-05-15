@@ -369,6 +369,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         {
             entity.Property(x => x.SmtpHost).HasMaxLength(240);
             entity.Property(x => x.ImapHost).HasMaxLength(240);
+            entity.Property(x => x.ImapSyncIntervalMinutes).HasDefaultValue(5);
+            entity.Property(x => x.ImapAutoSyncEnabled).HasDefaultValue(true);
         });
 
         modelBuilder.Entity<MailAccountAccess>(entity =>
