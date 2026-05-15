@@ -3770,6 +3770,63 @@ function sanitizeEmailHtml(value: string) {
     .replace(/javascript:/gi, '');
 }
 
+function escapeAttribute(value: string) {
+  return escapeHtml(value).replaceAll('`', '&#096;');
+}
+
+function shortenUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const path = `${url.pathname}${url.search ? '?' : ''}`;
+    return `${url.hostname}${path.length > 28 ? `${path.slice(0, 28)}...` : path}`;
+  } catch {
+    return value.length > 72 ? `${value.slice(0, 72)}...` : value;
+  }
+}
+
+function linkifyPlainEmailSegment(value: string) {
+  const urlPattern = /https?:\/\/[^\s<>"'\]]+/gi;
+  let html = '';
+  let lastIndex = 0;
+  for (const match of value.matchAll(urlPattern)) {
+    const rawUrl = match[0];
+    const start = match.index ?? 0;
+    const url = rawUrl.replace(/[),.;:!?]+$/g, '');
+    const trailing = rawUrl.slice(url.length);
+    html += escapeHtml(value.slice(lastIndex, start));
+    html += `<a href="${escapeAttribute(url)}" title="${escapeAttribute(url)}">${escapeHtml(shortenUrl(url))}</a>${escapeHtml(trailing)}`;
+    lastIndex = start + rawUrl.length;
+  }
+
+  html += escapeHtml(value.slice(lastIndex));
+  return html
+    .replace(/\n{2,}/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+}
+
+function plainEmailTextToHtml(value: string) {
+  const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!normalized) {
+    return '<p class="empty">Aucun contenu.</p>';
+  }
+
+  const ctaPattern = /\[(https?:\/\/[^\]\s]+)\]\s*([^\[\n\r]{1,90})/gi;
+  let html = '<div class="plain-mail"><p>';
+  let lastIndex = 0;
+
+  for (const match of normalized.matchAll(ctaPattern)) {
+    const start = match.index ?? 0;
+    const url = match[1];
+    const label = match[2].trim().replace(/^[-:–\s]+/, '').replace(/[.:;]+$/, '') || 'Ouvrir le lien';
+    html += linkifyPlainEmailSegment(normalized.slice(lastIndex, start));
+    html += `</p><p><a class="mail-cta" href="${escapeAttribute(url)}" title="${escapeAttribute(url)}">${escapeHtml(label)}</a></p><p>`;
+    lastIndex = start + match[0].length;
+  }
+
+  html += linkifyPlainEmailSegment(normalized.slice(lastIndex));
+  return `${html}</p></div>`.replace(/<p>\s*<\/p>/g, '');
+}
+
 function buildEmailFrameDocument(body: string) {
   const emailFrameHead = `<base target="_blank">
   <style>
@@ -3779,6 +3836,10 @@ function buildEmailFrameDocument(body: string) {
     table { max-width: 100%; }
     pre { margin: 0; white-space: pre-wrap; font: inherit; }
     blockquote { margin: 12px 0; padding-left: 12px; border-left: 3px solid #cbd5e1; color: #475569; }
+    a { color: #0f766e; font-weight: 700; word-break: break-word; }
+    .plain-mail { max-width: 860px; color: #172033; font-size: 15px; }
+    .plain-mail p { margin: 0 0 14px; }
+    .mail-cta { display: inline-flex; align-items: center; min-height: 38px; border-radius: 6px; background: #0f766e; color: #fff; padding: 0 14px; text-decoration: none; }
     .empty { color: #64748b; font-style: italic; }
   </style>`;
   const trimmedBody = body.trim();
@@ -3796,7 +3857,7 @@ function buildEmailFrameDocument(body: string) {
   const content = trimmedBody
     ? looksLikeEmailHtml(trimmedBody)
       ? sanitizeEmailHtml(trimmedBody)
-      : `<pre>${escapeHtml(trimmedBody)}</pre>`
+      : plainEmailTextToHtml(trimmedBody)
     : '<p class="empty">Aucun contenu.</p>';
 
   return `<!doctype html>
@@ -4350,7 +4411,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               <iframe
                 className="email-body-frame"
                 title={`Email - ${selectedMessage.subject}`}
-                sandbox=""
+                sandbox="allow-popups"
                 srcDoc={buildEmailFrameDocument(selectedMessage.body || '')}
               />
             </section>

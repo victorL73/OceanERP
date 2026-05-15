@@ -620,13 +620,30 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private static string BuildIncomingBody(MimeMessage mime)
     {
-        if (!string.IsNullOrWhiteSpace(mime.HtmlBody))
+        var htmlBody = FindHtmlBody(mime);
+        if (!string.IsNullOrWhiteSpace(htmlBody))
         {
-            return CleanDatabaseText(EmbedInlineImages(mime.HtmlBody, mime));
+            return CleanDatabaseText(EmbedInlineImages(htmlBody, mime));
         }
 
-        return CleanDatabaseText(mime.TextBody ?? string.Empty);
+        return CleanDatabaseText(FindTextBody(mime) ?? string.Empty);
     }
+
+    private static string? FindHtmlBody(MimeMessage mime)
+        => !string.IsNullOrWhiteSpace(mime.HtmlBody)
+            ? mime.HtmlBody
+            : mime.BodyParts
+                .OfType<TextPart>()
+                .FirstOrDefault(part => part.IsHtml || part.ContentType.MimeType.Equals("text/html", StringComparison.OrdinalIgnoreCase))
+                ?.Text;
+
+    private static string? FindTextBody(MimeMessage mime)
+        => !string.IsNullOrWhiteSpace(mime.TextBody)
+            ? mime.TextBody
+            : mime.BodyParts
+                .OfType<TextPart>()
+                .FirstOrDefault(part => part.IsPlain || part.ContentType.MimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase))
+                ?.Text;
 
     private static string EmbedInlineImages(string html, MimeMessage mime)
     {
