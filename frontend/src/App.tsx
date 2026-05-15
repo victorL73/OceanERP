@@ -3872,6 +3872,59 @@ function plainEmailTextToHtml(value: string) {
   return `${html}</p></div>`.replace(/<p>\s*<\/p>/g, '');
 }
 
+function normalizeInlineQuotedHistory(value: string) {
+  return normalizeQuotedEmailText(value)
+    .replace(/\s*(-{2,}\s*Message\s+(precedent|transfere)\s*-{2,})\s*/gi, '\n$1\n')
+    .replace(/\s*(Le\s+\d{1,2}\/\d{1,2}\/\d{4}[\s\S]{0,180}?\s+a\s+(ecrit|\u00e9crit)\s*:)\s*/gi, '\n$1\n')
+    .replace(/\s+>\s*/g, '\n> ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function quotedHistoryTextToHtml(value: string) {
+  const normalized = normalizeInlineQuotedHistory(value);
+  if (!normalized) {
+    return '';
+  }
+
+  const lines = normalized.split('\n');
+  if (lines[0] && /^-{2,}\s*Message\s+(precedent|transfere)\s*-{2,}$/i.test(lines[0].trim())) {
+    lines.shift();
+  }
+
+  const headerLines: string[] = [];
+  while (lines.length > 0 && !lines[0].trimStart().startsWith('>')) {
+    const line = lines.shift()?.trim();
+    if (line) {
+      headerLines.push(line);
+    }
+  }
+
+  const quoteText = lines
+    .map((line) => line.replace(/^(\s*>+\s*)+/, ''))
+    .join('\n')
+    .trim();
+  const headerHtml = headerLines.length > 0 ? `<div class="mail-history-header">${plainEmailTextToHtml(headerLines.join('\n'))}</div>` : '';
+  const quoteHtml = quoteText ? plainEmailTextToHtml(quoteText) : '<p class="empty">Aucun contenu.</p>';
+
+  return `${headerHtml}<blockquote class="mail-history">${quoteHtml}</blockquote>`;
+}
+
+function formatQuotedHistoryForDisplay(html: string) {
+  const marker = html.match(/-{2,}\s*Message\s+(precedent|transfere)\s*-{2,}/i);
+  if (!marker || marker.index === undefined) {
+    return html;
+  }
+
+  const before = html.slice(0, marker.index).trimEnd();
+  const history = html.slice(marker.index);
+  if (/<blockquote\b/i.test(history)) {
+    return html;
+  }
+
+  return `${before}${before ? '<br><br>' : ''}${quotedHistoryTextToHtml(htmlEmailToPlainText(history))}`;
+}
+
 function buildEmailFrameDocument(body: string) {
   const emailFrameHead = `<base target="_blank">
   <style>
@@ -3881,6 +3934,10 @@ function buildEmailFrameDocument(body: string) {
     table { max-width: 100%; }
     pre { margin: 0; white-space: pre-wrap; font: inherit; }
     blockquote { margin: 12px 0; padding-left: 12px; border-left: 3px solid #cbd5e1; color: #475569; }
+    .mail-history { background:#f8fafc; border-radius:8px; padding:12px 14px 12px 16px; }
+    .mail-history-header { margin: 10px 0 6px; color: #64748b; font-size: 13px; }
+    .mail-history-header .plain-mail { font-size: 13px; color: inherit; }
+    .mail-history-header .plain-mail p { margin: 0 0 4px; }
     a { color: #0f766e; font-weight: 700; word-break: break-word; }
     .plain-mail { max-width: 860px; color: #172033; font-size: 15px; }
     .plain-mail p { margin: 0 0 14px; }
@@ -3890,18 +3947,19 @@ function buildEmailFrameDocument(body: string) {
   const trimmedBody = body.trim();
   if (trimmedBody && looksLikeEmailHtml(trimmedBody)) {
     const sanitized = sanitizeEmailHtml(trimmedBody);
+    const formattedSanitized = formatQuotedHistoryForDisplay(sanitized);
     if (/<html[\s>]/i.test(sanitized)) {
       if (/<head[\s>]/i.test(sanitized)) {
-        return sanitized.replace(/<head([^>]*)>/i, `<head$1><meta charset="utf-8">${emailFrameHead}`);
+        return formattedSanitized.replace(/<head([^>]*)>/i, `<head$1><meta charset="utf-8">${emailFrameHead}`);
       }
 
-      return sanitized.replace(/<html([^>]*)>/i, `<html$1><head><meta charset="utf-8">${emailFrameHead}</head>`);
+      return formattedSanitized.replace(/<html([^>]*)>/i, `<html$1><head><meta charset="utf-8">${emailFrameHead}</head>`);
     }
   }
 
   const content = trimmedBody
     ? looksLikeEmailHtml(trimmedBody)
-      ? sanitizeEmailHtml(trimmedBody)
+      ? formatQuotedHistoryForDisplay(sanitizeEmailHtml(trimmedBody))
       : plainEmailTextToHtml(trimmedBody)
     : '<p class="empty">Aucun contenu.</p>';
 

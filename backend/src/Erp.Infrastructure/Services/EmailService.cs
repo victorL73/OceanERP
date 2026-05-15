@@ -1267,6 +1267,11 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
         var replyHtml = body[..quotedStart].TrimEnd();
         var quotedHtml = body[quotedStart..].TrimStart();
+        if (!quotedHtml.StartsWith("<blockquote", StringComparison.OrdinalIgnoreCase))
+        {
+            quotedHtml = QuotedConversationToHtml(HtmlFragmentToPlainText(quotedHtml));
+        }
+
         return string.IsNullOrWhiteSpace(StripHtmlFallback(replyHtml))
             ? $"{signatureHtml}<br><br>{quotedHtml}"
             : $"{replyHtml}<br><br>{signatureHtml}<br><br>{quotedHtml}";
@@ -1322,7 +1327,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private static string QuotedConversationToHtml(string value)
     {
-        var normalized = value.Replace("\r\n", "\n").Trim();
+        var normalized = NormalizeInlineQuotedHistory(value.Replace("\r\n", "\n")).Trim();
         if (string.IsNullOrWhiteSpace(normalized))
         {
             return string.Empty;
@@ -1350,6 +1355,30 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             : $"<div style=\"margin:12px 0 6px;color:#64748b;font-size:13px;\">{PlainTextToHtml(string.Join("\n", headerLines))}</div>";
         var quoteHtml = PlainTextToHtml(string.Join("\n", quoteLines).Trim());
         return $"{headerHtml}<blockquote style=\"margin:0 0 0 12px;padding-left:12px;border-left:3px solid #cbd5e1;color:#475569;\">{quoteHtml}</blockquote>";
+    }
+
+    private static string NormalizeInlineQuotedHistory(string value)
+        => System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(
+                System.Text.RegularExpressions.Regex.Replace(
+                    value.Replace("\r\n", "\n").Replace("\r", "\n"),
+                    "\\s*(-{2,}\\s*Message\\s+(precedent|transfere)\\s*-{2,})\\s*",
+                    "\n$1\n",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant),
+                "\\s*(Le\\s+\\d{1,2}/\\d{1,2}/\\d{4}.{0,180}?\\s+a\\s+(ecrit|\\u00e9crit)\\s*:)\\s*",
+                "\n$1\n",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant),
+            "\\s+>\\s*",
+            "\n> ",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static string HtmlFragmentToPlainText(string html)
+    {
+        var withBreaks = System.Text.RegularExpressions.Regex.Replace(html, "<br\\s*/?>", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        withBreaks = System.Text.RegularExpressions.Regex.Replace(withBreaks, "</(p|div|section|article|blockquote|li|tr|table|h[1-6])>", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        withBreaks = System.Text.RegularExpressions.Regex.Replace(withBreaks, "<li\\b[^>]*>", "\n> ", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        var noTags = System.Text.RegularExpressions.Regex.Replace(withBreaks, "<.*?>", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
+        return System.Net.WebUtility.HtmlDecode(noTags);
     }
 
     private static string PlainTextToHtml(string value)
