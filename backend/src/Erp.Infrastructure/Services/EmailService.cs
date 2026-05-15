@@ -271,12 +271,19 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
                 var externalMessageId = NormalizeLength(
                     string.IsNullOrWhiteSpace(mime.MessageId) ? $"imap:{uid.Id}" : mime.MessageId,
                     512) ?? $"imap:{uid.Id}";
-                if (await db.EmailMessages.AnyAsync(x => x.MailAccountId == account.Id && x.ExternalMessageId == externalMessageId, cancellationToken))
+                var body = BuildIncomingBody(mime);
+                var existingMessage = await db.EmailMessages.FirstOrDefaultAsync(x => x.MailAccountId == account.Id && x.ExternalMessageId == externalMessageId, cancellationToken);
+                if (existingMessage is not null)
                 {
+                    if (LooksLikeHtml(body) && !LooksLikeHtml(existingMessage.Body))
+                    {
+                        existingMessage.Body = body;
+                        existingMessage.ReceivedAt ??= NormalizeMailDate(mime.Date);
+                    }
+
                     continue;
                 }
 
-                var body = CleanDatabaseText(mime.TextBody ?? StripHtmlFallback(mime.HtmlBody));
                 var message = new EmailMessage
                 {
                     MailAccountId = account.Id,
@@ -610,6 +617,62 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             });
         }
     }
+
+    private static string BuildIncomingBody(MimeMessage mime)
+    {
+        if (!string.IsNullOrWhiteSpace(mime.HtmlBody))
+        {
+            return CleanDatabaseText(EmbedInlineImages(mime.HtmlBody, mime));
+        }
+
+        return CleanDatabaseText(mime.TextBody ?? string.Empty);
+    }
+
+    private static string EmbedInlineImages(string html, MimeMessage mime)
+    {
+        var inlineImages = mime.BodyParts
+            .OfType<MimePart>()
+            .Where(part => !string.IsNullOrWhiteSpace(part.ContentId) && part.Content is not null && part.ContentType.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(part => NormalizeContentId(part.ContentId!), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        if (inlineImages.Count == 0)
+        {
+            return html;
+        }
+
+        return System.Text.RegularExpressions.Regex.Replace(
+            html,
+            "cid:([^\"'\\)\\s>]+)",
+            match =>
+            {
+                var contentId = NormalizeContentId(Uri.UnescapeDataString(match.Groups[1].Value));
+                if (!inlineImages.TryGetValue(contentId, out var part))
+                {
+                    return match.Value;
+                }
+
+                try
+                {
+                    if (part.Content is null)
+                    {
+                        return match.Value;
+                    }
+
+                    using var stream = new MemoryStream();
+                    part.Content.DecodeTo(stream);
+                    return $"data:{part.ContentType.MimeType};base64,{Convert.ToBase64String(stream.ToArray())}";
+                }
+                catch
+                {
+                    return match.Value;
+                }
+            },
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private static string NormalizeContentId(string value)
+        => value.Trim().Trim('<', '>');
 
     private Result<string> ResolvePassword(MailAccount account)
     {

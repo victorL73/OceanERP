@@ -853,6 +853,49 @@ th {
   width: min(1100px, 100%);
 }
 
+.email-modal {
+  width: min(1120px, calc(100vw - 48px));
+}
+
+.email-modal .detail-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.email-body-preview {
+  margin-top: 16px;
+}
+
+.email-body-frame {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 520px;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.email-attachments {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.email-attachments h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.attachment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px;
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;

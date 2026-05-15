@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -3754,6 +3754,89 @@ function WarehouseInfoBubble({ warehouse, onClose }: { warehouse: Warehouse; onC
   );
 }
 
+function looksLikeEmailHtml(value: string) {
+  return /<\s*(html|body|table|div|p|span|br|img|style|meta|font|blockquote)\b/i.test(value);
+}
+
+function sanitizeEmailHtml(value: string) {
+  return value
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<object[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed[\s\S]*?>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+function buildEmailFrameDocument(body: string) {
+  const emailFrameHead = `<base target="_blank">
+  <style>
+    html, body { margin: 0; min-height: 100%; color: #111827; }
+    body { box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; line-height: 1.5; overflow-wrap: anywhere; }
+    img { max-width: 100%; height: auto; }
+    table { max-width: 100%; }
+    pre { margin: 0; white-space: pre-wrap; font: inherit; }
+    blockquote { margin: 12px 0; padding-left: 12px; border-left: 3px solid #cbd5e1; color: #475569; }
+    .empty { color: #64748b; font-style: italic; }
+  </style>`;
+  const trimmedBody = body.trim();
+  if (trimmedBody && looksLikeEmailHtml(trimmedBody)) {
+    const sanitized = sanitizeEmailHtml(trimmedBody);
+    if (/<html[\s>]/i.test(sanitized)) {
+      if (/<head[\s>]/i.test(sanitized)) {
+        return sanitized.replace(/<head([^>]*)>/i, `<head$1><meta charset="utf-8">${emailFrameHead}`);
+      }
+
+      return sanitized.replace(/<html([^>]*)>/i, `<html$1><head><meta charset="utf-8">${emailFrameHead}</head>`);
+    }
+  }
+
+  const content = trimmedBody
+    ? looksLikeEmailHtml(trimmedBody)
+      ? sanitizeEmailHtml(trimmedBody)
+      : `<pre>${escapeHtml(trimmedBody)}</pre>`
+    : '<p class="empty">Aucun contenu.</p>';
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  ${emailFrameHead}
+</head>
+<body style="margin:0;padding:18px;background:#fff;">${content}</body>
+</html>`;
+}
+
+function extractEmailAddresses(value: string) {
+  return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+}
+
+function uniqueEmailAddresses(values: string[], excluded: Set<string>) {
+  const seen = new Set<string>();
+  return values
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (excluded.has(key) || seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+}
+
+function buildQuotedEmailBody(message: EmailMessage, formattedDate: string) {
+  const sanitizedBody = looksLikeEmailHtml(message.body)
+    ? sanitizeEmailHtml(message.body).match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? sanitizeEmailHtml(message.body)
+    : `<pre>${escapeHtml(message.body)}</pre>`;
+
+  return `<p></p><br><p>Le ${escapeHtml(formattedDate)}, ${escapeHtml(message.from)} a ecrit :</p><blockquote style="margin:12px 0;padding-left:12px;border-left:3px solid #cbd5e1;color:#475569;">${sanitizedBody}</blockquote>`;
+}
+
 function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; onChanged: () => Promise<void> }) {
   const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('compose');
   const [editingAccountId, setEditingAccountId] = useState('');
@@ -3960,6 +4043,30 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     await api.markEmailRead(selectedMessage.id, isRead);
     setFeedback(isRead ? 'Email marque comme lu.' : 'Email marque comme non lu.');
     await onChanged();
+  }
+
+  function startReply(mode: 'single' | 'all') {
+    if (!selectedMessage) {
+      return;
+    }
+
+    const selectedAccount = selectedMessage.mailAccountId ? accountById.get(selectedMessage.mailAccountId) : undefined;
+    const ownEmails = new Set(accounts.map((account) => account.email.toLowerCase()));
+    const fromAddresses = extractEmailAddresses(selectedMessage.from);
+    const toAddresses = extractEmailAddresses(selectedMessage.to);
+    const baseRecipients = selectedMessage.direction === 'Outgoing'
+      ? toAddresses
+      : mode === 'all'
+        ? [...fromAddresses, ...toAddresses]
+        : fromAddresses;
+    const recipients = uniqueEmailAddresses(baseRecipients, ownEmails);
+
+    setSelectedAccountId(selectedAccount?.id ?? activeAccounts[0]?.id ?? '');
+    setTo((recipients.length > 0 ? recipients : uniqueEmailAddresses(toAddresses, new Set())).join(', '));
+    setSubject(selectedMessage.subject.trim().toLowerCase().startsWith('re:') ? selectedMessage.subject : `Re: ${selectedMessage.subject}`);
+    setBody(buildQuotedEmailBody(selectedMessage, formatEmailDate(selectedMessage.sentAt ?? selectedMessage.receivedAt ?? selectedMessage.createdAt)));
+    setSelectedMessageId(null);
+    setTab('compose');
   }
 
   function formatEmailDate(value?: string) {
@@ -4239,7 +4346,14 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               <DetailItem label="Date" value={formatEmailDate(selectedMessage.sentAt ?? selectedMessage.receivedAt ?? selectedMessage.createdAt)} />
               {selectedMessage.errorMessage && <DetailItem label="Erreur" value={selectedMessage.errorMessage} />}
             </div>
-            <section className="email-body-preview">{selectedMessage.body || '-'}</section>
+            <section className="email-body-preview">
+              <iframe
+                className="email-body-frame"
+                title={`Email - ${selectedMessage.subject}`}
+                sandbox=""
+                srcDoc={buildEmailFrameDocument(selectedMessage.body || '')}
+              />
+            </section>
             {selectedMessage.attachments.length > 0 && (
               <section className="email-attachments">
                 <h3>Pieces jointes</h3>
@@ -4256,6 +4370,14 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               </section>
             )}
             <div className="modal-footer">
+              <button className="secondary" type="button" onClick={() => startReply('single')}>
+                <Reply size={16} />
+                Repondre
+              </button>
+              <button className="secondary" type="button" onClick={() => startReply('all')}>
+                <ReplyAll size={16} />
+                Repondre a tous
+              </button>
               <button className="secondary" type="button" onClick={() => markSelectedMessage(!selectedMessage.isRead)}>
                 {selectedMessage.isRead ? 'Marquer non lu' : 'Marquer lu'}
               </button>
