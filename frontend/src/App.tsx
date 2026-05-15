@@ -4669,6 +4669,11 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
                     >
                       <span>{formatEmailDate(emailMessageDateValue(message))}</span>
                       <strong>{message.direction === 'Incoming' ? message.from : message.to}</strong>
+                      {message.attachments.length > 0 && (
+                        <span className="email-thread-attachment" title="Piece jointe">
+                          <Paperclip aria-label="Piece jointe" size={14} />
+                        </span>
+                      )}
                       <small>{message.direction === 'Incoming' ? 'Recu' : 'Envoye'} · {message.isRead ? 'Lu' : 'Non lu'}</small>
                     </button>
                   ))}

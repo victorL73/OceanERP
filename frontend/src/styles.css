@@ -936,7 +936,7 @@ th {
 
 .email-thread-item {
   display: grid;
-  grid-template-columns: 160px minmax(0, 1fr) auto;
+  grid-template-columns: 160px minmax(0, 1fr) 24px auto;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -959,10 +959,21 @@ th {
   color: #64748b;
 }
 
+.email-thread-item small {
+  grid-column: 4;
+}
+
 .email-thread-item strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.email-thread-attachment {
+  display: inline-flex;
+  grid-column: 3;
+  justify-self: center;
+  color: #0f766e;
 }
 
 .attachment-row {
