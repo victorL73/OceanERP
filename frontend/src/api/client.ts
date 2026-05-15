@@ -103,6 +103,20 @@ export class ApiClient {
     });
   }
 
+  updateCustomer(
+    customerId: string,
+    payload: {
+      companyName: string;
+      vatNumber?: string | null;
+      notes?: string | null;
+      isActive: boolean;
+      contacts: Array<{ firstName: string; lastName: string; email?: string | null; phone?: string | null; jobTitle?: string | null; isPrimary: boolean }>;
+      addresses: Array<{ label: string; line1: string; line2?: string | null; postalCode: string; city: string; country: string; isBilling: boolean; isShipping: boolean }>;
+    }
+  ) {
+    return this.request<Customer>(`/api/customers/${customerId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
   products() {
     return this.request<PagedResult<Product>>('/api/products?pageSize=500', { auth: true });
   }

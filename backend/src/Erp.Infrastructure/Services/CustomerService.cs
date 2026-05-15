@@ -1,13 +1,22 @@
 using Erp.Application.Common;
 using Erp.Application.Customers;
 using Erp.Domain.Customers;
+using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Xml.Linq;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class CustomerService(ErpDbContext db) : ICustomerService
+public sealed class CustomerService(ErpDbContext db, IConfiguration configuration, IHttpClientFactory httpClientFactory) : ICustomerService
 {
+    private const string PrestashopProvider = "PrestaShop";
+    private const string PrestashopCustomerModule = "customers";
+
     public async Task<PagedResult<CustomerDto>> SearchAsync(string? search, int page, int pageSize, CancellationToken cancellationToken)
     {
         page = Math.Max(1, page);
@@ -73,6 +82,12 @@ public sealed class CustomerService(ErpDbContext db) : ICustomerService
         customer.Contacts.Clear();
         customer.Addresses.Clear();
         ApplyChildren(customer, request.Contacts, request.Addresses);
+        var publishResult = await PublishPrestashopCustomerAsync(customer, cancellationToken);
+        if (!publishResult.Succeeded)
+        {
+            return Result<CustomerDto>.Failure(publishResult.Error!);
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         return Result<CustomerDto>.Success(Map(customer));
     }
@@ -118,4 +133,270 @@ public sealed class CustomerService(ErpDbContext db) : ICustomerService
             customer.IsActive,
             customer.Contacts.Select(x => new CustomerContactDto(x.Id, x.FirstName, x.LastName, x.Email, x.Phone, x.JobTitle, x.IsPrimary)).ToList(),
             customer.Addresses.Select(x => new CustomerAddressDto(x.Id, x.Label, x.Line1, x.Line2, x.PostalCode, x.City, x.Country, x.IsBilling, x.IsShipping)).ToList());
+
+    private async Task<Result> PublishPrestashopCustomerAsync(Customer customer, CancellationToken cancellationToken)
+    {
+        var externalReference = await db.ExternalReferences.FirstOrDefaultAsync(
+            x => x.Provider == PrestashopProvider && x.Module == PrestashopCustomerModule && x.EntityId == customer.Id,
+            cancellationToken);
+        if (externalReference is null)
+        {
+            return Result.Success();
+        }
+
+        var externalCustomerId = ExtractPrestashopId(externalReference, PrestashopCustomerModule);
+        if (string.IsNullOrWhiteSpace(externalCustomerId))
+        {
+            return Result.Failure("Reference PrestaShop client invalide.");
+        }
+
+        var connection = await db.PrestashopConnections
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (connection is null)
+        {
+            return Result.Failure("Aucune connexion PrestaShop active n'est configuree.");
+        }
+
+        var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
+        if (!apiKeyResult.Succeeded)
+        {
+            return Result.Failure(apiKeyResult.Error ?? "Cle API PrestaShop non configuree.");
+        }
+
+        try
+        {
+            var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
+            await UpdatePrestashopCustomerAsync(apiBaseUrl, externalCustomerId, apiKeyResult.Value!, customer, cancellationToken);
+            await UpdatePrestashopCustomerAddressAsync(apiBaseUrl, externalCustomerId, apiKeyResult.Value!, customer, cancellationToken);
+            return Result.Success();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure($"Modification PrestaShop impossible: {TrimDetail(FullExceptionMessage(ex))}");
+        }
+    }
+
+    private async Task UpdatePrestashopCustomerAsync(string apiBaseUrl, string externalCustomerId, string apiKey, Customer customer, CancellationToken cancellationToken)
+    {
+        var document = await GetPrestashopXmlAsync($"{apiBaseUrl}/customers/{externalCustomerId}?display=full&output_format=XML", "client", apiKey, cancellationToken);
+        var customerElement = document.Root?.Element("customer") ?? document.Descendants("customer").FirstOrDefault();
+        if (customerElement is null)
+        {
+            throw new InvalidOperationException("Reponse PrestaShop client invalide.");
+        }
+
+        RemoveReadOnlyFields(customerElement);
+        var primaryContact = SelectPrimaryContact(customer);
+        SetElementValue(customerElement, "company", customer.CompanyName);
+        SetElementValue(customerElement, "active", customer.IsActive ? "1" : "0");
+        SetElementValue(customerElement, "note", customer.Notes ?? string.Empty);
+        SetElementValue(customerElement, "siret", customer.VatNumber ?? string.Empty);
+
+        if (primaryContact is not null)
+        {
+            SetElementValue(customerElement, "firstname", SafePrestashopName(primaryContact.FirstName, "Client"));
+            SetElementValue(customerElement, "lastname", SafePrestashopName(primaryContact.LastName, customer.CompanyName));
+            if (!string.IsNullOrWhiteSpace(primaryContact.Email))
+            {
+                SetElementValue(customerElement, "email", primaryContact.Email.Trim());
+            }
+        }
+
+        await PutPrestashopXmlAsync($"{apiBaseUrl}/customers/{externalCustomerId}", "client", apiKey, document, cancellationToken);
+    }
+
+    private async Task UpdatePrestashopCustomerAddressAsync(string apiBaseUrl, string externalCustomerId, string apiKey, Customer customer, CancellationToken cancellationToken)
+    {
+        var address = customer.Addresses.OrderByDescending(x => x.IsBilling).ThenByDescending(x => x.IsShipping).FirstOrDefault();
+        if (address is null)
+        {
+            return;
+        }
+
+        var addressId = await FindFirstPrestashopAddressIdAsync(apiBaseUrl, externalCustomerId, apiKey, cancellationToken);
+        if (string.IsNullOrWhiteSpace(addressId))
+        {
+            return;
+        }
+
+        var document = await GetPrestashopXmlAsync($"{apiBaseUrl}/addresses/{addressId}?display=full&output_format=XML", "adresse client", apiKey, cancellationToken);
+        var addressElement = document.Root?.Element("address") ?? document.Descendants("address").FirstOrDefault();
+        if (addressElement is null)
+        {
+            throw new InvalidOperationException("Reponse PrestaShop adresse invalide.");
+        }
+
+        var primaryContact = SelectPrimaryContact(customer);
+        RemoveReadOnlyFields(addressElement);
+        SetElementValue(addressElement, "company", customer.CompanyName);
+        SetElementValue(addressElement, "firstname", SafePrestashopName(primaryContact?.FirstName, "Client"));
+        SetElementValue(addressElement, "lastname", SafePrestashopName(primaryContact?.LastName, customer.CompanyName));
+        SetElementValue(addressElement, "address1", address.Line1);
+        SetElementValue(addressElement, "address2", address.Line2 ?? string.Empty);
+        SetElementValue(addressElement, "postcode", address.PostalCode);
+        SetElementValue(addressElement, "city", address.City);
+        SetElementValue(addressElement, "alias", string.IsNullOrWhiteSpace(address.Label) ? "Adresse ERP" : address.Label);
+        SetElementValue(addressElement, "phone", primaryContact?.Phone ?? string.Empty);
+        SetElementValue(addressElement, "vat_number", customer.VatNumber ?? string.Empty);
+
+        await PutPrestashopXmlAsync($"{apiBaseUrl}/addresses/{addressId}", "adresse client", apiKey, document, cancellationToken);
+    }
+
+    private async Task<string?> FindFirstPrestashopAddressIdAsync(string apiBaseUrl, string externalCustomerId, string apiKey, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(CustomerService));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}/addresses?filter[id_customer]=[{externalCustomerId}]&display=full&limit=1&output_format=JSON");
+        AddPrestashopHeaders(request, apiKey, "application/json");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"GET adresse client PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("addresses", out var addresses) || addresses.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var first = addresses.EnumerateArray().FirstOrDefault();
+        if (first.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return GetJsonString(first, "id");
+    }
+
+    private async Task<XDocument> GetPrestashopXmlAsync(string url, string label, string apiKey, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(CustomerService));
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"GET {label} PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+
+        return XDocument.Parse(body, LoadOptions.PreserveWhitespace);
+    }
+
+    private async Task PutPrestashopXmlAsync(string url, string label, string apiKey, XDocument document, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(CustomerService));
+        using var request = new HttpRequestMessage(HttpMethod.Put, url);
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+        request.Content = new StringContent(document.ToString(SaveOptions.DisableFormatting), Encoding.UTF8, "application/xml");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"PUT {label} PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+    }
+
+    private static CustomerContact? SelectPrimaryContact(Customer customer)
+        => customer.Contacts.OrderByDescending(x => x.IsPrimary).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.Email))
+            ?? customer.Contacts.OrderByDescending(x => x.IsPrimary).FirstOrDefault();
+
+    private static string SafePrestashopName(string? value, string fallback)
+    {
+        var cleaned = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        cleaned = cleaned.Replace("\n", " ").Replace("\r", " ").Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "Client" : cleaned;
+    }
+
+    private static void RemoveReadOnlyFields(XElement element)
+    {
+        var readOnlyFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "date_add",
+            "date_upd",
+            "last_passwd_gen",
+            "newsletter_date_add",
+            "ip_registration_newsletter",
+            "reset_password_token",
+            "reset_password_validity"
+        };
+
+        foreach (var child in element.Elements().Where(x => readOnlyFields.Contains(x.Name.LocalName)).ToList())
+        {
+            child.Remove();
+        }
+    }
+
+    private static void SetElementValue(XElement parent, string name, string value)
+    {
+        var element = parent.Element(name);
+        if (element is null)
+        {
+            element = new XElement(name);
+            parent.Add(element);
+        }
+
+        element.Value = value;
+    }
+
+    private static void AddPrestashopHeaders(HttpRequestMessage request, string apiKey, string accept)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
+    }
+
+    private static string? ExtractPrestashopId(ExternalReference externalReference, string module)
+    {
+        var prefix = $"{module}:";
+        return externalReference.ExternalId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? externalReference.ExternalId[prefix.Length..]
+            : externalReference.ExternalId;
+    }
+
+    private static string GetApiBaseUrl(string shopUrl)
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : $"{normalized}/api";
+    }
+
+    private static string? GetJsonString(JsonElement element, string name)
+        => element.TryGetProperty(name, out var property)
+            ? property.ValueKind switch
+            {
+                JsonValueKind.String => property.GetString(),
+                JsonValueKind.Number => property.TryGetInt64(out var value) ? value.ToString() : property.GetRawText(),
+                _ => property.GetRawText().Trim('"')
+            }
+            : null;
+
+    private static string TrimDetail(string detail)
+        => detail.ReplaceLineEndings(" ").Length > 300 ? detail.ReplaceLineEndings(" ")[..300] : detail.ReplaceLineEndings(" ");
+
+    private static string FullExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                messages.Add(current.Message);
+            }
+        }
+
+        return string.Join(" | ", messages.Distinct());
+    }
 }

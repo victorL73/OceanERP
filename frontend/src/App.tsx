@@ -1598,10 +1598,46 @@ function PermissionPicker({ groupedPermissions, selected, onChange }: { groupedP
   );
 }
 
+type CustomerContactDraft = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  jobTitle: string;
+  isPrimary: boolean;
+};
+
+type CustomerAddressDraft = {
+  label: string;
+  line1: string;
+  line2: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  isBilling: boolean;
+  isShipping: boolean;
+};
+
 function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => Promise<void> }) {
   const [code, setCode] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [vatNumber, setVatNumber] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const selectedCustomer = selectedCustomerId ? items.find((item) => item.id === selectedCustomerId) ?? null : null;
+
+  useEffect(() => {
+    if (selectedCustomerId && !items.some((item) => item.id === selectedCustomerId)) {
+      setSelectedCustomerId(null);
+    }
+  }, [items, selectedCustomerId]);
+
+  function primaryContact(customer: Customer) {
+    return customer.contacts?.find((contact) => contact.isPrimary) ?? customer.contacts?.[0];
+  }
+
+  function primaryAddress(customer: Customer) {
+    return customer.addresses?.find((address) => address.isBilling) ?? customer.addresses?.find((address) => address.isShipping) ?? customer.addresses?.[0];
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1625,9 +1661,374 @@ function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => P
           </button>
         </form>
       </Panel>
-      <DataTable columns={['Code', 'Societe', 'TVA', 'Statut']} rows={items.map((item) => [item.code, item.companyName, item.vatNumber ?? '-', item.isActive ? 'Actif' : 'Inactif'])} />
+      <DataTable
+        columns={['Code', 'Societe', 'Contact', 'Email', 'Telephone', 'Adresse', 'TVA', 'Statut']}
+        rows={items.map((item) => {
+          const contact = primaryContact(item);
+          const address = primaryAddress(item);
+          const contactName = contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : '';
+          const addressLine = address ? [address.line1, `${address.postalCode} ${address.city}`.trim()].filter(Boolean).join(', ') : '-';
+          return [item.code, item.companyName, contactName || '-', contact?.email ?? '-', contact?.phone ?? '-', addressLine, item.vatNumber ?? '-', item.isActive ? 'Actif' : 'Inactif'];
+        })}
+        onRowClick={(index) => setSelectedCustomerId(items[index]?.id ?? null)}
+        selectedRowIndex={selectedCustomer ? items.findIndex((item) => item.id === selectedCustomer.id) : undefined}
+      />
+      {selectedCustomer && (
+        <CustomerDetailsModal customer={selectedCustomer} onClose={() => setSelectedCustomerId(null)} onSaved={onChanged} />
+      )}
     </>
   );
+}
+
+function emptyCustomerContactDraft(): CustomerContactDraft {
+  return { firstName: '', lastName: '', email: '', phone: '', jobTitle: '', isPrimary: false };
+}
+
+function emptyCustomerAddressDraft(): CustomerAddressDraft {
+  return { label: 'Adresse principale', line1: '', line2: '', postalCode: '', city: '', country: 'France', isBilling: true, isShipping: true };
+}
+
+function CustomerDetailsModal({ customer, onClose, onSaved }: { customer: Customer; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [editMode, setEditMode] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState(() => customerToDraft(customer));
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
+    setDraft(customerToDraft(customer));
+    setError(null);
+  }, [customer]);
+
+  function resetDraft() {
+    setDraft(customerToDraft(customer));
+    setError(null);
+  }
+
+  function updateContact(index: number, patch: Partial<CustomerContactDraft>) {
+    setDraft((current) => ({
+      ...current,
+      contacts: current.contacts.map((contact, contactIndex) => (contactIndex === index ? { ...contact, ...patch } : contact))
+    }));
+  }
+
+  function updateContactPrimary(index: number, checked: boolean) {
+    setDraft((current) => ({
+      ...current,
+      contacts: current.contacts.map((contact, contactIndex) => ({ ...contact, isPrimary: checked && contactIndex === index }))
+    }));
+  }
+
+  function removeContact(index: number) {
+    setDraft((current) => ({ ...current, contacts: current.contacts.filter((_, contactIndex) => contactIndex !== index) }));
+  }
+
+  function updateAddress(index: number, patch: Partial<CustomerAddressDraft>) {
+    setDraft((current) => ({
+      ...current,
+      addresses: current.addresses.map((address, addressIndex) => (addressIndex === index ? { ...address, ...patch } : address))
+    }));
+  }
+
+  function removeAddress(index: number) {
+    setDraft((current) => ({ ...current, addresses: current.addresses.filter((_, addressIndex) => addressIndex !== index) }));
+  }
+
+  async function saveCustomer(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateCustomer(customer.id, {
+        companyName: draft.companyName.trim(),
+        vatNumber: draft.vatNumber.trim() || null,
+        notes: draft.notes.trim() || null,
+        isActive: draft.isActive,
+        contacts: draft.contacts.map((contact, index) => ({
+          firstName: contact.firstName.trim(),
+          lastName: contact.lastName.trim(),
+          email: contact.email.trim() || null,
+          phone: contact.phone.trim() || null,
+          jobTitle: contact.jobTitle.trim() || null,
+          isPrimary: contact.isPrimary || (index === 0 && !draft.contacts.some((item) => item.isPrimary))
+        })),
+        addresses: draft.addresses.map((address, index) => ({
+          label: address.label.trim() || `Adresse ${index + 1}`,
+          line1: address.line1.trim(),
+          line2: address.line2.trim() || null,
+          postalCode: address.postalCode.trim(),
+          city: address.city.trim(),
+          country: address.country.trim(),
+          isBilling: address.isBilling || (index === 0 && !draft.addresses.some((item) => item.isBilling)),
+          isShipping: address.isShipping || (index === 0 && !draft.addresses.some((item) => item.isShipping))
+        }))
+      });
+      await onSaved();
+      setEditMode(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Modification client impossible.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function viewContactName(contact: Customer['contacts'][number]) {
+    return [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Contact sans nom';
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="modal-panel customer-modal" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-header">
+          <div>
+            <p className="eyebrow">Client</p>
+            <h2 id="customer-detail-title">{customer.companyName}</h2>
+          </div>
+          <div className="modal-actions">
+            {!editMode && (
+              <button className="secondary" type="button" onClick={() => setEditMode(true)}>
+                <Pencil size={16} />
+                Modifier
+              </button>
+            )}
+            <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
+        </header>
+
+        {editMode ? (
+          <form className="customer-edit-form" onSubmit={saveCustomer}>
+            <div className="form-grid customer-main-form">
+              <label className="field">
+                <span>Code client</span>
+                <input readOnly value={customer.code} />
+              </label>
+              <label className="field">
+                <span>Societe</span>
+                <input required value={draft.companyName} onChange={(event) => setDraft((current) => ({ ...current, companyName: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>TVA / SIRET</span>
+                <input value={draft.vatNumber} onChange={(event) => setDraft((current) => ({ ...current, vatNumber: event.target.value }))} />
+              </label>
+              <label className="check-field customer-active-field">
+                <input type="checkbox" checked={draft.isActive} onChange={(event) => setDraft((current) => ({ ...current, isActive: event.target.checked }))} />
+                Client actif
+              </label>
+            </div>
+
+            <label className="field full-field">
+              <span>Notes</span>
+              <textarea value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+
+            <section className="customer-edit-section">
+              <div className="section-title-row">
+                <h3>Contacts</h3>
+                <button className="secondary" type="button" onClick={() => setDraft((current) => ({ ...current, contacts: [...current.contacts, { ...emptyCustomerContactDraft(), isPrimary: current.contacts.length === 0 }] }))}>
+                  <Plus size={16} />
+                  Ajouter un contact
+                </button>
+              </div>
+              {draft.contacts.length === 0 && <p className="panel-note">Aucun contact renseigne.</p>}
+              {draft.contacts.map((contact, index) => (
+                <div className="customer-line-card" key={`contact-${index}`}>
+                  <div className="customer-contact-grid">
+                    <label className="field">
+                      <span>Prenom</span>
+                      <input value={contact.firstName} onChange={(event) => updateContact(index, { firstName: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Nom</span>
+                      <input value={contact.lastName} onChange={(event) => updateContact(index, { lastName: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Email</span>
+                      <input type="email" value={contact.email} onChange={(event) => updateContact(index, { email: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Telephone</span>
+                      <input value={contact.phone} onChange={(event) => updateContact(index, { phone: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Fonction</span>
+                      <input value={contact.jobTitle} onChange={(event) => updateContact(index, { jobTitle: event.target.value })} />
+                    </label>
+                    <label className="check-field">
+                      <input type="checkbox" checked={contact.isPrimary} onChange={(event) => updateContactPrimary(index, event.target.checked)} />
+                      Principal
+                    </label>
+                  </div>
+                  <button className="danger icon-button" title="Supprimer le contact" type="button" onClick={() => removeContact(index)}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </section>
+
+            <section className="customer-edit-section">
+              <div className="section-title-row">
+                <h3>Adresses</h3>
+                <button className="secondary" type="button" onClick={() => setDraft((current) => ({ ...current, addresses: [...current.addresses, { ...emptyCustomerAddressDraft(), isBilling: current.addresses.length === 0, isShipping: current.addresses.length === 0 }] }))}>
+                  <Plus size={16} />
+                  Ajouter une adresse
+                </button>
+              </div>
+              {draft.addresses.length === 0 && <p className="panel-note">Aucune adresse renseignee.</p>}
+              {draft.addresses.map((address, index) => (
+                <div className="customer-line-card" key={`address-${index}`}>
+                  <div className="customer-address-grid">
+                    <label className="field">
+                      <span>Libelle</span>
+                      <input value={address.label} onChange={(event) => updateAddress(index, { label: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Adresse 1</span>
+                      <input required value={address.line1} onChange={(event) => updateAddress(index, { line1: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Adresse 2</span>
+                      <input value={address.line2} onChange={(event) => updateAddress(index, { line2: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Code postal</span>
+                      <input required value={address.postalCode} onChange={(event) => updateAddress(index, { postalCode: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Ville</span>
+                      <input required value={address.city} onChange={(event) => updateAddress(index, { city: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Pays</span>
+                      <input required value={address.country} onChange={(event) => updateAddress(index, { country: event.target.value })} />
+                    </label>
+                    <label className="check-field">
+                      <input type="checkbox" checked={address.isBilling} onChange={(event) => updateAddress(index, { isBilling: event.target.checked })} />
+                      Facturation
+                    </label>
+                    <label className="check-field">
+                      <input type="checkbox" checked={address.isShipping} onChange={(event) => updateAddress(index, { isShipping: event.target.checked })} />
+                      Livraison
+                    </label>
+                  </div>
+                  <button className="danger icon-button" title="Supprimer l'adresse" type="button" onClick={() => removeAddress(index)}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </section>
+
+            <p className="panel-note">Si ce client provient de PrestaShop, l'enregistrement publie aussi la fiche client et la premiere adresse liee a ce client sur la boutique.</p>
+            {error && <div className="error-message">{error}</div>}
+            <div className="modal-footer">
+              <button className="secondary" type="button" disabled={saving} onClick={() => { resetDraft(); setEditMode(false); }}>
+                Annuler
+              </button>
+              <button className="primary" type="submit" disabled={saving}>
+                <Save size={16} />
+                {saving ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <div className="detail-grid customer-summary-grid">
+              <DetailItem label="Code client" value={customer.code} />
+              <DetailItem label="TVA / SIRET" value={customer.vatNumber || '-'} />
+              <DetailItem label="Statut" value={customer.isActive ? 'Actif' : 'Inactif'} />
+              <DetailItem label="Identifiant interne" value={customer.id} />
+            </div>
+
+            <section className="customer-detail-section">
+              <h3>Contacts</h3>
+              {customer.contacts.length === 0 ? (
+                <p className="panel-note">Aucun contact renseigne.</p>
+              ) : (
+                <div className="customer-card-grid">
+                  {customer.contacts.map((contact) => (
+                    <article className="customer-info-card" key={contact.id}>
+                      <div className="customer-card-heading">
+                        <strong>{viewContactName(contact)}</strong>
+                        {contact.isPrimary && <span className="pill success">Principal</span>}
+                      </div>
+                      <span>{contact.jobTitle || '-'}</span>
+                      <span>{contact.email ? <a href={`mailto:${contact.email}`}>{contact.email}</a> : '-'}</span>
+                      <span>{contact.phone || '-'}</span>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="customer-detail-section">
+              <h3>Adresses</h3>
+              {customer.addresses.length === 0 ? (
+                <p className="panel-note">Aucune adresse renseignee.</p>
+              ) : (
+                <div className="customer-card-grid">
+                  {customer.addresses.map((address) => (
+                    <article className="customer-info-card" key={address.id}>
+                      <div className="customer-card-heading">
+                        <strong>{address.label || 'Adresse'}</strong>
+                        <span>{[address.isBilling ? 'Facturation' : '', address.isShipping ? 'Livraison' : ''].filter(Boolean).join(' / ') || 'Generale'}</span>
+                      </div>
+                      <span>{address.line1}</span>
+                      {address.line2 && <span>{address.line2}</span>}
+                      <span>{address.postalCode} {address.city}</span>
+                      <span>{address.country}</span>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="customer-detail-section">
+              <h3>Notes</h3>
+              <div className="text-block">{customer.notes || 'Aucune note renseignee.'}</div>
+            </section>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function customerToDraft(customer: Customer) {
+  return {
+    companyName: customer.companyName,
+    vatNumber: customer.vatNumber ?? '',
+    notes: customer.notes ?? '',
+    isActive: customer.isActive,
+    contacts: (customer.contacts ?? []).map((contact) => ({
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      email: contact.email ?? '',
+      phone: contact.phone ?? '',
+      jobTitle: contact.jobTitle ?? '',
+      isPrimary: contact.isPrimary
+    })) as CustomerContactDraft[],
+    addresses: (customer.addresses ?? []).map((address) => ({
+      label: address.label,
+      line1: address.line1,
+      line2: address.line2 ?? '',
+      postalCode: address.postalCode,
+      city: address.city,
+      country: address.country,
+      isBilling: address.isBilling,
+      isShipping: address.isShipping
+    })) as CustomerAddressDraft[]
+  };
 }
 
 function Products({ items, onChanged }: { items: Product[]; onChanged: () => Promise<void> }) {

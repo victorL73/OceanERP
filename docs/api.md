@@ -19,6 +19,7 @@ Swagger est activé en environnement `Development`.
 - `GET /api/users/permissions`
 - `GET /api/customers`
 - `POST /api/customers`
+- `PUT /api/customers/{id}`
 - `GET /api/products`
 - `POST /api/products`
 - `GET /api/quotes`
@@ -109,6 +110,7 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Les mots de passe SMTP/IMAP peuvent etre stockes chiffres en base avec `Secrets:EncryptionKey`, ou references par un secret d'environnement via `PasswordSecretName`. Les signatures HTML sont ajoutees automatiquement aux emails sortants.
 - Les administrateurs configurent la personnalisation des devis dans `Parametres > Devis` : nom et adresse de l'entreprise, telephone, email, site, TVA/SIRET, mentions, pied de page et logo. Le logo est stocke hors PostgreSQL dans le stockage documents.
 - La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations.
+- `PUT /api/customers/{id}` met a jour la fiche ERP et, si le client possede une reference externe PrestaShop, publie aussi la fiche client et sa premiere adresse PrestaShop liee. En cas d'echec PrestaShop, la modification ERP est refusee pour eviter une divergence silencieuse.
 - L'URL PrestaShop peut etre saisie sous forme `https://boutique.example.com` ou `https://boutique.example.com/api`. Le backend evite automatiquement le doublon `/api/api`.
 - `POST /api/prestashop/connections/{id}/sync` cree un journal `Queued` et retourne immediatement. Un worker serveur passe ensuite le journal en `Running`, puis importe les produits, clients, stocks et commandes dans les modules ERP via `ExternalReference`.
 - Le statut final est `Completed`, `CompletedWithWarnings` ou `Failed`, avec le nombre de creations/mises a jour par ressource PrestaShop.
