@@ -261,6 +261,11 @@ public sealed class QuoteService(
             return Result<QuoteDto>.Failure(sendResult.Error!);
         }
 
+        if (!string.Equals(sendResult.Value!.Status, "Sent", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<QuoteDto>.Failure(sendResult.Value.ErrorMessage ?? "L'email du devis a ete journalise mais n'a pas ete envoye par SMTP.");
+        }
+
         if (quote.Status == QuoteStatus.Draft)
         {
             quote.SetStatus(QuoteStatus.Sent);

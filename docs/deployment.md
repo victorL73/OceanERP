@@ -69,6 +69,21 @@ Variables importantes :
 
 Par securite, `EMAIL_ENABLE_SMTP_SENDING=false` par defaut. Dans ce mode, les emails sont journalises dans l'ERP mais ne sont pas envoyes au serveur SMTP.
 
+Pour envoyer reellement les emails et les devis, modifier `~/OceanERP/deploy/ubuntu/.env` :
+
+```env
+EMAIL_ENABLE_SMTP_SENDING=true
+```
+
+Puis recreer l'API pour relire la variable :
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
+```
+
+Le bouton `Test SMTP` teste la connexion et l'authentification SMTP de la boite. Si `EMAIL_ENABLE_SMTP_SENDING=false`, le test peut etre OK mais les envois utilisateur resteront journalises avec le statut `Logged`.
+
 `SECRETS_ENCRYPTION_KEY` sert a proteger les secrets applicatifs stockes en base, notamment la cle API PrestaShop et les mots de passe de boites mail configures dans `Parametres`.
 
 Les hotes SMTP/IMAP ne sont pas definis dans `.env` : un administrateur les renseigne dans `Parametres > Boites mail`. Les boites mail utilisent ces serveurs communs; l'adresse et le mot de passe de chaque boite restent geres par l'administrateur. `SMTP_MAIN_PASSWORD` reste utile uniquement si une boite reference ce secret au lieu de stocker son mot de passe chiffre en base.

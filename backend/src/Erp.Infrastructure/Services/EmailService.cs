@@ -202,11 +202,6 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return Result.Failure("Vous n'avez pas acces a cette boite mail.");
         }
 
-        if (!configuration.GetValue<bool>("Email:EnableSmtpSending"))
-        {
-            return Result.Success();
-        }
-
         var serverValues = await ResolveEffectiveServerValuesAsync(account, cancellationToken);
         if (!serverValues.Succeeded)
         {
@@ -390,6 +385,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return Result<EmailMessageDto>.Failure("Sujet obligatoire.");
         }
 
+        var smtpSendingEnabled = configuration.GetValue<bool>("Email:EnableSmtpSending");
         var body = ApplySignature(request.Body, account.SignatureHtml);
         var message = new EmailMessage
         {
@@ -399,7 +395,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             Subject = request.Subject.Trim(),
             Body = body,
             Direction = "Outgoing",
-            Status = configuration.GetValue<bool>("Email:EnableSmtpSending") ? "Queued" : "Logged",
+            Status = smtpSendingEnabled ? "Queued" : "Logged",
+            ErrorMessage = smtpSendingEnabled ? null : "Envoi SMTP reel desactive sur le serveur (EMAIL_ENABLE_SMTP_SENDING=false).",
             IsRead = true
         };
 
@@ -426,7 +423,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             });
         }
 
-        if (configuration.GetValue<bool>("Email:EnableSmtpSending"))
+        if (smtpSendingEnabled)
         {
             var sendResult = await TrySendSmtpAsync(account, request.Subject, body, attachments, recipients.Value!, cancellationToken);
             if (!sendResult.Succeeded)

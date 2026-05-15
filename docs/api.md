@@ -99,7 +99,9 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - `POST /api/invoices/{id}/pdf` genere un PDF facture via QuestPDF et stocke uniquement ses metadonnees en PostgreSQL.
 - Le module email se configure dans `Parametres > Boites mail`. Les administrateurs gerent les serveurs SMTP/IMAP globaux, creent les boites, renseignent l'adresse, le mot de passe ou le secret, et affectent les utilisateurs autorises.
 - Les utilisateurs autorises ne voient dans l'onglet Emails et dans l'envoi des devis que les boites auxquelles ils ont acces. Ils peuvent ajuster les informations non sensibles de leur boite, notamment la signature HTML.
-- Le module email journalise les envois, stocke les pieces jointes hors PostgreSQL et permet la synchronisation IMAP. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true`; sinon l'email reste journalise avec le statut `Logged`.
+- Le module email journalise les envois, stocke les pieces jointes hors PostgreSQL et permet la synchronisation IMAP. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true`; sinon l'email reste journalise avec le statut `Logged` et l'interface indique explicitement qu'il n'a pas ete envoye.
+- `POST /api/emails/accounts/{id}/test-smtp` teste toujours la connexion et l'authentification SMTP de la boite, meme si l'envoi reel est desactive.
+- L'envoi d'un devis ne passe le devis en statut envoye que si le mail est effectivement parti avec le statut `Sent`.
 - Les mots de passe SMTP/IMAP peuvent etre stockes chiffres en base avec `Secrets:EncryptionKey`, ou references par un secret d'environnement via `PasswordSecretName`. Les signatures HTML sont ajoutees automatiquement aux emails sortants.
 - Les administrateurs configurent la personnalisation des devis dans `Parametres > Devis` : nom et adresse de l'entreprise, telephone, email, site, TVA/SIRET, mentions, pied de page et logo. Le logo est stocke hors PostgreSQL dans le stockage documents.
 - La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations.

@@ -2007,6 +2007,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
   const [emailBody, setEmailBody] = useState('');
   const [orderQuoteId, setOrderQuoteId] = useState<string | null>(null);
   const [orderWarehouseId, setOrderWarehouseId] = useState('');
+  const [quoteFeedback, setQuoteFeedback] = useState<string | null>(null);
 
   const editingQuote = items.find((item) => item.id === editingQuoteId);
   const selectedQuote = selectedQuoteId ? items.find((item) => item.id === selectedQuoteId) : undefined;
@@ -2117,6 +2118,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
     setEmailTo('');
     setEmailSubject(`Devis ${quote.number}`);
     setEmailBody(`Bonjour,\n\nVeuillez trouver ci-joint le devis ${quote.number}.\n\nCordialement`);
+    setQuoteFeedback(null);
   }
 
   async function sendEmail(event: FormEvent) {
@@ -2125,9 +2127,14 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
       return;
     }
 
-    await api.sendQuoteEmail(emailQuoteId, { mailAccountId, to: emailTo, subject: emailSubject, body: emailBody });
-    setEmailQuoteId(null);
-    await onChanged();
+    try {
+      await api.sendQuoteEmail(emailQuoteId, { mailAccountId, to: emailTo, subject: emailSubject, body: emailBody });
+      setEmailQuoteId(null);
+      setQuoteFeedback('Devis envoye par email.');
+      await onChanged();
+    } catch (err) {
+      setQuoteFeedback(err instanceof Error ? err.message : "Envoi du devis impossible.");
+    }
   }
 
   async function convertToOrder(event: FormEvent) {
@@ -2144,6 +2151,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
 
   return (
     <>
+      {quoteFeedback && <div className={quoteFeedback.includes('impossible') || quoteFeedback.includes('desactive') ? 'alert' : 'sync-note'}>{quoteFeedback}</div>}
       <Panel title={editingQuote ? `Modifier devis ${editingQuote.number}` : 'Nouveau devis'}>
         <form className="quote-builder" onSubmit={submit}>
           <div className="form-grid">
@@ -2290,6 +2298,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
                 <X size={18} />
               </button>
             </header>
+            {quoteFeedback && <div className={quoteFeedback.includes('impossible') || quoteFeedback.includes('desactive') ? 'alert' : 'sync-note'}>{quoteFeedback}</div>}
             <form className="product-edit-form" onSubmit={sendEmail}>
               <div className="form-grid">
                 <label className="field">
@@ -2305,7 +2314,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
                 </label>
                 <label className="field">
                   <span>Destinataire</span>
-                  <input required type="email" value={emailTo} onChange={(event) => setEmailTo(event.target.value)} />
+                  <input required multiple type="email" value={emailTo} onChange={(event) => setEmailTo(event.target.value)} />
                 </label>
                 <label className="field full-field">
                   <span>Sujet</span>
@@ -4003,6 +4012,22 @@ type EmailThread = {
   hasAttachments: boolean;
 };
 
+function emailSendFeedback(message: EmailMessage) {
+  if (message.status === 'Sent') {
+    return 'Email envoye par SMTP.';
+  }
+
+  if (message.status === 'Logged') {
+    return message.errorMessage ?? "Email journalise dans l'ERP, mais non envoye: EMAIL_ENABLE_SMTP_SENDING=false sur le serveur.";
+  }
+
+  if (message.status === 'Failed') {
+    return message.errorMessage ?? "Envoi SMTP echoue.";
+  }
+
+  return `Email traite avec le statut ${message.status}.`;
+}
+
 function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; onChanged: () => Promise<void> }) {
   const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('messages');
   const [editingAccountId, setEditingAccountId] = useState('');
@@ -4038,6 +4063,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const selectedMessage = selectedMessageDetail ?? (selectedMessageId ? messages.find((message) => message.id === selectedMessageId) : undefined);
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
   const activeAccounts = accounts.filter((account) => account.isActive);
+  const feedbackIsError = Boolean(feedback && (feedback.includes('impossible') || feedback.includes('echoue') || feedback.includes('non envoye') || feedback.includes('desactive')));
   const visibleMessages = useMemo(() => {
     const term = messageSearch.trim().toLowerCase();
     return messages.filter((message) => {
@@ -4151,9 +4177,13 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   }
 
   async function testAccount(account: MailAccount) {
-    await api.testMailAccount(account.id);
-    setFeedback('Test SMTP OK. Si EMAIL_ENABLE_SMTP_SENDING=false, le test valide seulement la configuration locale.');
-    await onChanged();
+    try {
+      await api.testMailAccount(account.id);
+      setFeedback('Test SMTP OK: connexion et authentification reussies.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Test SMTP impossible.');
+    }
   }
 
   async function syncAccount(account: MailAccount) {
@@ -4179,12 +4209,19 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
       throw new Error('Creer un compte mail avant envoyer un email.');
     }
 
-    await api.sendEmail({ mailAccountId, to, subject, body });
-    setTo('');
-    setSubject('');
-    setBody('');
-    setFeedback('Email enregistre/envoye selon la configuration SMTP.');
-    await onChanged();
+    try {
+      const sentMessage = await api.sendEmail({ mailAccountId, to, subject, body });
+      setFeedback(emailSendFeedback(sentMessage));
+      if (sentMessage.status === 'Sent') {
+        setTo('');
+        setSubject('');
+        setBody('');
+      }
+
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Envoi SMTP impossible.');
+    }
   }
 
   function applyTemplate(templateId: string) {
@@ -4331,7 +4368,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
 
   return (
     <>
-      {feedback && <div className="sync-note">{feedback}</div>}
+      {feedback && <div className={feedbackIsError ? 'alert' : 'sync-note'}>{feedback}</div>}
       <div className="browser-tabs">
         <button className={tab === 'messages' ? 'active' : ''} type="button" onClick={() => setTab('messages')}>
           Journal
@@ -4466,7 +4503,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               </label>
               <label className="field">
                 <span>Destinataire</span>
-                <input required type="email" placeholder="client@example.com" value={to} onChange={(event) => setTo(event.target.value)} />
+                <input required multiple type="email" placeholder="client@example.com" value={to} onChange={(event) => setTo(event.target.value)} />
               </label>
               <label className="field">
                 <span>Sujet</span>

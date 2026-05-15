@@ -107,6 +107,13 @@ EMAIL_ENABLE_SMTP_SENDING=true
 SMTP_MAIN_PASSWORD=mot-de-passe-smtp
 ```
 
+Apres changement de cette variable, recreer l'API pour que Docker relise `.env` :
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
+```
+
 ## 5. Demarrer les services
 
 ```bash
