@@ -351,10 +351,18 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     public async Task<Result<EmailMessageDto>> GetMessageAsync(Guid id, CancellationToken cancellationToken)
     {
-        var message = await (await ApplyMessageAccessAsync(BaseMessagesQuery(), cancellationToken)).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
-        return message is null
-            ? Result<EmailMessageDto>.Failure("Email introuvable.")
-            : Result<EmailMessageDto>.Success(await MapAsync(message, cancellationToken));
+        var message = await (await ApplyMessageAccessAsync(db.EmailMessages.AsQueryable(), cancellationToken)).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (message is null)
+        {
+            return Result<EmailMessageDto>.Failure("Email introuvable.");
+        }
+
+        if (ShouldRefreshFromImap(message))
+        {
+            await TryRefreshMessageFromImapAsync(message, cancellationToken);
+        }
+
+        return Result<EmailMessageDto>.Success(await MapAsync(message, cancellationToken));
     }
 
     public async Task<Result<EmailMessageDto>> MarkReadAsync(Guid id, bool isRead, CancellationToken cancellationToken)
@@ -594,28 +602,168 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private async Task StoreIncomingAttachmentsAsync(EmailMessage message, MimeMessage mime, CancellationToken cancellationToken)
     {
-        foreach (var attachment in mime.Attachments.OfType<MimePart>())
+        foreach (var attachment in mime.Attachments)
         {
-            var sourceFileName = string.IsNullOrWhiteSpace(attachment.FileName) ? $"piece-jointe-{Guid.NewGuid():N}.bin" : attachment.FileName;
-            var fileName = NormalizeLength(sourceFileName, 260) ?? $"piece-jointe-{Guid.NewGuid():N}.bin";
-            if (attachment.Content is null)
+            if (attachment is MimePart mimePart)
             {
+                await StoreIncomingMimePartAttachmentAsync(message, mimePart, cancellationToken);
                 continue;
             }
 
-            await using var stream = new MemoryStream();
-            await attachment.Content.DecodeToAsync(stream, cancellationToken);
-            stream.Position = 0;
-            var stored = await fileStorageService.SaveAsync(IncomingAttachmentFolder, fileName, stream, cancellationToken);
-            db.EmailAttachments.Add(new EmailAttachment
+            if (attachment is MessagePart messagePart)
             {
-                EmailMessageId = message.Id,
-                FileName = fileName,
-                MimeType = NormalizeLength(attachment.ContentType.MimeType, 120) ?? "application/octet-stream",
-                StoragePath = stored.StoragePath,
-                Size = stored.Size
-            });
+                await StoreIncomingMessageAttachmentAsync(message, messagePart, cancellationToken);
+            }
         }
+    }
+
+    private async Task StoreIncomingMimePartAttachmentAsync(EmailMessage message, MimePart attachment, CancellationToken cancellationToken)
+    {
+        var sourceFileName = string.IsNullOrWhiteSpace(attachment.FileName) ? $"piece-jointe-{Guid.NewGuid():N}.bin" : attachment.FileName;
+        var fileName = NormalizeLength(sourceFileName, 260) ?? $"piece-jointe-{Guid.NewGuid():N}.bin";
+        if (attachment.Content is null)
+        {
+            return;
+        }
+
+        await using var stream = new MemoryStream();
+        await attachment.Content.DecodeToAsync(stream, cancellationToken);
+        stream.Position = 0;
+        var stored = await fileStorageService.SaveAsync(IncomingAttachmentFolder, fileName, stream, cancellationToken);
+        db.EmailAttachments.Add(new EmailAttachment
+        {
+            EmailMessageId = message.Id,
+            FileName = fileName,
+            MimeType = NormalizeLength(attachment.ContentType.MimeType, 120) ?? "application/octet-stream",
+            StoragePath = stored.StoragePath,
+            Size = stored.Size
+        });
+    }
+
+    private async Task StoreIncomingMessageAttachmentAsync(EmailMessage message, MessagePart attachment, CancellationToken cancellationToken)
+    {
+        var attachmentName = attachment.ContentDisposition?.FileName ?? attachment.ContentType.Name;
+        var sourceFileName = string.IsNullOrWhiteSpace(attachmentName) ? $"email-joint-{Guid.NewGuid():N}.eml" : attachmentName;
+        var fileName = NormalizeLength(sourceFileName, 260) ?? $"email-joint-{Guid.NewGuid():N}.eml";
+        if (attachment.Message is null)
+        {
+            return;
+        }
+
+        await using var stream = new MemoryStream();
+        await attachment.Message.WriteToAsync(stream, cancellationToken);
+        stream.Position = 0;
+        var stored = await fileStorageService.SaveAsync(IncomingAttachmentFolder, fileName, stream, cancellationToken);
+        db.EmailAttachments.Add(new EmailAttachment
+        {
+            EmailMessageId = message.Id,
+            FileName = fileName,
+            MimeType = "message/rfc822",
+            StoragePath = stored.StoragePath,
+            Size = stored.Size
+        });
+    }
+
+    private bool ShouldRefreshFromImap(EmailMessage message)
+        => message.Direction.Equals("Incoming", StringComparison.OrdinalIgnoreCase)
+            && message.MailAccountId.HasValue
+            && !LooksLikeHtml(message.Body);
+
+    private async Task TryRefreshMessageFromImapAsync(EmailMessage message, CancellationToken cancellationToken)
+    {
+        if (!message.MailAccountId.HasValue || string.IsNullOrWhiteSpace(message.ExternalMessageId))
+        {
+            return;
+        }
+
+        var account = await db.MailAccounts.FirstOrDefaultAsync(x => x.Id == message.MailAccountId.Value && x.IsActive, cancellationToken);
+        if (account is null)
+        {
+            return;
+        }
+
+        var serverValues = await ResolveEffectiveServerValuesAsync(account, cancellationToken);
+        var password = ResolvePassword(account);
+        if (!serverValues.Succeeded || !password.Succeeded)
+        {
+            return;
+        }
+
+        try
+        {
+            using var imap = new ImapClient();
+            await imap.ConnectAsync(serverValues.Value!.ImapHost, serverValues.Value.ImapPort, ResolveImapSocketOptions(serverValues.Value), cancellationToken);
+            await imap.AuthenticateAsync(account.UserName ?? account.Email, password.Value!, cancellationToken);
+
+            var inbox = imap.Inbox ?? throw new InvalidOperationException("Boite de reception IMAP introuvable.");
+            await inbox.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
+            var uids = await FindMessageUidsAsync(inbox, message.ExternalMessageId, cancellationToken);
+            if (uids.Count == 0)
+            {
+                await imap.DisconnectAsync(true, cancellationToken);
+                return;
+            }
+
+            var mime = await inbox.GetMessageAsync(uids[^1], cancellationToken);
+            var body = BuildIncomingBody(mime);
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                message.Body = body;
+            }
+
+            message.Subject = NormalizeLength(mime.Subject, 300) ?? message.Subject;
+            message.From = NormalizeLength(mime.From.Mailboxes.FirstOrDefault()?.Address ?? mime.From.ToString(), 320) ?? message.From;
+            message.To = NormalizeLength(mime.To.ToString(), 1000) ?? message.To;
+            message.ReceivedAt = NormalizeMailDate(mime.Date);
+            await ReplaceIncomingAttachmentsAsync(message, mime, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await imap.DisconnectAsync(true, cancellationToken);
+        }
+        catch
+        {
+            // L'ouverture d'un email ne doit pas echouer si le serveur IMAP est temporairement indisponible.
+        }
+    }
+
+    private static async Task<IList<UniqueId>> FindMessageUidsAsync(IMailFolder inbox, string externalMessageId, CancellationToken cancellationToken)
+    {
+        var normalized = externalMessageId.Trim();
+        if (normalized.StartsWith("imap:", StringComparison.OrdinalIgnoreCase))
+        {
+            return [];
+        }
+
+        var candidates = new[]
+            {
+                normalized,
+                normalized.Trim('<', '>'),
+                $"<{normalized.Trim('<', '>')}>"
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var candidate in candidates)
+        {
+            var uids = await inbox.SearchAsync(SearchQuery.HeaderContains("Message-ID", candidate), cancellationToken);
+            if (uids.Count > 0)
+            {
+                return uids;
+            }
+        }
+
+        return [];
+    }
+
+    private async Task ReplaceIncomingAttachmentsAsync(EmailMessage message, MimeMessage mime, CancellationToken cancellationToken)
+    {
+        var attachments = await db.EmailAttachments.Where(x => x.EmailMessageId == message.Id).ToListAsync(cancellationToken);
+        foreach (var attachment in attachments)
+        {
+            await fileStorageService.DeleteAsync(attachment.StoragePath, cancellationToken);
+        }
+
+        db.EmailAttachments.RemoveRange(attachments);
+        await StoreIncomingAttachmentsAsync(message, mime, cancellationToken);
     }
 
     private static string BuildIncomingBody(MimeMessage mime)

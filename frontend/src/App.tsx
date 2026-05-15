@@ -3918,6 +3918,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [selectedMessageDetail, setSelectedMessageDetail] = useState<EmailMessage | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
   const [messageAccountFilter, setMessageAccountFilter] = useState('');
   const [editingTemplateId, setEditingTemplateId] = useState('');
@@ -3927,7 +3928,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [templateActive, setTemplateActive] = useState(true);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const selectedMessage = selectedMessageId ? messages.find((message) => message.id === selectedMessageId) : undefined;
+  const selectedMessage = selectedMessageDetail ?? (selectedMessageId ? messages.find((message) => message.id === selectedMessageId) : undefined);
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
   const activeAccounts = accounts.filter((account) => account.isActive);
   const visibleMessages = useMemo(() => {
@@ -4101,9 +4102,29 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
       return;
     }
 
-    await api.markEmailRead(selectedMessage.id, isRead);
+    const updated = await api.markEmailRead(selectedMessage.id, isRead);
+    setSelectedMessageDetail(updated);
     setFeedback(isRead ? 'Email marque comme lu.' : 'Email marque comme non lu.');
     await onChanged();
+  }
+
+  async function openMessage(messageId?: string) {
+    if (!messageId) {
+      return;
+    }
+
+    setSelectedMessageId(messageId);
+    setSelectedMessageDetail(messages.find((message) => message.id === messageId) ?? null);
+    try {
+      setSelectedMessageDetail(await api.emailMessage(messageId));
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Chargement du mail impossible.');
+    }
+  }
+
+  function closeMessage() {
+    setSelectedMessageId(null);
+    setSelectedMessageDetail(null);
   }
 
   function startReply(mode: 'single' | 'all') {
@@ -4126,7 +4147,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     setTo((recipients.length > 0 ? recipients : uniqueEmailAddresses(toAddresses, new Set())).join(', '));
     setSubject(selectedMessage.subject.trim().toLowerCase().startsWith('re:') ? selectedMessage.subject : `Re: ${selectedMessage.subject}`);
     setBody(buildQuotedEmailBody(selectedMessage, formatEmailDate(selectedMessage.sentAt ?? selectedMessage.receivedAt ?? selectedMessage.createdAt)));
-    setSelectedMessageId(null);
+    closeMessage();
     setTab('compose');
   }
 
@@ -4327,7 +4348,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               item.isRead ? 'Oui' : 'Non',
               formatEmailDate(item.sentAt ?? item.receivedAt ?? item.createdAt)
             ])}
-            onRowClick={(index) => setSelectedMessageId(visibleMessages[index]?.id ?? null)}
+            onRowClick={(index) => void openMessage(visibleMessages[index]?.id)}
           />
         </>
       )}
@@ -4387,14 +4408,14 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
       )}
 
       {selectedMessage && (
-        <div className="modal-backdrop" onClick={() => setSelectedMessageId(null)}>
+        <div className="modal-backdrop" onClick={closeMessage}>
           <aside className="modal-panel email-modal" onClick={(event) => event.stopPropagation()}>
             <header className="modal-header">
               <div>
                 <p className="eyebrow">Email</p>
                 <h2>{selectedMessage.subject}</h2>
               </div>
-              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setSelectedMessageId(null)}>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={closeMessage}>
                 <X size={18} />
               </button>
             </header>
