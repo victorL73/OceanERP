@@ -3972,6 +3972,37 @@ function emailMessageDateValue(message: EmailMessage) {
   return message.receivedAt ?? message.sentAt ?? message.createdAt;
 }
 
+function stripEmailSubjectPrefixes(subject: string) {
+  let cleaned = subject.trim();
+  for (let index = 0; index < 8; index += 1) {
+    const next = cleaned.replace(/^(re|ré|fw|fwd|tr|transfert)\s*[:：-]\s*/i, '').trim();
+    if (next === cleaned) {
+      break;
+    }
+
+    cleaned = next;
+  }
+
+  return cleaned || '(Sans sujet)';
+}
+
+function normalizeEmailThreadSubject(subject: string) {
+  return stripEmailSubjectPrefixes(subject)
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('fr-FR');
+}
+
+type EmailThread = {
+  key: string;
+  subject: string;
+  latest: EmailMessage;
+  messages: EmailMessage[];
+  unreadCount: number;
+  hasAttachments: boolean;
+};
+
 function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; onChanged: () => Promise<void> }) {
   const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('messages');
   const [editingAccountId, setEditingAccountId] = useState('');
@@ -3993,6 +4024,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [body, setBody] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [selectedMessageDetail, setSelectedMessageDetail] = useState<EmailMessage | null>(null);
+  const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
   const [messageAccountFilter, setMessageAccountFilter] = useState('');
   const [syncingMessages, setSyncingMessages] = useState(false);
@@ -4022,6 +4054,39 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
         .some((value) => value.toLowerCase().includes(term));
     }).sort((left, right) => emailMessageTimestamp(right) - emailMessageTimestamp(left));
   }, [messages, messageAccountFilter, messageSearch]);
+  const visibleThreads = useMemo<EmailThread[]>(() => {
+    const threads = new Map<string, EmailThread>();
+    for (const message of visibleMessages) {
+      const key = `${message.mailAccountId ?? 'none'}:${normalizeEmailThreadSubject(message.subject)}`;
+      const thread = threads.get(key);
+      if (thread) {
+        thread.messages.push(message);
+        thread.unreadCount += message.isRead ? 0 : 1;
+        thread.hasAttachments = thread.hasAttachments || message.attachments.length > 0;
+        if (emailMessageTimestamp(message) > emailMessageTimestamp(thread.latest)) {
+          thread.latest = message;
+        }
+        continue;
+      }
+
+      threads.set(key, {
+        key,
+        subject: stripEmailSubjectPrefixes(message.subject),
+        latest: message,
+        messages: [message],
+        unreadCount: message.isRead ? 0 : 1,
+        hasAttachments: message.attachments.length > 0
+      });
+    }
+
+    return Array.from(threads.values())
+      .map((thread) => ({
+        ...thread,
+        messages: [...thread.messages].sort((left, right) => emailMessageTimestamp(right) - emailMessageTimestamp(left))
+      }))
+      .sort((left, right) => emailMessageTimestamp(right.latest) - emailMessageTimestamp(left.latest));
+  }, [visibleMessages]);
+  const selectedThread = selectedThreadKey ? visibleThreads.find((thread) => thread.key === selectedThreadKey) : undefined;
 
   function resetAccountForm() {
     setEditingAccountId('');
@@ -4183,12 +4248,13 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     await onChanged();
   }
 
-  async function openMessage(messageId?: string) {
+  async function openMessage(messageId?: string, threadKey?: string) {
     if (!messageId) {
       return;
     }
 
     setSelectedMessageId(messageId);
+    setSelectedThreadKey(threadKey ?? null);
     setSelectedMessageDetail(messages.find((message) => message.id === messageId) ?? null);
     try {
       setSelectedMessageDetail(await api.emailMessage(messageId));
@@ -4200,6 +4266,11 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   function closeMessage() {
     setSelectedMessageId(null);
     setSelectedMessageDetail(null);
+    setSelectedThreadKey(null);
+  }
+
+  function openThread(thread: EmailThread) {
+    void openMessage(thread.latest.id, thread.key);
   }
 
   function startReply(mode: 'single' | 'all') {
@@ -4446,23 +4517,29 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
           </Panel>
           <DataTable
             columns={['Sujet', 'De', 'A', 'Sens', 'Statut', 'Lu', 'Date']}
-            rows={visibleMessages.map((item) => [
+            rows={visibleThreads.map((thread) => [
               <span className="email-subject-cell">
-                {item.attachments.length > 0 && (
+                {thread.hasAttachments && (
                   <span className="email-attachment-marker" title="Piece jointe">
                     <Paperclip aria-label="Piece jointe" size={15} />
                   </span>
                 )}
-                <span>{item.isRead ? item.subject : `[Non lu] ${item.subject}`}</span>
+                <span>{thread.unreadCount > 0 ? `[Non lu] ${thread.subject}` : thread.subject}</span>
+                {thread.messages.length > 1 && <span className="email-thread-badge">{thread.messages.length}</span>}
               </span>,
-              item.from,
-              item.to,
-              item.direction === 'Incoming' ? 'Recu' : 'Envoye',
-              item.status,
-              item.isRead ? 'Oui' : 'Non',
-              formatEmailDate(emailMessageDateValue(item))
+              thread.latest.from,
+              thread.latest.to,
+              thread.messages.length > 1 ? 'Conversation' : thread.latest.direction === 'Incoming' ? 'Recu' : 'Envoye',
+              thread.latest.status,
+              thread.unreadCount > 0 ? `${thread.unreadCount} non lu(s)` : 'Oui',
+              formatEmailDate(emailMessageDateValue(thread.latest))
             ])}
-            onRowClick={(index) => void openMessage(visibleMessages[index]?.id)}
+            onRowClick={(index) => {
+              const thread = visibleThreads[index];
+              if (thread) {
+                openThread(thread);
+              }
+            }}
           />
         </>
       )}
@@ -4542,6 +4619,25 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               <DetailItem label="Date" value={formatEmailDate(emailMessageDateValue(selectedMessage))} />
               {selectedMessage.errorMessage && <DetailItem label="Erreur" value={selectedMessage.errorMessage} />}
             </div>
+            {selectedThread && selectedThread.messages.length > 1 && (
+              <section className="email-thread-list">
+                <h3>Conversation ({selectedThread.messages.length})</h3>
+                <div className="email-thread-stack">
+                  {selectedThread.messages.map((message) => (
+                    <button
+                      key={message.id}
+                      className={`email-thread-item${message.id === selectedMessage.id ? ' active' : ''}`}
+                      type="button"
+                      onClick={() => void openMessage(message.id, selectedThread.key)}
+                    >
+                      <span>{formatEmailDate(emailMessageDateValue(message))}</span>
+                      <strong>{message.direction === 'Incoming' ? message.from : message.to}</strong>
+                      <small>{message.direction === 'Incoming' ? 'Recu' : 'Envoye'} · {message.isRead ? 'Lu' : 'Non lu'}</small>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
             <section className="email-body-preview">
               <iframe
                 className="email-body-frame"

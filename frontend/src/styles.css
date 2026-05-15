@@ -881,6 +881,20 @@ th {
   min-width: 0;
 }
 
+.email-thread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e3a8a;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 8px;
+}
+
 .email-attachment-marker {
   display: inline-flex;
   align-items: center;
@@ -901,6 +915,54 @@ th {
   margin: 0;
   color: #0f172a;
   font-size: 16px;
+}
+
+.email-thread-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.email-thread-list h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.email-thread-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.email-thread-item {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid #dbe3ea;
+  border-radius: 6px;
+  background: #fff;
+  color: #172033;
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.email-thread-item.active {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+
+.email-thread-item span,
+.email-thread-item small {
+  color: #64748b;
+}
+
+.email-thread-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .attachment-row {
