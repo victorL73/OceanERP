@@ -3914,12 +3914,52 @@ function uniqueEmailAddresses(values: string[], excluded: Set<string>) {
     });
 }
 
-function buildQuotedEmailBody(message: EmailMessage, formattedDate: string) {
-  const sanitizedBody = looksLikeEmailHtml(message.body)
-    ? sanitizeEmailHtml(message.body).match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? sanitizeEmailHtml(message.body)
-    : `<pre>${escapeHtml(message.body)}</pre>`;
+function normalizeQuotedEmailText(value: string) {
+  return value
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
-  return `<p></p><br><p>Le ${escapeHtml(formattedDate)}, ${escapeHtml(message.from)} a ecrit :</p><blockquote style="margin:12px 0;padding-left:12px;border-left:3px solid #cbd5e1;color:#475569;">${sanitizedBody}</blockquote>`;
+function htmlEmailToPlainText(value: string) {
+  const prepared = sanitizeEmailHtml(value)
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<head[\s\S]*?<\/head>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<\/(p|div|section|article|tr|table|h[1-6]|blockquote)>/gi, '\n')
+    .replace(/<\/li>/gi, '');
+
+  try {
+    const document = new DOMParser().parseFromString(prepared, 'text/html');
+    return normalizeQuotedEmailText(document.body.textContent ?? '');
+  } catch {
+    return normalizeQuotedEmailText(prepared.replace(/<[^>]+>/g, ''));
+  }
+}
+
+function emailBodyToPlainText(value: string) {
+  return looksLikeEmailHtml(value)
+    ? htmlEmailToPlainText(value)
+    : normalizeQuotedEmailText(value);
+}
+
+function quotePlainText(value: string) {
+  const cleaned = normalizeQuotedEmailText(value);
+  if (!cleaned) {
+    return '> Aucun contenu.';
+  }
+
+  return cleaned
+    .split('\n')
+    .map((line) => (line.trim() ? `> ${line}` : '>'))
+    .join('\n');
+}
+
+function buildQuotedEmailBody(message: EmailMessage, formattedDate: string) {
+  return `\n\nLe ${formattedDate}, ${message.from} a ecrit :\n${quotePlainText(emailBodyToPlainText(message.body))}`;
 }
 
 function emailMessageTimestamp(message: EmailMessage) {
