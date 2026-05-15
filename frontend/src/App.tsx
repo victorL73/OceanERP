@@ -220,10 +220,16 @@ export default function App() {
         setPurchaseOrders(nextPurchaseOrders);
       }
       if (target === 'emails') {
-        const [nextAccounts, nextMessages, nextTemplates] = await Promise.all([api.mailAccounts(), api.emailMessages(), api.emailTemplates()]);
+        const [nextAccounts, nextMessages, nextTemplates, nextCustomers] = await Promise.all([
+          api.mailAccounts(),
+          api.emailMessages(),
+          api.emailTemplates(),
+          hasPermission(currentUser, 'customers.read') ? api.customers('', 1, 100) : Promise.resolve<PagedResult<Customer> | null>(null)
+        ]);
         setMailAccounts(nextAccounts);
         setEmailMessages(nextMessages);
         setEmailTemplates(nextTemplates);
+        setCustomers(nextCustomers);
       }
       if (target === 'prestashop') {
         await refreshPrestashopData();
@@ -421,7 +427,7 @@ export default function App() {
         {!loading && view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
-        {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} onChanged={() => load('emails')} />}
+        {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
         {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
         {!loading && view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {!loading && view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
@@ -4111,6 +4117,63 @@ function normalizeEmailThreadSubject(subject: string) {
     .toLocaleLowerCase('fr-FR');
 }
 
+type CustomerEmailSuggestion = {
+  key: string;
+  email: string;
+  label: string;
+  meta: string;
+  searchText: string;
+};
+
+function buildCustomerEmailSuggestions(customers: Customer[]) {
+  const seen = new Set<string>();
+  const suggestions: CustomerEmailSuggestion[] = [];
+
+  for (const customer of customers.filter((item) => item.isActive)) {
+    const contacts = [...(customer.contacts ?? [])].sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary));
+    for (const contact of contacts) {
+      const email = contact.email?.trim();
+      if (!email) {
+        continue;
+      }
+
+      const normalizedEmail = email.toLowerCase();
+      if (seen.has(normalizedEmail)) {
+        continue;
+      }
+
+      seen.add(normalizedEmail);
+      const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
+      const label = contactName ? `${contactName} - ${customer.companyName}` : customer.companyName;
+      const meta = [customer.code, contact.jobTitle, contact.isPrimary ? 'Contact principal' : 'Contact'].filter(Boolean).join(' / ');
+      suggestions.push({
+        key: `${customer.id}:${contact.id}`,
+        email,
+        label,
+        meta,
+        searchText: `${customer.code} ${customer.companyName} ${contactName} ${contact.jobTitle ?? ''} ${email}`.toLowerCase()
+      });
+    }
+  }
+
+  return suggestions;
+}
+
+function activeRecipientTerm(value: string) {
+  return value.replace(/;/g, ',').split(',').pop()?.trim().toLowerCase() ?? '';
+}
+
+function recipientTokensBeforeActive(value: string) {
+  const parts = value.replace(/;/g, ',').split(',');
+  return parts.slice(0, -1).map((part) => part.trim().toLowerCase()).filter(Boolean);
+}
+
+function replaceActiveRecipient(value: string, email: string) {
+  const parts = value.replace(/;/g, ',').split(',');
+  parts[parts.length - 1] = email;
+  return parts.map((part) => part.trim()).filter(Boolean).join(', ');
+}
+
 type EmailThread = {
   key: string;
   subject: string;
@@ -4136,7 +4199,7 @@ function emailSendFeedback(message: EmailMessage) {
   return `Email traite avec le statut ${message.status}.`;
 }
 
-function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; onChanged: () => Promise<void> }) {
+function Emails({ accounts, messages, templates, customers, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; customers: Customer[]; onChanged: () => Promise<void> }) {
   const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('messages');
   const [editingAccountId, setEditingAccountId] = useState('');
   const [email, setEmail] = useState('');
@@ -4155,6 +4218,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
+  const [recipientSuggestionsOpen, setRecipientSuggestionsOpen] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -4178,6 +4242,16 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const selectedMessage = selectedMessageDetail ?? (selectedMessageId ? messages.find((message) => message.id === selectedMessageId) : undefined);
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
   const activeAccounts = accounts.filter((account) => account.isActive);
+  const customerEmailSuggestions = useMemo(() => buildCustomerEmailSuggestions(customers), [customers]);
+  const recipientSuggestions = useMemo(() => {
+    const term = activeRecipientTerm(to);
+    const alreadySelected = new Set(recipientTokensBeforeActive(to));
+
+    return customerEmailSuggestions
+      .filter((suggestion) => !alreadySelected.has(suggestion.email.toLowerCase()))
+      .filter((suggestion) => !term || suggestion.searchText.includes(term))
+      .slice(0, 8);
+  }, [customerEmailSuggestions, to]);
   const feedbackIsError = Boolean(feedback && (feedback.includes('impossible') || feedback.includes('echoue') || feedback.includes('non envoye') || feedback.includes('desactive')));
   const visibleMessages = useMemo(() => {
     const term = messageSearch.trim().toLowerCase();
@@ -4404,6 +4478,11 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
 
     setSubject(template.subject);
     setBody(template.body);
+  }
+
+  function selectCustomerRecipient(email: string) {
+    setTo((current) => replaceActiveRecipient(current, email));
+    setRecipientSuggestionsOpen(false);
   }
 
   function resetTemplateForm() {
@@ -4821,10 +4900,39 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
                   ))}
                 </select>
               </label>
-              <label className="field">
+              <div className="field recipient-autocomplete">
                 <span>Destinataire</span>
-                <input required multiple type="email" placeholder="client@example.com" value={to} onChange={(event) => setTo(event.target.value)} />
-              </label>
+                <input
+                  required
+                  multiple
+                  type="email"
+                  placeholder="Nom client ou email"
+                  value={to}
+                  autoComplete="off"
+                  onBlur={() => window.setTimeout(() => setRecipientSuggestionsOpen(false), 120)}
+                  onChange={(event) => {
+                    setTo(event.target.value);
+                    setRecipientSuggestionsOpen(true);
+                  }}
+                  onFocus={() => setRecipientSuggestionsOpen(true)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      setRecipientSuggestionsOpen(false);
+                    }
+                  }}
+                />
+                {recipientSuggestionsOpen && recipientSuggestions.length > 0 && (
+                  <div className="recipient-suggestions" role="listbox" aria-label="Suggestions clients">
+                    {recipientSuggestions.map((suggestion) => (
+                      <button key={suggestion.key} type="button" role="option" onMouseDown={(event) => { event.preventDefault(); selectCustomerRecipient(suggestion.email); }}>
+                        <span className="recipient-suggestion-label">{suggestion.label}</span>
+                        <span className="recipient-suggestion-email">{suggestion.email}</span>
+                        <span className="recipient-suggestion-meta">{suggestion.meta}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <label className="field">
                 <span>Cc</span>
                 <input multiple type="email" placeholder="copie@example.com" value={cc} onChange={(event) => setCc(event.target.value)} />

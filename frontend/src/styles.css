@@ -439,6 +439,55 @@ h1 {
   line-height: 1.5;
 }
 
+.recipient-autocomplete {
+  position: relative;
+}
+
+.recipient-suggestions {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgb(15 23 42 / 18%);
+  padding: 6px;
+}
+
+.recipient-suggestions button {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #0f172a;
+  cursor: pointer;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.recipient-suggestions button:hover,
+.recipient-suggestions button:focus-visible {
+  background: #eef6f5;
+  outline: none;
+}
+
+.recipient-suggestion-label {
+  font-weight: 800;
+}
+
+.recipient-suggestion-email,
+.recipient-suggestion-meta {
+  color: #64748b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .quote-settings-form textarea {
   min-height: 92px;
 }

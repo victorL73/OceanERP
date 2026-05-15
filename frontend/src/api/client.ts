@@ -86,8 +86,13 @@ export class ApiClient {
     return this.request<DashboardSummary>('/api/dashboard/summary', { auth: true });
   }
 
-  customers() {
-    return this.request<PagedResult<Customer>>('/api/customers', { auth: true });
+  customers(search = '', page = 1, pageSize = 100) {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (search.trim()) {
+      params.set('search', search.trim());
+    }
+
+    return this.request<PagedResult<Customer>>(`/api/customers?${params.toString()}`, { auth: true });
   }
 
   createCustomer(payload: { code: string; companyName: string; vatNumber?: string; notes?: string }) {

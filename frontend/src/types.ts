@@ -42,6 +42,30 @@ export type Customer = {
   vatNumber?: string;
   notes?: string;
   isActive: boolean;
+  contacts: CustomerContact[];
+  addresses: CustomerAddress[];
+};
+
+export type CustomerContact = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  jobTitle?: string;
+  isPrimary: boolean;
+};
+
+export type CustomerAddress = {
+  id: string;
+  label: string;
+  line1: string;
+  line2?: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  isBilling: boolean;
+  isShipping: boolean;
 };
 
 export type Product = {
