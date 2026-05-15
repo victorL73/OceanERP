@@ -874,6 +874,23 @@ th {
   background: #fff;
 }
 
+.email-subject-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.email-attachment-marker {
+  display: inline-flex;
+  align-items: center;
+}
+
+.email-attachment-marker svg {
+  flex: 0 0 auto;
+  color: #0f766e;
+}
+
 .email-attachments {
   display: grid;
   gap: 10px;

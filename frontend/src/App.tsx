@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -3898,8 +3898,18 @@ function buildQuotedEmailBody(message: EmailMessage, formattedDate: string) {
   return `<p></p><br><p>Le ${escapeHtml(formattedDate)}, ${escapeHtml(message.from)} a ecrit :</p><blockquote style="margin:12px 0;padding-left:12px;border-left:3px solid #cbd5e1;color:#475569;">${sanitizedBody}</blockquote>`;
 }
 
+function emailMessageTimestamp(message: EmailMessage) {
+  const value = emailMessageDateValue(message);
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function emailMessageDateValue(message: EmailMessage) {
+  return message.receivedAt ?? message.sentAt ?? message.createdAt;
+}
+
 function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; onChanged: () => Promise<void> }) {
-  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('compose');
+  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('messages');
   const [editingAccountId, setEditingAccountId] = useState('');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -3945,7 +3955,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
       return [message.subject, message.from, message.to, message.body, message.status]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(term));
-    });
+    }).sort((left, right) => emailMessageTimestamp(right) - emailMessageTimestamp(left));
   }, [messages, messageAccountFilter, messageSearch]);
 
   function resetAccountForm() {
@@ -4146,7 +4156,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     setSelectedAccountId(selectedAccount?.id ?? activeAccounts[0]?.id ?? '');
     setTo((recipients.length > 0 ? recipients : uniqueEmailAddresses(toAddresses, new Set())).join(', '));
     setSubject(selectedMessage.subject.trim().toLowerCase().startsWith('re:') ? selectedMessage.subject : `Re: ${selectedMessage.subject}`);
-    setBody(buildQuotedEmailBody(selectedMessage, formatEmailDate(selectedMessage.sentAt ?? selectedMessage.receivedAt ?? selectedMessage.createdAt)));
+    setBody(buildQuotedEmailBody(selectedMessage, formatEmailDate(emailMessageDateValue(selectedMessage))));
     closeMessage();
     setTab('compose');
   }
@@ -4159,11 +4169,11 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     <>
       {feedback && <div className="sync-note">{feedback}</div>}
       <div className="browser-tabs">
-        <button className={tab === 'compose' ? 'active' : ''} type="button" onClick={() => setTab('compose')}>
-          Nouveau mail
-        </button>
         <button className={tab === 'messages' ? 'active' : ''} type="button" onClick={() => setTab('messages')}>
           Journal
+        </button>
+        <button className={tab === 'compose' ? 'active' : ''} type="button" onClick={() => setTab('compose')}>
+          Nouveau mail
         </button>
         <button className={tab === 'templates' ? 'active' : ''} type="button" onClick={() => setTab('templates')}>
           Modeles
@@ -4340,13 +4350,20 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
           <DataTable
             columns={['Sujet', 'De', 'A', 'Sens', 'Statut', 'Lu', 'Date']}
             rows={visibleMessages.map((item) => [
-              item.isRead ? item.subject : `[Non lu] ${item.subject}`,
+              <span className="email-subject-cell">
+                {item.attachments.length > 0 && (
+                  <span className="email-attachment-marker" title="Piece jointe">
+                    <Paperclip aria-label="Piece jointe" size={15} />
+                  </span>
+                )}
+                <span>{item.isRead ? item.subject : `[Non lu] ${item.subject}`}</span>
+              </span>,
               item.from,
               item.to,
               item.direction === 'Incoming' ? 'Recu' : 'Envoye',
               item.status,
               item.isRead ? 'Oui' : 'Non',
-              formatEmailDate(item.sentAt ?? item.receivedAt ?? item.createdAt)
+              formatEmailDate(emailMessageDateValue(item))
             ])}
             onRowClick={(index) => void openMessage(visibleMessages[index]?.id)}
           />
@@ -4425,7 +4442,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               <DetailItem label="A" value={selectedMessage.to} />
               <DetailItem label="Statut" value={selectedMessage.status} />
               <DetailItem label="Lecture" value={selectedMessage.isRead ? 'Lu' : 'Non lu'} />
-              <DetailItem label="Date" value={formatEmailDate(selectedMessage.sentAt ?? selectedMessage.receivedAt ?? selectedMessage.createdAt)} />
+              <DetailItem label="Date" value={formatEmailDate(emailMessageDateValue(selectedMessage))} />
               {selectedMessage.errorMessage && <DetailItem label="Erreur" value={selectedMessage.errorMessage} />}
             </div>
             <section className="email-body-preview">
@@ -4802,11 +4819,18 @@ function parseTableNumber(value: string) {
 
 function parseTableDate(value: string) {
   const normalized = value.trim();
-  if (!/\d{4}-\d{2}-\d{2}/.test(normalized)) {
+  if (/\d{4}-\d{2}-\d{2}/.test(normalized)) {
+    const timestamp = Date.parse(normalized);
+    return Number.isNaN(timestamp) ? null : timestamp;
+  }
+
+  const frenchMatch = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!frenchMatch) {
     return null;
   }
 
-  const timestamp = Date.parse(normalized);
+  const [, day, month, year, hour = '0', minute = '0', second = '0'] = frenchMatch;
+  const timestamp = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime();
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 

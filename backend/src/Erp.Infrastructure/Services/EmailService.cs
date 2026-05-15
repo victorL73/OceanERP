@@ -341,7 +341,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
         var total = await query.CountAsync(cancellationToken);
         var messages = await query
-            .OrderByDescending(x => x.CreatedAt)
+            .OrderByDescending(x => x.ReceivedAt ?? x.SentAt ?? x.CreatedAt)
+            .ThenByDescending(x => x.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
