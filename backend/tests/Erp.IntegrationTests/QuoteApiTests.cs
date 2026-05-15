@@ -103,12 +103,26 @@ public sealed class QuoteApiTests(ApiFactory factory) : IClassFixture<ApiFactory
     private static async Task<CustomerDto> CreateCustomerAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/customers", new CreateCustomerRequest(
-            $"C-{Guid.NewGuid():N}"[..10],
-            "Client devis",
-            null,
-            null,
-            [],
-            []));
+            Code: $"C-{Guid.NewGuid():N}"[..10],
+            CompanyName: "Client devis",
+            LegalName: null,
+            TradeName: null,
+            SirenNumber: null,
+            SiretNumber: null,
+            VatNumber: null,
+            Email: null,
+            Phone: null,
+            MobilePhone: null,
+            Website: null,
+            Industry: null,
+            CustomerType: null,
+            Source: null,
+            AccountingCode: null,
+            PaymentTerms: null,
+            DefaultDiscountRate: null,
+            Notes: null,
+            Contacts: [],
+            Addresses: []));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CustomerDto>())!;
     }

@@ -95,11 +95,32 @@ export class ApiClient {
     return this.request<PagedResult<Customer>>(`/api/customers?${params.toString()}`, { auth: true });
   }
 
-  createCustomer(payload: { code: string; companyName: string; vatNumber?: string; notes?: string }) {
+  createCustomer(payload: {
+    code: string;
+    companyName: string;
+    legalName?: string | null;
+    tradeName?: string | null;
+    sirenNumber?: string | null;
+    siretNumber?: string | null;
+    vatNumber?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    mobilePhone?: string | null;
+    website?: string | null;
+    industry?: string | null;
+    customerType?: string | null;
+    source?: string | null;
+    accountingCode?: string | null;
+    paymentTerms?: string | null;
+    defaultDiscountRate?: number | null;
+    notes?: string | null;
+    contacts?: Array<{ firstName: string; lastName: string; email?: string | null; phone?: string | null; jobTitle?: string | null; isPrimary: boolean }>;
+    addresses?: Array<{ label: string; line1: string; line2?: string | null; postalCode: string; city: string; country: string; isBilling: boolean; isShipping: boolean }>;
+  }) {
     return this.request<Customer>('/api/customers', {
       method: 'POST',
       auth: true,
-      body: JSON.stringify({ ...payload, contacts: [], addresses: [] })
+      body: JSON.stringify({ ...payload, contacts: payload.contacts ?? [], addresses: payload.addresses ?? [] })
     });
   }
 
@@ -107,7 +128,21 @@ export class ApiClient {
     customerId: string,
     payload: {
       companyName: string;
+      legalName?: string | null;
+      tradeName?: string | null;
+      sirenNumber?: string | null;
+      siretNumber?: string | null;
       vatNumber?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      mobilePhone?: string | null;
+      website?: string | null;
+      industry?: string | null;
+      customerType?: string | null;
+      source?: string | null;
+      accountingCode?: string | null;
+      paymentTerms?: string | null;
+      defaultDiscountRate?: number | null;
       notes?: string | null;
       isActive: boolean;
       contacts: Array<{ firstName: string; lastName: string; email?: string | null; phone?: string | null; jobTitle?: string | null; isPrimary: boolean }>;

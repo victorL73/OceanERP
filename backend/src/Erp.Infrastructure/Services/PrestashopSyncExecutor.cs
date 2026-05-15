@@ -222,7 +222,16 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             var firstName = GetString(item, "firstname");
             var lastName = GetString(item, "lastname");
             var email = GetString(item, "email");
-            customer.CompanyName = Truncate(FirstNonEmpty(GetString(item, "company"), $"{firstName} {lastName}".Trim(), email, code), 240);
+            var company = GetString(item, "company");
+            var siret = NormalizeIdentifier(GetString(item, "siret"));
+            customer.CompanyName = Truncate(FirstNonEmpty(company, $"{firstName} {lastName}".Trim(), email, code), 240);
+            customer.LegalName = TruncateOptional(company, 240);
+            customer.TradeName ??= TruncateOptional(company, 240);
+            customer.Email = TruncateOptional(email, 320);
+            customer.SiretNumber = TruncateOptional(siret, 20);
+            customer.SirenNumber = string.IsNullOrWhiteSpace(siret) ? customer.SirenNumber : Truncate(siret.Length >= 9 ? siret[..9] : siret, 20);
+            customer.CustomerType ??= "PrestaShop";
+            customer.Source = Provider;
             customer.IsActive = GetBool(item, "active") ?? customer.IsActive;
 
             if (!string.IsNullOrWhiteSpace(firstName) || !string.IsNullOrWhiteSpace(lastName) || !string.IsNullOrWhiteSpace(email))
@@ -933,6 +942,12 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
+
+    private static string? TruncateOptional(string? value, int maxLength)
+        => string.IsNullOrWhiteSpace(value) ? null : Truncate(value.Trim(), maxLength);
+
+    private static string? NormalizeIdentifier(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : new string(value.Where(char.IsLetterOrDigit).ToArray());
 
     private static string? BuildProductDescription(JsonElement product)
     {

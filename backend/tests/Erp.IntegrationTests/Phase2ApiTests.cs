@@ -413,12 +413,26 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     private static async Task<CustomerDto> CreateCustomerAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/customers", new CreateCustomerRequest(
-            $"C-{Guid.NewGuid():N}"[..10],
-            "Client integration",
-            null,
-            null,
-            [],
-            []));
+            Code: $"C-{Guid.NewGuid():N}"[..10],
+            CompanyName: "Client integration",
+            LegalName: null,
+            TradeName: null,
+            SirenNumber: null,
+            SiretNumber: null,
+            VatNumber: null,
+            Email: null,
+            Phone: null,
+            MobilePhone: null,
+            Website: null,
+            Industry: null,
+            CustomerType: null,
+            Source: null,
+            AccountingCode: null,
+            PaymentTerms: null,
+            DefaultDiscountRate: null,
+            Notes: null,
+            Contacts: [],
+            Addresses: []));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CustomerDto>())!;
     }

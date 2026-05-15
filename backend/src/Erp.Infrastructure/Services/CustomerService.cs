@@ -25,7 +25,15 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         var query = db.Customers.Include(x => x.Contacts).Include(x => x.Addresses).AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(x => x.Code.Contains(search) || x.CompanyName.Contains(search));
+            query = query.Where(x =>
+                x.Code.Contains(search)
+                || x.CompanyName.Contains(search)
+                || (x.LegalName != null && x.LegalName.Contains(search))
+                || (x.TradeName != null && x.TradeName.Contains(search))
+                || (x.SirenNumber != null && x.SirenNumber.Contains(search))
+                || (x.SiretNumber != null && x.SiretNumber.Contains(search))
+                || (x.Email != null && x.Email.Contains(search))
+                || x.Contacts.Any(contact => contact.Email != null && contact.Email.Contains(search)));
         }
 
         var total = await query.CountAsync(cancellationToken);
@@ -55,8 +63,22 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         {
             Code = request.Code.Trim(),
             CompanyName = request.CompanyName.Trim(),
-            VatNumber = request.VatNumber,
-            Notes = request.Notes
+            LegalName = Clean(request.LegalName),
+            TradeName = Clean(request.TradeName),
+            SirenNumber = CleanIdentifier(request.SirenNumber),
+            SiretNumber = CleanIdentifier(request.SiretNumber),
+            VatNumber = Clean(request.VatNumber),
+            Email = Clean(request.Email),
+            Phone = Clean(request.Phone),
+            MobilePhone = Clean(request.MobilePhone),
+            Website = Clean(request.Website),
+            Industry = Clean(request.Industry),
+            CustomerType = Clean(request.CustomerType),
+            Source = Clean(request.Source),
+            AccountingCode = Clean(request.AccountingCode),
+            PaymentTerms = Clean(request.PaymentTerms),
+            DefaultDiscountRate = Math.Max(0, request.DefaultDiscountRate ?? 0),
+            Notes = Clean(request.Notes)
         };
 
         ApplyChildren(customer, request.Contacts, request.Addresses);
@@ -74,8 +96,22 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         }
 
         customer.CompanyName = request.CompanyName.Trim();
-        customer.VatNumber = request.VatNumber;
-        customer.Notes = request.Notes;
+        customer.LegalName = Clean(request.LegalName);
+        customer.TradeName = Clean(request.TradeName);
+        customer.SirenNumber = CleanIdentifier(request.SirenNumber);
+        customer.SiretNumber = CleanIdentifier(request.SiretNumber);
+        customer.VatNumber = Clean(request.VatNumber);
+        customer.Email = Clean(request.Email);
+        customer.Phone = Clean(request.Phone);
+        customer.MobilePhone = Clean(request.MobilePhone);
+        customer.Website = Clean(request.Website);
+        customer.Industry = Clean(request.Industry);
+        customer.CustomerType = Clean(request.CustomerType);
+        customer.Source = Clean(request.Source);
+        customer.AccountingCode = Clean(request.AccountingCode);
+        customer.PaymentTerms = Clean(request.PaymentTerms);
+        customer.DefaultDiscountRate = Math.Max(0, request.DefaultDiscountRate ?? 0);
+        customer.Notes = Clean(request.Notes);
         customer.IsActive = request.IsActive;
         db.CustomerContacts.RemoveRange(customer.Contacts);
         db.CustomerAddresses.RemoveRange(customer.Addresses);
@@ -128,11 +164,31 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
             customer.Id,
             customer.Code,
             customer.CompanyName,
+            customer.LegalName,
+            customer.TradeName,
+            customer.SirenNumber,
+            customer.SiretNumber,
             customer.VatNumber,
+            customer.Email,
+            customer.Phone,
+            customer.MobilePhone,
+            customer.Website,
+            customer.Industry,
+            customer.CustomerType,
+            customer.Source,
+            customer.AccountingCode,
+            customer.PaymentTerms,
+            customer.DefaultDiscountRate,
             customer.Notes,
             customer.IsActive,
             customer.Contacts.Select(x => new CustomerContactDto(x.Id, x.FirstName, x.LastName, x.Email, x.Phone, x.JobTitle, x.IsPrimary)).ToList(),
             customer.Addresses.Select(x => new CustomerAddressDto(x.Id, x.Label, x.Line1, x.Line2, x.PostalCode, x.City, x.Country, x.IsBilling, x.IsShipping)).ToList());
+
+    private static string? Clean(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? CleanIdentifier(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : new string(value.Where(char.IsLetterOrDigit).ToArray()).Trim();
 
     private async Task<Result> PublishPrestashopCustomerAsync(Customer customer, CancellationToken cancellationToken)
     {
@@ -193,18 +249,19 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
 
         RemoveReadOnlyFields(customerElement);
         var primaryContact = SelectPrimaryContact(customer);
-        SetElementValue(customerElement, "company", customer.CompanyName);
+        SetElementValue(customerElement, "company", FirstNonEmpty(customer.LegalName, customer.TradeName, customer.CompanyName));
         SetElementValue(customerElement, "active", customer.IsActive ? "1" : "0");
         SetElementValue(customerElement, "note", customer.Notes ?? string.Empty);
-        SetElementValue(customerElement, "siret", customer.VatNumber ?? string.Empty);
+        SetElementValue(customerElement, "siret", FirstNonEmpty(customer.SiretNumber, customer.SirenNumber, customer.VatNumber));
 
-        if (primaryContact is not null)
+        if (primaryContact is not null || !string.IsNullOrWhiteSpace(customer.Email))
         {
-            SetElementValue(customerElement, "firstname", SafePrestashopName(primaryContact.FirstName, "Client"));
-            SetElementValue(customerElement, "lastname", SafePrestashopName(primaryContact.LastName, customer.CompanyName));
-            if (!string.IsNullOrWhiteSpace(primaryContact.Email))
+            SetElementValue(customerElement, "firstname", SafePrestashopName(primaryContact?.FirstName, "Client"));
+            SetElementValue(customerElement, "lastname", SafePrestashopName(primaryContact?.LastName, customer.CompanyName));
+            var email = FirstNonEmpty(primaryContact?.Email, customer.Email);
+            if (!string.IsNullOrWhiteSpace(email))
             {
-                SetElementValue(customerElement, "email", primaryContact.Email.Trim());
+                SetElementValue(customerElement, "email", email);
             }
         }
 
@@ -234,7 +291,7 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
 
         var primaryContact = SelectPrimaryContact(customer);
         RemoveReadOnlyFields(addressElement);
-        SetElementValue(addressElement, "company", customer.CompanyName);
+        SetElementValue(addressElement, "company", FirstNonEmpty(customer.LegalName, customer.TradeName, customer.CompanyName));
         SetElementValue(addressElement, "firstname", SafePrestashopName(primaryContact?.FirstName, "Client"));
         SetElementValue(addressElement, "lastname", SafePrestashopName(primaryContact?.LastName, customer.CompanyName));
         SetElementValue(addressElement, "address1", address.Line1);
@@ -242,7 +299,7 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         SetElementValue(addressElement, "postcode", address.PostalCode);
         SetElementValue(addressElement, "city", address.City);
         SetElementValue(addressElement, "alias", string.IsNullOrWhiteSpace(address.Label) ? "Adresse ERP" : address.Label);
-        SetElementValue(addressElement, "phone", primaryContact?.Phone ?? string.Empty);
+        SetElementValue(addressElement, "phone", FirstNonEmpty(primaryContact?.Phone, customer.Phone, customer.MobilePhone));
         SetElementValue(addressElement, "vat_number", customer.VatNumber ?? string.Empty);
 
         await PutPrestashopXmlAsync($"{apiBaseUrl}/addresses/{addressId}", "adresse client", apiKey, document, cancellationToken);
@@ -317,6 +374,9 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         cleaned = cleaned.Replace("\n", " ").Replace("\r", " ").Trim();
         return string.IsNullOrWhiteSpace(cleaned) ? "Client" : cleaned;
     }
+
+    private static string FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 
     private static void RemoveReadOnlyFields(XElement element)
     {

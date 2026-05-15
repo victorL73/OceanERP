@@ -6,6 +6,7 @@ La migration initiale est disponible dans `backend/src/Erp.Infrastructure/Persis
 
 - `Users`, `Roles`, `Permissions`, `UserRoles`, `RefreshTokens`, `AuditLogs`.
 - `Customers`, `CustomerContacts`, `CustomerAddresses`.
+  La fiche client stocke les informations commerciales et administratives utiles : nom societe, raison sociale, nom commercial, SIREN, SIRET, TVA, email, telephone, mobile, site web, secteur, type client, origine, code comptable, conditions de paiement et remise par defaut.
 - `Products`, `ProductCategories`, `ProductSuppliers`.
 - `Quotes`, `QuoteLines`, `QuoteDocuments`, `QuoteStatusHistories`.
 - `QuoteDocumentSettings` pour la personnalisation PDF des devis.

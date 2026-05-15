@@ -125,7 +125,21 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasIndex(x => x.Code).IsUnique();
             entity.Property(x => x.Code).HasMaxLength(60);
             entity.Property(x => x.CompanyName).HasMaxLength(240);
+            entity.Property(x => x.LegalName).HasMaxLength(240);
+            entity.Property(x => x.TradeName).HasMaxLength(240);
+            entity.Property(x => x.SirenNumber).HasMaxLength(20);
+            entity.Property(x => x.SiretNumber).HasMaxLength(20);
             entity.Property(x => x.VatNumber).HasMaxLength(80);
+            entity.Property(x => x.Email).HasMaxLength(320);
+            entity.Property(x => x.Phone).HasMaxLength(80);
+            entity.Property(x => x.MobilePhone).HasMaxLength(80);
+            entity.Property(x => x.Website).HasMaxLength(500);
+            entity.Property(x => x.Industry).HasMaxLength(160);
+            entity.Property(x => x.CustomerType).HasMaxLength(80);
+            entity.Property(x => x.Source).HasMaxLength(120);
+            entity.Property(x => x.AccountingCode).HasMaxLength(80);
+            entity.Property(x => x.PaymentTerms).HasMaxLength(160);
+            entity.Property(x => x.DefaultDiscountRate).HasPrecision(5, 2);
         });
 
         modelBuilder.Entity<CustomerContact>(entity =>

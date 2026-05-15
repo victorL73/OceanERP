@@ -1618,9 +1618,38 @@ type CustomerAddressDraft = {
   isShipping: boolean;
 };
 
+type CustomerDraft = {
+  companyName: string;
+  legalName: string;
+  tradeName: string;
+  sirenNumber: string;
+  siretNumber: string;
+  vatNumber: string;
+  email: string;
+  phone: string;
+  mobilePhone: string;
+  website: string;
+  industry: string;
+  customerType: string;
+  source: string;
+  accountingCode: string;
+  paymentTerms: string;
+  defaultDiscountRate: string;
+  notes: string;
+  isActive: boolean;
+  contacts: CustomerContactDraft[];
+  addresses: CustomerAddressDraft[];
+};
+
 function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => Promise<void> }) {
   const [code, setCode] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [tradeName, setTradeName] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [sirenNumber, setSirenNumber] = useState('');
+  const [siretNumber, setSiretNumber] = useState('');
   const [vatNumber, setVatNumber] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const selectedCustomer = selectedCustomerId ? items.find((item) => item.id === selectedCustomerId) ?? null : null;
@@ -1641,9 +1670,29 @@ function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => P
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await api.createCustomer({ code, companyName, vatNumber });
+    const [firstName, ...lastNameParts] = contactName.trim().split(' ').filter(Boolean);
+    await api.createCustomer({
+      code,
+      companyName,
+      tradeName: tradeName || null,
+      sirenNumber: sirenNumber || null,
+      siretNumber: siretNumber || null,
+      vatNumber: vatNumber || null,
+      email: email || null,
+      phone: phone || null,
+      contacts: contactName.trim() || email.trim() || phone.trim()
+        ? [{ firstName: firstName ?? '', lastName: lastNameParts.join(' '), email: email || null, phone: phone || null, jobTitle: null, isPrimary: true }]
+        : [],
+      addresses: []
+    });
     setCode('');
     setCompanyName('');
+    setTradeName('');
+    setContactName('');
+    setEmail('');
+    setPhone('');
+    setSirenNumber('');
+    setSiretNumber('');
     setVatNumber('');
     await onChanged();
   }
@@ -1653,8 +1702,14 @@ function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => P
       <Panel title="Nouveau client">
         <form className="form-grid" onSubmit={submit}>
           <input required placeholder="Code client" value={code} onChange={(event) => setCode(event.target.value)} />
-          <input required placeholder="Societe" value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
-          <input placeholder="TVA" value={vatNumber} onChange={(event) => setVatNumber(event.target.value)} />
+          <input required placeholder="Nom de l'entreprise" value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+          <input placeholder="Nom commercial" value={tradeName} onChange={(event) => setTradeName(event.target.value)} />
+          <input placeholder="Contact principal" value={contactName} onChange={(event) => setContactName(event.target.value)} />
+          <input placeholder="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input placeholder="Telephone" value={phone} onChange={(event) => setPhone(event.target.value)} />
+          <input placeholder="SIREN" value={sirenNumber} onChange={(event) => setSirenNumber(event.target.value)} />
+          <input placeholder="SIRET" value={siretNumber} onChange={(event) => setSiretNumber(event.target.value)} />
+          <input placeholder="TVA intracommunautaire" value={vatNumber} onChange={(event) => setVatNumber(event.target.value)} />
           <button className="primary" type="submit">
             <Plus size={16} />
             Creer
@@ -1662,13 +1717,13 @@ function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => P
         </form>
       </Panel>
       <DataTable
-        columns={['Code', 'Societe', 'Contact', 'Email', 'Telephone', 'Adresse', 'TVA', 'Statut']}
+        columns={['Code', 'Societe', 'Contact', 'Email', 'Telephone', 'SIREN', 'Adresse', 'TVA', 'Statut']}
         rows={items.map((item) => {
           const contact = primaryContact(item);
           const address = primaryAddress(item);
           const contactName = contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : '';
           const addressLine = address ? [address.line1, `${address.postalCode} ${address.city}`.trim()].filter(Boolean).join(', ') : '-';
-          return [item.code, item.companyName, contactName || '-', contact?.email ?? '-', contact?.phone ?? '-', addressLine, item.vatNumber ?? '-', item.isActive ? 'Actif' : 'Inactif'];
+          return [item.code, item.companyName, contactName || '-', contact?.email ?? item.email ?? '-', contact?.phone ?? item.phone ?? '-', item.sirenNumber ?? '-', addressLine, item.vatNumber ?? '-', item.isActive ? 'Actif' : 'Inactif'];
         })}
         onRowClick={(index) => setSelectedCustomerId(items[index]?.id ?? null)}
         selectedRowIndex={selectedCustomer ? items.findIndex((item) => item.id === selectedCustomer.id) : undefined}
@@ -1751,7 +1806,21 @@ function CustomerDetailsModal({ customer, onClose, onSaved }: { customer: Custom
     try {
       await api.updateCustomer(customer.id, {
         companyName: draft.companyName.trim(),
+        legalName: draft.legalName.trim() || null,
+        tradeName: draft.tradeName.trim() || null,
+        sirenNumber: draft.sirenNumber.trim() || null,
+        siretNumber: draft.siretNumber.trim() || null,
         vatNumber: draft.vatNumber.trim() || null,
+        email: draft.email.trim() || null,
+        phone: draft.phone.trim() || null,
+        mobilePhone: draft.mobilePhone.trim() || null,
+        website: draft.website.trim() || null,
+        industry: draft.industry.trim() || null,
+        customerType: draft.customerType.trim() || null,
+        source: draft.source.trim() || null,
+        accountingCode: draft.accountingCode.trim() || null,
+        paymentTerms: draft.paymentTerms.trim() || null,
+        defaultDiscountRate: Number(draft.defaultDiscountRate || 0),
         notes: draft.notes.trim() || null,
         isActive: draft.isActive,
         contacts: draft.contacts.map((contact, index) => ({
@@ -1819,8 +1888,64 @@ function CustomerDetailsModal({ customer, onClose, onSaved }: { customer: Custom
                 <input required value={draft.companyName} onChange={(event) => setDraft((current) => ({ ...current, companyName: event.target.value }))} />
               </label>
               <label className="field">
-                <span>TVA / SIRET</span>
+                <span>Raison sociale</span>
+                <input value={draft.legalName} onChange={(event) => setDraft((current) => ({ ...current, legalName: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Nom commercial</span>
+                <input value={draft.tradeName} onChange={(event) => setDraft((current) => ({ ...current, tradeName: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>SIREN</span>
+                <input value={draft.sirenNumber} onChange={(event) => setDraft((current) => ({ ...current, sirenNumber: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>SIRET</span>
+                <input value={draft.siretNumber} onChange={(event) => setDraft((current) => ({ ...current, siretNumber: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>TVA intracommunautaire</span>
                 <input value={draft.vatNumber} onChange={(event) => setDraft((current) => ({ ...current, vatNumber: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Email general</span>
+                <input type="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Telephone</span>
+                <input value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Mobile</span>
+                <input value={draft.mobilePhone} onChange={(event) => setDraft((current) => ({ ...current, mobilePhone: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Site web</span>
+                <input value={draft.website} onChange={(event) => setDraft((current) => ({ ...current, website: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Secteur</span>
+                <input value={draft.industry} onChange={(event) => setDraft((current) => ({ ...current, industry: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Type client</span>
+                <input placeholder="Professionnel, particulier..." value={draft.customerType} onChange={(event) => setDraft((current) => ({ ...current, customerType: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Origine</span>
+                <input placeholder="PrestaShop, salon, recommandation..." value={draft.source} onChange={(event) => setDraft((current) => ({ ...current, source: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Code comptable</span>
+                <input value={draft.accountingCode} onChange={(event) => setDraft((current) => ({ ...current, accountingCode: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Conditions de paiement</span>
+                <input placeholder="Comptant, 30 jours..." value={draft.paymentTerms} onChange={(event) => setDraft((current) => ({ ...current, paymentTerms: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Remise defaut (%)</span>
+                <input type="number" min="0" step="0.01" value={draft.defaultDiscountRate} onChange={(event) => setDraft((current) => ({ ...current, defaultDiscountRate: event.target.value }))} />
               </label>
               <label className="check-field customer-active-field">
                 <input type="checkbox" checked={draft.isActive} onChange={(event) => setDraft((current) => ({ ...current, isActive: event.target.checked }))} />
@@ -1945,7 +2070,21 @@ function CustomerDetailsModal({ customer, onClose, onSaved }: { customer: Custom
           <>
             <div className="detail-grid customer-summary-grid">
               <DetailItem label="Code client" value={customer.code} />
-              <DetailItem label="TVA / SIRET" value={customer.vatNumber || '-'} />
+              <DetailItem label="Raison sociale" value={customer.legalName || '-'} />
+              <DetailItem label="Nom commercial" value={customer.tradeName || '-'} />
+              <DetailItem label="SIREN" value={customer.sirenNumber || '-'} />
+              <DetailItem label="SIRET" value={customer.siretNumber || '-'} />
+              <DetailItem label="TVA intracommunautaire" value={customer.vatNumber || '-'} />
+              <DetailItem label="Email general" value={customer.email || '-'} />
+              <DetailItem label="Telephone" value={customer.phone || '-'} />
+              <DetailItem label="Mobile" value={customer.mobilePhone || '-'} />
+              <DetailItem label="Site web" value={customer.website || '-'} />
+              <DetailItem label="Secteur" value={customer.industry || '-'} />
+              <DetailItem label="Type client" value={customer.customerType || '-'} />
+              <DetailItem label="Origine" value={customer.source || '-'} />
+              <DetailItem label="Code comptable" value={customer.accountingCode || '-'} />
+              <DetailItem label="Paiement" value={customer.paymentTerms || '-'} />
+              <DetailItem label="Remise defaut" value={`${customer.defaultDiscountRate ?? 0}%`} />
               <DetailItem label="Statut" value={customer.isActive ? 'Actif' : 'Inactif'} />
               <DetailItem label="Identifiant interne" value={customer.id} />
             </div>
@@ -2007,7 +2146,21 @@ function CustomerDetailsModal({ customer, onClose, onSaved }: { customer: Custom
 function customerToDraft(customer: Customer) {
   return {
     companyName: customer.companyName,
+    legalName: customer.legalName ?? '',
+    tradeName: customer.tradeName ?? '',
+    sirenNumber: customer.sirenNumber ?? '',
+    siretNumber: customer.siretNumber ?? '',
     vatNumber: customer.vatNumber ?? '',
+    email: customer.email ?? '',
+    phone: customer.phone ?? '',
+    mobilePhone: customer.mobilePhone ?? '',
+    website: customer.website ?? '',
+    industry: customer.industry ?? '',
+    customerType: customer.customerType ?? '',
+    source: customer.source ?? '',
+    accountingCode: customer.accountingCode ?? '',
+    paymentTerms: customer.paymentTerms ?? '',
+    defaultDiscountRate: String(customer.defaultDiscountRate ?? 0),
     notes: customer.notes ?? '',
     isActive: customer.isActive,
     contacts: (customer.contacts ?? []).map((contact) => ({
@@ -4553,6 +4706,18 @@ function buildCustomerEmailSuggestions(customers: Customer[]) {
         label,
         meta,
         searchText: `${customer.code} ${customer.companyName} ${contactName} ${contact.jobTitle ?? ''} ${email}`.toLowerCase()
+      });
+    }
+
+    const generalEmail = customer.email?.trim();
+    if (generalEmail && !seen.has(generalEmail.toLowerCase())) {
+      seen.add(generalEmail.toLowerCase());
+      suggestions.push({
+        key: `${customer.id}:general`,
+        email: generalEmail,
+        label: `${customer.companyName} - email general`,
+        meta: [customer.code, customer.phone].filter(Boolean).join(' / '),
+        searchText: `${customer.code} ${customer.companyName} ${customer.tradeName ?? ''} ${generalEmail}`.toLowerCase()
       });
     }
   }
