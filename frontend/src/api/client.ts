@@ -428,6 +428,10 @@ export class ApiClient {
     return this.request<EmailMessage>(`/api/emails/messages/${messageId}/read?isRead=${isRead}`, { method: 'POST', auth: true });
   }
 
+  deleteEmailMessage(messageId: string) {
+    return this.request<void>(`/api/emails/messages/${messageId}`, { method: 'DELETE', auth: true });
+  }
+
   async downloadEmailAttachment(messageId: string, attachmentId: string, fileName: string) {
     await this.download(`/api/emails/messages/${messageId}/attachments/${attachmentId}/download`, fileName);
   }

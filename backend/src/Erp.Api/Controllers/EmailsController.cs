@@ -104,6 +104,14 @@ public sealed class EmailsController(IEmailService emails, IRealtimeNotification
         return result.Succeeded ? Ok(result.Value) : NotFound(new { error = result.Error });
     }
 
+    [HttpDelete("messages/{id:guid}")]
+    [Authorize(Policy = "emails.write")]
+    public async Task<ActionResult> DeleteMessage(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await emails.DeleteMessageAsync(id, cancellationToken);
+        return result.Succeeded ? NoContent() : NotFound(new { error = result.Error });
+    }
+
     [HttpGet("messages/{messageId:guid}/attachments/{attachmentId:guid}/download")]
     [Authorize(Policy = "emails.read")]
     public async Task<IActionResult> DownloadAttachment(Guid messageId, Guid attachmentId, CancellationToken cancellationToken)

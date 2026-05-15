@@ -17,6 +17,7 @@ public interface IEmailService
     Task<PagedResult<EmailMessageDto>> GetMessagesAsync(string? search, Guid? accountId, int page, int pageSize, CancellationToken cancellationToken);
     Task<Result<EmailMessageDto>> GetMessageAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<EmailMessageDto>> MarkReadAsync(Guid id, bool isRead, CancellationToken cancellationToken);
+    Task<Result> DeleteMessageAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<(Stream Content, string FileName, string MimeType)>> OpenAttachmentAsync(Guid messageId, Guid attachmentId, CancellationToken cancellationToken);
     Task<Result<EmailMessageDto>> SendAsync(SendEmailRequest request, CancellationToken cancellationToken);
     Task<Result<EmailMessageDto>> SendAsync(SendEmailRequest request, IReadOnlyList<StoredEmailAttachment> attachments, IReadOnlyList<EmailLinkTarget> links, CancellationToken cancellationToken);

@@ -384,6 +384,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         modelBuilder.Entity<EmailMessage>(entity =>
         {
             entity.HasIndex(x => new { x.MailAccountId, x.ExternalMessageId });
+            entity.HasIndex(x => new { x.MailAccountId, x.IsDeleted });
             entity.Property(x => x.Subject).HasMaxLength(300);
             entity.Property(x => x.From).HasMaxLength(320);
             entity.Property(x => x.To).HasMaxLength(1000);

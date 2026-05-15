@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -3983,6 +3983,23 @@ function buildQuotedEmailBody(message: EmailMessage, formattedDate: string) {
   return `\n\nLe ${formattedDate}, ${message.from} a ecrit :\n${quotePlainText(emailBodyToPlainText(message.body))}`;
 }
 
+function buildForwardedEmailBody(message: EmailMessage, formattedDate: string) {
+  const lines = [
+    '',
+    '',
+    '---------- Message transfere ----------',
+    `De : ${message.from}`,
+    `Date : ${formattedDate}`,
+    `Sujet : ${message.subject}`,
+    `A : ${message.to}`,
+    message.cc ? `Cc : ${message.cc}` : '',
+    '',
+    emailBodyToPlainText(message.body) || 'Aucun contenu.'
+  ];
+
+  return lines.join('\n');
+}
+
 function emailMessageTimestamp(message: EmailMessage) {
   const value = emailMessageDateValue(message);
   const timestamp = Date.parse(value);
@@ -4301,6 +4318,25 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     await onChanged();
   }
 
+  async function deleteSelectedMessage() {
+    if (!selectedMessage) {
+      return;
+    }
+
+    if (!window.confirm(`Supprimer le mail "${selectedMessage.subject}" ?`)) {
+      return;
+    }
+
+    try {
+      await api.deleteEmailMessage(selectedMessage.id);
+      closeMessage();
+      setFeedback("Email supprime. Il ne sera pas reimporte lors des prochaines synchronisations IMAP.");
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Suppression du mail impossible.');
+    }
+  }
+
   async function openMessage(messageId?: string, threadKey?: string) {
     if (!messageId) {
       return;
@@ -4353,6 +4389,24 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     setBcc('');
     setSubject(selectedMessage.subject.trim().toLowerCase().startsWith('re:') ? selectedMessage.subject : `Re: ${selectedMessage.subject}`);
     setBody(buildQuotedEmailBody(selectedMessage, formatEmailDate(emailMessageDateValue(selectedMessage))));
+    closeMessage();
+    setTab('compose');
+  }
+
+  function startForward() {
+    if (!selectedMessage) {
+      return;
+    }
+
+    const selectedAccount = selectedMessage.mailAccountId ? accountById.get(selectedMessage.mailAccountId) : undefined;
+    const subjectPrefixPattern = /^(fw|fwd|tr|transfert)\s*[:-]\s*/i;
+
+    setSelectedAccountId(selectedAccount?.id ?? activeAccounts[0]?.id ?? '');
+    setTo('');
+    setCc('');
+    setBcc('');
+    setSubject(subjectPrefixPattern.test(selectedMessage.subject.trim()) ? selectedMessage.subject : `Tr: ${selectedMessage.subject}`);
+    setBody(buildForwardedEmailBody(selectedMessage, formatEmailDate(emailMessageDateValue(selectedMessage))));
     closeMessage();
     setTab('compose');
   }
@@ -4699,6 +4753,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
                       className={`email-thread-item${message.id === selectedMessage.id ? ' active' : ''}`}
                       type="button"
                       onClick={() => void openMessage(message.id, selectedThread.key)}
+                      onDoubleClick={() => void openMessage(message.id, selectedThread.key)}
                     >
                       <span>{formatEmailDate(emailMessageDateValue(message))}</span>
                       <strong>{message.direction === 'Incoming' ? message.from : message.to}</strong>
@@ -4744,6 +4799,14 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               <button className="secondary" type="button" onClick={() => startReply('all')}>
                 <ReplyAll size={16} />
                 Repondre a tous
+              </button>
+              <button className="secondary" type="button" onClick={startForward}>
+                <Forward size={16} />
+                Transferer
+              </button>
+              <button className="danger" type="button" onClick={() => void deleteSelectedMessage()}>
+                <Trash2 size={16} />
+                Supprimer
               </button>
               <button className="secondary" type="button" onClick={() => markSelectedMessage(!selectedMessage.isRead)}>
                 {selectedMessage.isRead ? 'Marquer non lu' : 'Marquer lu'}

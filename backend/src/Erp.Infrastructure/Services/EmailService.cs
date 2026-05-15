@@ -338,6 +338,21 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         return Result<EmailMessageDto>.Success(await MapAsync(loaded, cancellationToken));
     }
 
+    public async Task<Result> DeleteMessageAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var message = await (await ApplyMessageAccessAsync(db.EmailMessages.AsQueryable(), cancellationToken)).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (message is null)
+        {
+            return Result.Failure("Email introuvable.");
+        }
+
+        message.IsDeleted = true;
+        message.DeletedAt = DateTimeOffset.UtcNow;
+        message.IsRead = true;
+        await db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
     public async Task<Result<(Stream Content, string FileName, string MimeType)>> OpenAttachmentAsync(Guid messageId, Guid attachmentId, CancellationToken cancellationToken)
     {
         var canAccessMessage = await (await ApplyMessageAccessAsync(BaseMessagesQuery(), cancellationToken)).AnyAsync(x => x.Id == messageId, cancellationToken);
@@ -580,7 +595,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
     }
 
     private IQueryable<EmailMessage> BaseMessagesQuery()
-        => db.EmailMessages.AsNoTracking();
+        => db.EmailMessages.AsNoTracking().Where(x => !x.IsDeleted);
 
     private async Task<EmailSyncSummaryDto> SyncAccountsAsync(IReadOnlyList<MailAccount> accounts, int limit, CancellationToken cancellationToken)
     {
@@ -635,6 +650,11 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
                 var existingMessage = await db.EmailMessages.FirstOrDefaultAsync(x => x.MailAccountId == account.Id && x.ExternalMessageId == externalMessageId, cancellationToken);
                 if (existingMessage is not null)
                 {
+                    if (existingMessage.IsDeleted)
+                    {
+                        continue;
+                    }
+
                     if (LooksLikeHtml(body) && !LooksLikeHtml(existingMessage.Body))
                     {
                         existingMessage.Body = body;
@@ -1014,6 +1034,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private async Task<IQueryable<EmailMessage>> ApplyMessageAccessAsync(IQueryable<EmailMessage> query, CancellationToken cancellationToken)
     {
+        query = query.Where(x => !x.IsDeleted);
+
         if (await IsAdministratorAsync(cancellationToken))
         {
             return query;

@@ -64,6 +64,11 @@ La migration `EmailCcBcc` ajoute :
 
 - `EmailMessages.Cc` et `EmailMessages.Bcc` pour conserver les copies et copies cachees en metadonnees email.
 
+La migration `EmailSoftDelete` ajoute :
+
+- `EmailMessages.IsDeleted` et `EmailMessages.DeletedAt` pour masquer un email sans supprimer son identifiant IMAP externe.
+- L'index `MailAccountId/IsDeleted` pour filtrer rapidement les journaux de mails actifs.
+
 La migration `QuoteDocumentSettings` ajoute :
 
 - `QuoteDocumentSettings` pour stocker les metadonnees d'identite entreprise utilisees sur les PDF de devis.

@@ -71,6 +71,31 @@ public sealed class EmailApiTests(ApiFactory factory) : IClassFixture<ApiFactory
     }
 
     [Fact]
+    public async Task EmailMessages_CanBeDeletedWithoutReappearingInJournal()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var accountResponse = await client.PostAsJsonAsync("/api/emails/accounts", new CreateMailAccountRequest(
+            "delete-me@example.com",
+            "smtp.example.com",
+            "imap.example.com"));
+        accountResponse.EnsureSuccessStatusCode();
+        var account = (await accountResponse.Content.ReadFromJsonAsync<MailAccountDto>())!;
+
+        var sendResponse = await client.PostAsJsonAsync("/api/emails/send", new SendEmailRequest(account.Id, "client@example.com", "A supprimer", "Message"));
+        sendResponse.EnsureSuccessStatusCode();
+        var message = (await sendResponse.Content.ReadFromJsonAsync<EmailMessageDto>())!;
+
+        var deleteResponse = await client.DeleteAsync($"/api/emails/messages/{message.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var detailResponse = await client.GetAsync($"/api/emails/messages/{message.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, detailResponse.StatusCode);
+
+        var messages = (await client.GetFromJsonAsync<PagedResult<EmailMessageDto>>("/api/emails/messages?pageSize=50"))!;
+        Assert.DoesNotContain(messages.Items, item => item.Id == message.Id);
+    }
+
+    [Fact]
     public async Task MailServerSettings_AreGlobalAndAccountsCanUseHtmlSignatures()
     {
         using var client = await CreateAuthenticatedClientAsync();
