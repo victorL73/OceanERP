@@ -4100,6 +4100,7 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [selectedMessageDetail, setSelectedMessageDetail] = useState<EmailMessage | null>(null);
   const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
+  const [selectedThreadKeys, setSelectedThreadKeys] = useState<Set<string>>(() => new Set());
   const [messageSearch, setMessageSearch] = useState('');
   const [messageAccountFilter, setMessageAccountFilter] = useState('');
   const [syncingMessages, setSyncingMessages] = useState(false);
@@ -4163,6 +4164,17 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
       .sort((left, right) => emailMessageTimestamp(right.latest) - emailMessageTimestamp(left.latest));
   }, [visibleMessages]);
   const selectedThread = selectedThreadKey ? visibleThreads.find((thread) => thread.key === selectedThreadKey) : undefined;
+  const selectedBulkThreads = useMemo(() => visibleThreads.filter((thread) => selectedThreadKeys.has(thread.key)), [selectedThreadKeys, visibleThreads]);
+  const selectedBulkMessages = useMemo(() => selectedBulkThreads.flatMap((thread) => thread.messages), [selectedBulkThreads]);
+  const allVisibleThreadsSelected = visibleThreads.length > 0 && visibleThreads.every((thread) => selectedThreadKeys.has(thread.key));
+
+  useEffect(() => {
+    setSelectedThreadKeys((current) => {
+      const visibleKeys = new Set(visibleThreads.map((thread) => thread.key));
+      const next = new Set([...current].filter((key) => visibleKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [visibleThreads]);
 
   function resetAccountForm() {
     setEditingAccountId('');
@@ -4379,6 +4391,75 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
 
   function openThread(thread: EmailThread) {
     void openMessage(thread.latest.id, thread.key);
+  }
+
+  function toggleThreadSelection(threadKey: string, checked: boolean) {
+    setSelectedThreadKeys((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(threadKey);
+      } else {
+        next.delete(threadKey);
+      }
+
+      return next;
+    });
+  }
+
+  function toggleAllVisibleThreads() {
+    setSelectedThreadKeys((current) => {
+      if (allVisibleThreadsSelected) {
+        return new Set<string>();
+      }
+
+      const next = new Set(current);
+      for (const thread of visibleThreads) {
+        next.add(thread.key);
+      }
+
+      return next;
+    });
+  }
+
+  async function markBulkMessagesRead() {
+    const unreadMessages = selectedBulkMessages.filter((message) => !message.isRead);
+    if (unreadMessages.length === 0) {
+      setFeedback('Aucun mail non lu dans la selection.');
+      return;
+    }
+
+    try {
+      await Promise.all(unreadMessages.map((message) => api.markEmailRead(message.id, true)));
+      setSelectedThreadKeys(new Set<string>());
+      setFeedback(`${unreadMessages.length} mail(s) marque(s) comme lu(s).`);
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Marquage des mails impossible.');
+    }
+  }
+
+  async function deleteBulkMessages() {
+    if (selectedBulkMessages.length === 0) {
+      return;
+    }
+
+    if (!window.confirm(`Supprimer ${selectedBulkMessages.length} mail(s) ? Ils ne seront pas reimportes par IMAP.`)) {
+      return;
+    }
+
+    const deletedIds = new Set(selectedBulkMessages.map((message) => message.id));
+    try {
+      await Promise.all(selectedBulkMessages.map((message) => api.deleteEmailMessage(message.id)));
+      if (selectedMessage && deletedIds.has(selectedMessage.id)) {
+        closeMessage();
+      }
+
+      setSelectedThreadKeys(new Set<string>());
+      setFeedback(`${selectedBulkMessages.length} mail(s) supprime(s). Ils ne seront pas reimportes lors des prochaines synchronisations IMAP.`);
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Suppression des mails impossible.');
+    }
   }
 
   function startReply(mode: 'single' | 'all') {
@@ -4656,9 +4737,35 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               </button>
             </div>
           </Panel>
+          <div className="email-bulk-actions">
+            <div>
+              <strong>{selectedBulkMessages.length}</strong> mail(s) selectionne(s)
+              {selectedThreadKeys.size > 0 && <span> dans {selectedThreadKeys.size} conversation(s)</span>}
+            </div>
+            <div className="table-actions">
+              <button className="secondary" type="button" disabled={visibleThreads.length === 0} onClick={toggleAllVisibleThreads}>
+                {allVisibleThreadsSelected ? 'Tout deselectionner' : 'Tout selectionner'}
+              </button>
+              <button className="secondary" type="button" disabled={selectedBulkMessages.length === 0} onClick={() => void markBulkMessagesRead()}>
+                Marquer lu
+              </button>
+              <button className="danger" type="button" disabled={selectedBulkMessages.length === 0} onClick={() => void deleteBulkMessages()}>
+                <Trash2 size={16} />
+                Supprimer
+              </button>
+            </div>
+          </div>
           <DataTable
-            columns={['Sujet', 'De', 'A', 'Sens', 'Statut', 'Lu', 'Date']}
+            columns={['Selection', 'Sujet', 'De', 'A', 'Sens', 'Statut', 'Lu', 'Date']}
             rows={visibleThreads.map((thread) => [
+              <input
+                key={thread.key}
+                aria-label={`Selectionner ${thread.subject}`}
+                checked={selectedThreadKeys.has(thread.key)}
+                type="checkbox"
+                onChange={(event) => toggleThreadSelection(thread.key, event.target.checked)}
+                onClick={(event) => event.stopPropagation()}
+              />,
               <span className="email-subject-cell">
                 {thread.hasAttachments && (
                   <span className="email-attachment-marker" title="Piece jointe">

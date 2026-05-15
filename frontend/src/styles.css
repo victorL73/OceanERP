@@ -905,6 +905,27 @@ th {
   color: #0f766e;
 }
 
+.email-bulk-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  border: 1px solid #dbe3ea;
+  border-radius: 6px;
+  background: #fff;
+  padding: 12px 16px;
+  color: #475569;
+}
+
+.email-bulk-actions strong {
+  color: #0f172a;
+}
+
+.email-bulk-actions span {
+  margin-left: 4px;
+}
+
 .email-attachments {
   display: grid;
   gap: 10px;
