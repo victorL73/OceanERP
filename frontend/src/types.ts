@@ -361,6 +361,8 @@ export type EmailMessage = {
   subject: string;
   from: string;
   to: string;
+  cc?: string;
+  bcc?: string;
   body: string;
   direction: string;
   status: string;

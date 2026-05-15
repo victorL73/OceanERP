@@ -102,6 +102,7 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Le module email journalise les envois, stocke les pieces jointes hors PostgreSQL et permet la synchronisation IMAP. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true`; sinon l'email reste journalise avec le statut `Logged` et l'interface indique explicitement qu'il n'a pas ete envoye.
 - `POST /api/emails/accounts/{id}/test-smtp` teste toujours la connexion et l'authentification SMTP de la boite, meme si l'envoi reel est desactive.
 - L'envoi d'un devis ne passe le devis en statut envoye que si le mail est effectivement parti avec le statut `Sent`.
+- Les emails entrants et sortants conservent les champs `Cc` et `Bcc` en metadonnees. Le SMTP envoie les destinataires Cci par enveloppe sans les afficher dans les entetes du message emis.
 - Les mots de passe SMTP/IMAP peuvent etre stockes chiffres en base avec `Secrets:EncryptionKey`, ou references par un secret d'environnement via `PasswordSecretName`. Les signatures HTML sont ajoutees automatiquement aux emails sortants.
 - Les administrateurs configurent la personnalisation des devis dans `Parametres > Devis` : nom et adresse de l'entreprise, telephone, email, site, TVA/SIRET, mentions, pied de page et logo. Le logo est stocke hors PostgreSQL dans le stockage documents.
 - La cle API PrestaShop est configuree dans `Parametres` par un administrateur et stockee sous forme protegee. La page PrestaShop sert a consulter l'etat et lancer les synchronisations.

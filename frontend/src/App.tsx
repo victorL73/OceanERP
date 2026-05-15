@@ -2003,6 +2003,8 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
   const [emailQuoteId, setEmailQuoteId] = useState<string | null>(null);
   const [mailAccountId, setMailAccountId] = useState('');
   const [emailTo, setEmailTo] = useState('');
+  const [emailCc, setEmailCc] = useState('');
+  const [emailBcc, setEmailBcc] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
   const [orderQuoteId, setOrderQuoteId] = useState<string | null>(null);
@@ -2116,6 +2118,8 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
     setEmailQuoteId(quote.id);
     setMailAccountId(activeMailAccounts[0]?.id ?? '');
     setEmailTo('');
+    setEmailCc('');
+    setEmailBcc('');
     setEmailSubject(`Devis ${quote.number}`);
     setEmailBody(`Bonjour,\n\nVeuillez trouver ci-joint le devis ${quote.number}.\n\nCordialement`);
     setQuoteFeedback(null);
@@ -2128,7 +2132,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
     }
 
     try {
-      await api.sendQuoteEmail(emailQuoteId, { mailAccountId, to: emailTo, subject: emailSubject, body: emailBody });
+      await api.sendQuoteEmail(emailQuoteId, { mailAccountId, to: emailTo, cc: emailCc || null, bcc: emailBcc || null, subject: emailSubject, body: emailBody });
       setEmailQuoteId(null);
       setQuoteFeedback('Devis envoye par email.');
       await onChanged();
@@ -2315,6 +2319,14 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
                 <label className="field">
                   <span>Destinataire</span>
                   <input required multiple type="email" value={emailTo} onChange={(event) => setEmailTo(event.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Cc</span>
+                  <input multiple type="email" value={emailCc} onChange={(event) => setEmailCc(event.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Cci</span>
+                  <input multiple type="email" value={emailBcc} onChange={(event) => setEmailBcc(event.target.value)} />
                 </label>
                 <label className="field full-field">
                   <span>Sujet</span>
@@ -4045,6 +4057,8 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [accountActive, setAccountActive] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [to, setTo] = useState('');
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -4075,8 +4089,8 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
         return true;
       }
 
-      return [message.subject, message.from, message.to, message.body, message.status]
-        .filter(Boolean)
+      return [message.subject, message.from, message.to, message.cc, message.bcc, message.body, message.status]
+        .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(term));
     }).sort((left, right) => emailMessageTimestamp(right) - emailMessageTimestamp(left));
   }, [messages, messageAccountFilter, messageSearch]);
@@ -4210,10 +4224,12 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     }
 
     try {
-      const sentMessage = await api.sendEmail({ mailAccountId, to, subject, body });
+      const sentMessage = await api.sendEmail({ mailAccountId, to, cc: cc || null, bcc: bcc || null, subject, body });
       setFeedback(emailSendFeedback(sentMessage));
       if (sentMessage.status === 'Sent') {
         setTo('');
+        setCc('');
+        setBcc('');
         setSubject('');
         setBody('');
       }
@@ -4319,15 +4335,22 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     const ownEmails = new Set(accounts.map((account) => account.email.toLowerCase()));
     const fromAddresses = extractEmailAddresses(selectedMessage.from);
     const toAddresses = extractEmailAddresses(selectedMessage.to);
-    const baseRecipients = selectedMessage.direction === 'Outgoing'
-      ? toAddresses
-      : mode === 'all'
-        ? [...fromAddresses, ...toAddresses]
-        : fromAddresses;
-    const recipients = uniqueEmailAddresses(baseRecipients, ownEmails);
+    const ccAddresses = extractEmailAddresses(selectedMessage.cc ?? '');
+    const toBaseRecipients = selectedMessage.direction === 'Outgoing' ? toAddresses : fromAddresses;
+    const ccBaseRecipients = mode === 'all'
+      ? selectedMessage.direction === 'Outgoing'
+        ? ccAddresses
+        : [...toAddresses, ...ccAddresses]
+      : [];
+    const recipients = uniqueEmailAddresses(toBaseRecipients, ownEmails);
+    const ccRecipients = mode === 'all'
+      ? uniqueEmailAddresses(ccBaseRecipients, new Set([...ownEmails, ...recipients.map((value) => value.toLowerCase())]))
+      : [];
 
     setSelectedAccountId(selectedAccount?.id ?? activeAccounts[0]?.id ?? '');
     setTo((recipients.length > 0 ? recipients : uniqueEmailAddresses(toAddresses, new Set())).join(', '));
+    setCc(ccRecipients.join(', '));
+    setBcc('');
     setSubject(selectedMessage.subject.trim().toLowerCase().startsWith('re:') ? selectedMessage.subject : `Re: ${selectedMessage.subject}`);
     setBody(buildQuotedEmailBody(selectedMessage, formatEmailDate(emailMessageDateValue(selectedMessage))));
     closeMessage();
@@ -4506,6 +4529,14 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
                 <input required multiple type="email" placeholder="client@example.com" value={to} onChange={(event) => setTo(event.target.value)} />
               </label>
               <label className="field">
+                <span>Cc</span>
+                <input multiple type="email" placeholder="copie@example.com" value={cc} onChange={(event) => setCc(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Cci</span>
+                <input multiple type="email" placeholder="copie-cachee@example.com" value={bcc} onChange={(event) => setBcc(event.target.value)} />
+              </label>
+              <label className="field">
                 <span>Sujet</span>
                 <input required placeholder="Sujet" value={subject} onChange={(event) => setSubject(event.target.value)} />
               </label>
@@ -4651,6 +4682,8 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               <DetailItem label="Compte" value={selectedMessage.mailAccountId ? accountById.get(selectedMessage.mailAccountId)?.email ?? selectedMessage.mailAccountId : '-'} />
               <DetailItem label="De" value={selectedMessage.from} />
               <DetailItem label="A" value={selectedMessage.to} />
+              {selectedMessage.cc && <DetailItem label="Cc" value={selectedMessage.cc} />}
+              {selectedMessage.bcc && <DetailItem label="Cci" value={selectedMessage.bcc} />}
               <DetailItem label="Statut" value={selectedMessage.status} />
               <DetailItem label="Lecture" value={selectedMessage.isRead ? 'Lu' : 'Non lu'} />
               <DetailItem label="Date" value={formatEmailDate(emailMessageDateValue(selectedMessage))} />

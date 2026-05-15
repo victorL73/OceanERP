@@ -252,7 +252,7 @@ public sealed class QuoteService(
             ?? $"Bonjour,\n\nVeuillez trouver ci-joint le devis {quote.Number} d'un montant total de {quote.Total:0.00} {quote.Currency}.\n\nCordialement,\nOceanERP";
 
         var sendResult = await emailService.SendAsync(
-            new SendEmailRequest(request.MailAccountId, request.To, subject, body),
+            new SendEmailRequest(request.MailAccountId, request.To, subject, body, request.Cc, request.Bcc),
             [new StoredEmailAttachment(document.FileName, document.MimeType, document.StoragePath, document.Size)],
             [new EmailLinkTarget("quotes", quote.Id)],
             cancellationToken);

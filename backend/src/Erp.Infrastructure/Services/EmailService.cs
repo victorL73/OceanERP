@@ -294,7 +294,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
-            query = query.Where(x => x.Subject.Contains(term) || x.From.Contains(term) || x.To.Contains(term) || x.Body.Contains(term));
+            query = query.Where(x => x.Subject.Contains(term) || x.From.Contains(term) || x.To.Contains(term) || (x.Cc != null && x.Cc.Contains(term)) || (x.Bcc != null && x.Bcc.Contains(term)) || x.Body.Contains(term));
         }
 
         var total = await query.CountAsync(cancellationToken);
@@ -380,6 +380,18 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return Result<EmailMessageDto>.Failure(recipients.Error!);
         }
 
+        var ccRecipients = ParseOptionalAddresses(request.Cc, "Cc");
+        if (!ccRecipients.Succeeded)
+        {
+            return Result<EmailMessageDto>.Failure(ccRecipients.Error!);
+        }
+
+        var bccRecipients = ParseOptionalAddresses(request.Bcc, "Cci");
+        if (!bccRecipients.Succeeded)
+        {
+            return Result<EmailMessageDto>.Failure(bccRecipients.Error!);
+        }
+
         if (string.IsNullOrWhiteSpace(request.Subject))
         {
             return Result<EmailMessageDto>.Failure("Sujet obligatoire.");
@@ -391,7 +403,9 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         {
             MailAccountId = account.Id,
             From = account.Email,
-            To = request.To.Trim(),
+            To = FormatAddressList(recipients.Value!),
+            Cc = FormatOptionalAddressList(ccRecipients.Value!),
+            Bcc = FormatOptionalAddressList(bccRecipients.Value!),
             Subject = request.Subject.Trim(),
             Body = body,
             Direction = "Outgoing",
@@ -425,7 +439,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
         if (smtpSendingEnabled)
         {
-            var sendResult = await TrySendSmtpAsync(account, request.Subject, body, attachments, recipients.Value!, cancellationToken);
+            var sendResult = await TrySendSmtpAsync(account, request.Subject, body, attachments, recipients.Value!, ccRecipients.Value!, bccRecipients.Value!, cancellationToken);
             if (!sendResult.Succeeded)
             {
                 message.Status = "Failed";
@@ -505,7 +519,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         return Result.Success();
     }
 
-    private async Task<Result> TrySendSmtpAsync(MailAccount account, string subject, string body, IReadOnlyList<StoredEmailAttachment> attachments, InternetAddressList recipients, CancellationToken cancellationToken)
+    private async Task<Result> TrySendSmtpAsync(MailAccount account, string subject, string body, IReadOnlyList<StoredEmailAttachment> attachments, InternetAddressList recipients, InternetAddressList ccRecipients, InternetAddressList bccRecipients, CancellationToken cancellationToken)
     {
         var serverValues = await ResolveEffectiveServerValuesAsync(account, cancellationToken);
         if (!serverValues.Succeeded)
@@ -522,9 +536,16 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         try
         {
             var mime = new MimeMessage();
-            mime.From.Add(new MailboxAddress(account.DisplayName ?? account.Email, account.Email));
+            var envelopeSender = new MailboxAddress(account.DisplayName ?? account.Email, account.Email);
+            mime.From.Add(envelopeSender);
             mime.To.AddRange(recipients);
+            mime.Cc.AddRange(ccRecipients);
             mime.Subject = subject;
+            var envelopeRecipients = recipients.Mailboxes
+                .Concat(ccRecipients.Mailboxes)
+                .Concat(bccRecipients.Mailboxes)
+                .DistinctBy(x => x.Address, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             var builder = new BodyBuilder();
             if (LooksLikeHtml(body))
@@ -548,7 +569,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             using var smtp = new SmtpClient();
             await smtp.ConnectAsync(serverValues.Value!.SmtpHost, serverValues.Value.SmtpPort, ResolveSmtpSocketOptions(serverValues.Value), cancellationToken);
             await smtp.AuthenticateAsync(account.UserName ?? account.Email, password.Value!, cancellationToken);
-            await smtp.SendAsync(mime, cancellationToken);
+            await smtp.SendAsync(FormatOptions.Default, mime, envelopeSender, envelopeRecipients, cancellationToken);
             await smtp.DisconnectAsync(true, cancellationToken);
             return Result.Success();
         }
@@ -620,6 +641,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
                         existingMessage.ReceivedAt ??= NormalizeMailDate(mime.Date);
                     }
 
+                    existingMessage.Cc ??= NormalizeLength(mime.Cc.ToString(), 1000);
+                    existingMessage.Bcc ??= NormalizeLength(mime.Bcc.ToString(), 1000);
                     continue;
                 }
 
@@ -630,6 +653,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
                     Subject = NormalizeLength(mime.Subject, 300) ?? "(Sans sujet)",
                     From = NormalizeLength(mime.From.Mailboxes.FirstOrDefault()?.Address ?? mime.From.ToString(), 320) ?? string.Empty,
                     To = NormalizeLength(mime.To.ToString(), 1000) ?? account.Email,
+                    Cc = NormalizeLength(mime.Cc.ToString(), 1000),
+                    Bcc = NormalizeLength(mime.Bcc.ToString(), 1000),
                     Body = body,
                     Direction = "Incoming",
                     Status = "Received",
@@ -781,6 +806,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             message.Subject = NormalizeLength(mime.Subject, 300) ?? message.Subject;
             message.From = NormalizeLength(mime.From.Mailboxes.FirstOrDefault()?.Address ?? mime.From.ToString(), 320) ?? message.From;
             message.To = NormalizeLength(mime.To.ToString(), 1000) ?? message.To;
+            message.Cc = NormalizeLength(mime.Cc.ToString(), 1000);
+            message.Bcc = NormalizeLength(mime.Bcc.ToString(), 1000);
             message.ReceivedAt = NormalizeMailDate(mime.Date);
             await ReplaceIncomingAttachmentsAsync(message, mime, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
@@ -1143,6 +1170,29 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         }
     }
 
+    private static Result<InternetAddressList> ParseOptionalAddresses(string? value, string label)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Result<InternetAddressList>.Success([]);
+        }
+
+        return ParseAddresses(value, label);
+    }
+
+    private static string FormatAddressList(InternetAddressList addresses)
+        => NormalizeLength(addresses.ToString(false), 1000) ?? string.Empty;
+
+    private static string? FormatOptionalAddressList(InternetAddressList addresses)
+    {
+        if (addresses.Count == 0)
+        {
+            return null;
+        }
+
+        return FormatAddressList(addresses);
+    }
+
     private static SecureSocketOptions ResolveSmtpSocketOptions(MailServerValues serverValues)
     {
         if (!serverValues.UseSsl)
@@ -1307,6 +1357,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             message.Subject,
             message.From,
             message.To,
+            message.Cc,
+            message.Bcc,
             message.Body,
             message.Direction,
             message.Status,

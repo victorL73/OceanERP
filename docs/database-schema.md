@@ -60,6 +60,10 @@ La migration `EmailModuleCompletion` finalise le module email :
 - `EmailMessages` rattache chaque message a une boite, stocke l'identifiant IMAP externe, les erreurs et la date de reception.
 - `EmailAttachments` stocke uniquement les metadonnees; le binaire reste dans le stockage documents.
 
+La migration `EmailCcBcc` ajoute :
+
+- `EmailMessages.Cc` et `EmailMessages.Bcc` pour conserver les copies et copies cachees en metadonnees email.
+
 La migration `QuoteDocumentSettings` ajoute :
 
 - `QuoteDocumentSettings` pour stocker les metadonnees d'identite entreprise utilisees sur les PDF de devis.

@@ -387,6 +387,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.Subject).HasMaxLength(300);
             entity.Property(x => x.From).HasMaxLength(320);
             entity.Property(x => x.To).HasMaxLength(1000);
+            entity.Property(x => x.Cc).HasMaxLength(1000);
+            entity.Property(x => x.Bcc).HasMaxLength(1000);
             entity.Property(x => x.ExternalMessageId).HasMaxLength(512);
             entity.Property(x => x.Direction).HasMaxLength(40);
             entity.Property(x => x.Status).HasMaxLength(80);

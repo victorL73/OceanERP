@@ -150,7 +150,7 @@ export class ApiClient {
     return this.request<QuoteDocument>(`/api/quotes/${quoteId}/pdf`, { method: 'POST', auth: true });
   }
 
-  sendQuoteEmail(quoteId: string, payload: { mailAccountId: string; to: string; subject?: string | null; body?: string | null }) {
+  sendQuoteEmail(quoteId: string, payload: { mailAccountId: string; to: string; subject?: string | null; body?: string | null; cc?: string | null; bcc?: string | null }) {
     return this.request<Quote>(`/api/quotes/${quoteId}/email`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
@@ -432,7 +432,7 @@ export class ApiClient {
     await this.download(`/api/emails/messages/${messageId}/attachments/${attachmentId}/download`, fileName);
   }
 
-  sendEmail(payload: { mailAccountId: string; to: string; subject: string; body: string }) {
+  sendEmail(payload: { mailAccountId: string; to: string; subject: string; body: string; cc?: string | null; bcc?: string | null }) {
     return this.request<EmailMessage>('/api/emails/send', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
