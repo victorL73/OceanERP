@@ -1251,10 +1251,25 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
         var signature = signatureHtml.Trim();
         var bodyHtml = LooksLikeHtml(body)
-            ? body
+            ? ApplySignatureToHtml(body, signature)
             : ApplySignatureToPlainText(body, signature);
 
-        return LooksLikeHtml(body) ? $"{bodyHtml}<br><br>{signature}" : bodyHtml;
+        return bodyHtml;
+    }
+
+    private static string ApplySignatureToHtml(string body, string signatureHtml)
+    {
+        var quotedStart = FindHtmlQuotedConversationStart(body);
+        if (quotedStart < 0)
+        {
+            return $"{body}<br><br>{signatureHtml}";
+        }
+
+        var replyHtml = body[..quotedStart].TrimEnd();
+        var quotedHtml = body[quotedStart..].TrimStart();
+        return string.IsNullOrWhiteSpace(StripHtmlFallback(replyHtml))
+            ? $"{signatureHtml}<br><br>{quotedHtml}"
+            : $"{replyHtml}<br><br>{signatureHtml}<br><br>{quotedHtml}";
     }
 
     private static string ApplySignatureToPlainText(string body, string signatureHtml)
@@ -1269,7 +1284,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         var replyText = normalized[..quotedStart].TrimEnd();
         var quotedText = normalized[quotedStart..].TrimStart();
         var replyHtml = PlainTextToHtml(replyText);
-        var quotedHtml = PlainTextToHtml(quotedText);
+        var quotedHtml = QuotedConversationToHtml(quotedText);
 
         return string.IsNullOrWhiteSpace(replyText)
             ? $"{signatureHtml}<br><br>{quotedHtml}"
@@ -1278,12 +1293,63 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private static int FindQuotedConversationStart(string body)
     {
+        var markerMatch = System.Text.RegularExpressions.Regex.Match(
+            body,
+            "(^|\\n)\\s*(-{2,}\\s*Message\\s+(precedent|transfere)\\s*-{2,})",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (markerMatch.Success)
+        {
+            return markerMatch.Groups[2].Index;
+        }
+
         var match = System.Text.RegularExpressions.Regex.Match(
             body,
-            "(^|\\n{2,})(Le\\s+.+?\\s+a\\s+(ecrit|\\u00e9crit)\\s*:)",
+            "(Le\\s+\\d{1,2}/\\d{1,2}/\\d{4}.{0,240}?\\s+a\\s+(ecrit|\\u00e9crit)\\s*:)",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-        return match.Success ? match.Groups[2].Index : -1;
+        return match.Success ? match.Groups[1].Index : -1;
+    }
+
+    private static int FindHtmlQuotedConversationStart(string body)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            body,
+            "(<blockquote\\b|-{2,}\\s*Message\\s+(precedent|transfere)\\s*-{2,}|Le\\s+\\d{1,2}/\\d{1,2}/\\d{4}.{0,240}?\\s+a\\s+(ecrit|\\u00e9crit)\\s*:)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        return match.Success ? match.Index : -1;
+    }
+
+    private static string QuotedConversationToHtml(string value)
+    {
+        var normalized = value.Replace("\r\n", "\n").Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        var lines = normalized.Split('\n').ToList();
+        if (lines.Count > 0 && System.Text.RegularExpressions.Regex.IsMatch(lines[0], "^-{2,}\\s*Message\\s+(precedent|transfere)\\s*-{2,}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+        {
+            lines.RemoveAt(0);
+        }
+
+        var headerLines = new List<string>();
+        while (lines.Count > 0 && !lines[0].TrimStart().StartsWith(">"))
+        {
+            headerLines.Add(lines[0].Trim());
+            lines.RemoveAt(0);
+        }
+
+        var quoteLines = lines
+            .Select(line => System.Text.RegularExpressions.Regex.Replace(line, "^\\s*>\\s?", string.Empty))
+            .ToList();
+
+        var headerHtml = headerLines.Count == 0
+            ? string.Empty
+            : $"<div style=\"margin:12px 0 6px;color:#64748b;font-size:13px;\">{PlainTextToHtml(string.Join("\n", headerLines))}</div>";
+        var quoteHtml = PlainTextToHtml(string.Join("\n", quoteLines).Trim());
+        return $"{headerHtml}<blockquote style=\"margin:0 0 0 12px;padding-left:12px;border-left:3px solid #cbd5e1;color:#475569;\">{quoteHtml}</blockquote>";
     }
 
     private static string PlainTextToHtml(string value)

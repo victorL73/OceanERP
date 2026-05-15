@@ -96,6 +96,32 @@ public sealed class EmailApiTests(ApiFactory factory) : IClassFixture<ApiFactory
     }
 
     [Fact]
+    public async Task ReplyEmails_PlaceSignatureBeforeQuotedHistory()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var accountResponse = await client.PostAsJsonAsync("/api/emails/accounts", new CreateMailAccountRequest(
+            "reply@example.com",
+            "smtp.example.com",
+            "imap.example.com",
+            SignatureHtml: "<p>Signature OceanERP</p>"));
+        accountResponse.EnsureSuccessStatusCode();
+        var account = (await accountResponse.Content.ReadFromJsonAsync<MailAccountDto>())!;
+
+        const string replyBody = "Nouvelle reponse\n\n--- Message precedent ---\nLe 15/05/2026 19:04:31, client@example.com a ecrit :\n> Ancien message";
+        var sendResponse = await client.PostAsJsonAsync("/api/emails/send", new SendEmailRequest(account.Id, "client@example.com", "Re: Sujet", replyBody));
+        sendResponse.EnsureSuccessStatusCode();
+        var message = (await sendResponse.Content.ReadFromJsonAsync<EmailMessageDto>())!;
+
+        var signatureIndex = message.Body.IndexOf("Signature OceanERP", StringComparison.OrdinalIgnoreCase);
+        var quoteIndex = message.Body.IndexOf("<blockquote", StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(signatureIndex >= 0);
+        Assert.True(quoteIndex > signatureIndex);
+        Assert.Contains("Ancien message", message.Body);
+        Assert.DoesNotContain("&gt; Ancien message", message.Body);
+    }
+
+    [Fact]
     public async Task MailServerSettings_AreGlobalAndAccountsCanUseHtmlSignatures()
     {
         using var client = await CreateAuthenticatedClientAsync();

@@ -3967,6 +3967,25 @@ function emailBodyToPlainText(value: string) {
     : normalizeQuotedEmailText(value);
 }
 
+function stripExistingQuotedHistory(value: string) {
+  const normalized = normalizeQuotedEmailText(value);
+  const candidates = [
+    normalized.search(/\n?\s*-{2,}\s*Message\s+(precedent|transfere)\s*-{2,}/i),
+    normalized.search(/\n?\s*Le\s+\d{1,2}\/\d{1,2}\/\d{4}[\s\S]{0,240}?\s+a\s+(ecrit|\u00e9crit)\s*:/i),
+    normalized.search(/\n?\s*On\s+[\s\S]{0,240}?\s+wrote\s*:/i)
+  ].filter((index) => index >= 0);
+
+  if (candidates.length === 0) {
+    return normalized;
+  }
+
+  return normalized.slice(0, Math.min(...candidates)).trim();
+}
+
+function emailBodyToReplyQuoteText(value: string) {
+  return stripExistingQuotedHistory(emailBodyToPlainText(value));
+}
+
 function quotePlainText(value: string) {
   const cleaned = normalizeQuotedEmailText(value);
   if (!cleaned) {
@@ -3980,7 +3999,7 @@ function quotePlainText(value: string) {
 }
 
 function buildQuotedEmailBody(message: EmailMessage, formattedDate: string) {
-  return `\n\nLe ${formattedDate}, ${message.from} a ecrit :\n${quotePlainText(emailBodyToPlainText(message.body))}`;
+  return `\n\n--- Message precedent ---\nLe ${formattedDate}, ${message.from} a ecrit :\n${quotePlainText(emailBodyToReplyQuoteText(message.body))}`;
 }
 
 function buildForwardedEmailBody(message: EmailMessage, formattedDate: string) {
