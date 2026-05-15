@@ -1177,11 +1177,45 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return body;
         }
 
+        var signature = signatureHtml.Trim();
         var bodyHtml = LooksLikeHtml(body)
             ? body
-            : System.Net.WebUtility.HtmlEncode(body).Replace("\r\n", "<br>").Replace("\n", "<br>");
-        return $"{bodyHtml}<br><br>{signatureHtml.Trim()}";
+            : ApplySignatureToPlainText(body, signature);
+
+        return LooksLikeHtml(body) ? $"{bodyHtml}<br><br>{signature}" : bodyHtml;
     }
+
+    private static string ApplySignatureToPlainText(string body, string signatureHtml)
+    {
+        var normalized = body.Replace("\r\n", "\n");
+        var quotedStart = FindQuotedConversationStart(normalized);
+        if (quotedStart < 0)
+        {
+            return $"{PlainTextToHtml(normalized)}<br><br>{signatureHtml}";
+        }
+
+        var replyText = normalized[..quotedStart].TrimEnd();
+        var quotedText = normalized[quotedStart..].TrimStart();
+        var replyHtml = PlainTextToHtml(replyText);
+        var quotedHtml = PlainTextToHtml(quotedText);
+
+        return string.IsNullOrWhiteSpace(replyText)
+            ? $"{signatureHtml}<br><br>{quotedHtml}"
+            : $"{replyHtml}<br><br>{signatureHtml}<br><br>{quotedHtml}";
+    }
+
+    private static int FindQuotedConversationStart(string body)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            body,
+            "(^|\\n{2,})(Le\\s+.+?\\s+a\\s+(ecrit|\\u00e9crit)\\s*:)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        return match.Success ? match.Groups[2].Index : -1;
+    }
+
+    private static string PlainTextToHtml(string value)
+        => System.Net.WebUtility.HtmlEncode(value).Replace("\n", "<br>");
 
     private static bool LooksLikeHtml(string? value)
         => !string.IsNullOrWhiteSpace(value) && System.Text.RegularExpressions.Regex.IsMatch(value, "<\\s*[a-zA-Z][^>]*>");
