@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
@@ -36,6 +36,8 @@ const viewLabels: Record<ViewKey, string> = {
   drive: 'Drive',
   notifications: 'Notifications'
 };
+
+const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
 
 type WarehouseDraft = {
   name: string;
@@ -1025,8 +1027,8 @@ function MailAccountSettings({
               Synchronisation IMAP automatique
             </label>
             <label className="field">
-              <span>Frequence IMAP automatique (minutes)</span>
-              <input required type="number" min="1" max="1440" value={imapSyncIntervalMinutes} onChange={(event) => setImapSyncIntervalMinutes(event.target.value)} />
+              <span>Frequence IMAP automatique (minutes, 0 = rapide)</span>
+              <input required type="number" min="0" max="1440" value={imapSyncIntervalMinutes} onChange={(event) => setImapSyncIntervalMinutes(event.target.value)} />
             </label>
             <div className="form-actions">
               <button className="primary" type="submit">
@@ -1035,7 +1037,7 @@ function MailAccountSettings({
               </button>
             </div>
           </form>
-          <p className="panel-note">Ces serveurs sont communs a toutes les boites. Les utilisateurs ne gerent pas les hôtes SMTP/IMAP.</p>
+          <p className="panel-note">Ces serveurs sont communs a toutes les boites. Les utilisateurs ne gerent pas les hotes SMTP/IMAP. Mettez 0 pour une releve serveur rapide toutes les 15 secondes.</p>
         </Panel>
       )}
 
@@ -4162,12 +4164,16 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
   const [messageSearch, setMessageSearch] = useState('');
   const [messageAccountFilter, setMessageAccountFilter] = useState('');
   const [syncingMessages, setSyncingMessages] = useState(false);
+  const [autoRefreshingMessages, setAutoRefreshingMessages] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [templateSubject, setTemplateSubject] = useState('');
   const [templateBody, setTemplateBody] = useState('');
   const [templateActive, setTemplateActive] = useState(true);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const onChangedRef = useRef(onChanged);
+  const messageAccountFilterRef = useRef(messageAccountFilter);
+  const emailSyncInProgressRef = useRef(false);
 
   const selectedMessage = selectedMessageDetail ?? (selectedMessageId ? messages.find((message) => message.id === selectedMessageId) : undefined);
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
@@ -4233,6 +4239,50 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
       return next.size === current.size ? current : next;
     });
   }, [visibleThreads]);
+
+  useEffect(() => {
+    onChangedRef.current = onChanged;
+  }, [onChanged]);
+
+  useEffect(() => {
+    messageAccountFilterRef.current = messageAccountFilter;
+  }, [messageAccountFilter]);
+
+  useEffect(() => {
+    if (tab !== 'messages' || activeAccounts.length === 0) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | undefined;
+
+    const scheduleNextRefresh = () => {
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+
+        if (document.visibilityState !== 'visible') {
+          scheduleNextRefresh();
+          return;
+        }
+
+        void syncMessagesFromImap(false).finally(() => {
+          if (!cancelled) {
+            scheduleNextRefresh();
+          }
+        });
+      }, EMAIL_JOURNAL_AUTO_REFRESH_MS);
+    };
+
+    scheduleNextRefresh();
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [activeAccounts.length, tab]);
 
   function resetAccountForm() {
     setEditingAccountId('');
@@ -4582,23 +4632,58 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
     return `${result.imported} email(s) importe(s) depuis IMAP.`;
   }
 
-  async function refreshMessagesFromImap() {
-    setFeedback(null);
-    setSyncingMessages(true);
+  async function syncMessagesFromImap(showFeedback: boolean) {
+    if (emailSyncInProgressRef.current) {
+      return;
+    }
+
+    emailSyncInProgressRef.current = true;
+    if (showFeedback) {
+      setFeedback(null);
+      setSyncingMessages(true);
+    } else {
+      setAutoRefreshingMessages(true);
+    }
+
     try {
-      if (messageAccountFilter) {
-        const result = await api.syncMailAccount(messageAccountFilter);
-        setFeedback(`${result.imported} email(s) importe(s) depuis IMAP.`);
+      const accountFilter = messageAccountFilterRef.current;
+      let imported = 0;
+      let nextFeedback = '';
+
+      if (accountFilter) {
+        const result = await api.syncMailAccount(accountFilter);
+        imported = result.imported;
+        nextFeedback = `${result.imported} email(s) importe(s) depuis IMAP.`;
       } else {
-        setFeedback(summarizeSyncResult(await api.syncMailAccounts()));
+        const result = await api.syncMailAccounts();
+        imported = result.imported;
+        nextFeedback = summarizeSyncResult(result);
       }
 
-      await onChanged();
+      if (showFeedback || imported > 0) {
+        setFeedback(nextFeedback);
+      }
+
+      await onChangedRef.current();
     } catch (err) {
-      setFeedback(err instanceof Error ? err.message : 'Synchronisation IMAP impossible.');
+      if (showFeedback) {
+        setFeedback(err instanceof Error ? err.message : 'Synchronisation IMAP impossible.');
+      } else {
+        console.warn('Automatic IMAP refresh failed.', err);
+      }
     } finally {
-      setSyncingMessages(false);
+      if (showFeedback) {
+        setSyncingMessages(false);
+      } else {
+        setAutoRefreshingMessages(false);
+      }
+
+      emailSyncInProgressRef.current = false;
     }
+  }
+
+  async function refreshMessagesFromImap() {
+    await syncMessagesFromImap(true);
   }
 
   return (
@@ -4789,9 +4874,9 @@ function Emails({ accounts, messages, templates, onChanged }: { accounts: MailAc
               <button className="secondary" type="button" onClick={() => { setMessageSearch(''); setMessageAccountFilter(''); }}>
                 Reinitialiser
               </button>
-              <button className="primary" type="button" disabled={syncingMessages} onClick={() => void refreshMessagesFromImap()}>
+              <button className="primary" type="button" disabled={syncingMessages || autoRefreshingMessages} onClick={() => void refreshMessagesFromImap()}>
                 <Mail size={16} />
-                {syncingMessages ? 'Synchronisation...' : 'Actualiser'}
+                {syncingMessages ? 'Synchronisation...' : autoRefreshingMessages ? 'Actualisation auto...' : 'Actualiser'}
               </button>
             </div>
           </Panel>

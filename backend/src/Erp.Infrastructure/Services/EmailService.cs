@@ -41,9 +41,9 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return Result<MailServerSettingsDto>.Failure(validation.Error!);
         }
 
-        if (request.ImapSyncIntervalMinutes is < 1 or > 1440)
+        if (request.ImapSyncIntervalMinutes is < 0 or > 1440)
         {
-            return Result<MailServerSettingsDto>.Failure("L'intervalle de synchronisation IMAP doit etre compris entre 1 et 1440 minutes.");
+            return Result<MailServerSettingsDto>.Failure("L'intervalle de synchronisation IMAP doit etre compris entre 0 et 1440 minutes. La valeur 0 active le mode rapide.");
         }
 
         var settings = await db.MailServerSettings
@@ -1113,7 +1113,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         settings.ImapPort = imapPort;
         settings.UseSsl = useSsl;
         settings.ImapAutoSyncEnabled = imapAutoSyncEnabled;
-        settings.ImapSyncIntervalMinutes = Math.Clamp(imapSyncIntervalMinutes, 1, 1440);
+        settings.ImapSyncIntervalMinutes = Math.Clamp(imapSyncIntervalMinutes, 0, 1440);
     }
 
     private static void ApplyAccount(MailAccount account, string email, MailServerValues serverValues, string? userName, string? passwordSecretName, string? displayName, string? signatureHtml, bool isActive)
@@ -1428,7 +1428,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
     private static MailServerSettingsDto Map(MailServerSettings? settings)
         => settings is null
             ? new MailServerSettingsDto(null, string.Empty, 587, string.Empty, 993, true, true, 5, false)
-            : new MailServerSettingsDto(settings.Id, settings.SmtpHost, settings.SmtpPort, settings.ImapHost, settings.ImapPort, settings.UseSsl, settings.ImapAutoSyncEnabled, Math.Clamp(settings.ImapSyncIntervalMinutes, 1, 1440), IsServerConfigured(settings));
+            : new MailServerSettingsDto(settings.Id, settings.SmtpHost, settings.SmtpPort, settings.ImapHost, settings.ImapPort, settings.UseSsl, settings.ImapAutoSyncEnabled, Math.Clamp(settings.ImapSyncIntervalMinutes, 0, 1440), IsServerConfigured(settings));
 
     private static MailAccountDto Map(MailAccount account)
         => new(account.Id, account.Email, account.DisplayName, account.SignatureHtml, account.SmtpHost, account.SmtpPort, account.ImapHost, account.ImapPort, account.UseSsl, account.UserName, account.PasswordSecretName, HasPassword(account), account.IsActive, account.Accesses.Select(x => x.UserId).OrderBy(x => x).ToList());

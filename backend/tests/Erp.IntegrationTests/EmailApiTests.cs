@@ -130,10 +130,13 @@ public sealed class EmailApiTests(ApiFactory factory) : IClassFixture<ApiFactory
             "imap.global.local",
             2525,
             1993,
-            true));
+            true,
+            true,
+            0));
         settingsResponse.EnsureSuccessStatusCode();
         var settings = (await settingsResponse.Content.ReadFromJsonAsync<MailServerSettingsDto>())!;
         Assert.True(settings.IsConfigured);
+        Assert.Equal(0, settings.ImapSyncIntervalMinutes);
 
         var accountResponse = await client.PostAsJsonAsync("/api/emails/accounts", new CreateMailAccountRequest(
             "signature@example.com",

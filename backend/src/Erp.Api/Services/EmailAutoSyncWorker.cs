@@ -8,10 +8,11 @@ public sealed class EmailAutoSyncWorker(
     ILogger<EmailAutoSyncWorker> logger) : BackgroundService
 {
     private const int SyncLimit = 100;
+    private static readonly TimeSpan FastSyncDelay = TimeSpan.FromSeconds(15);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await DelaySafelyAsync(TimeSpan.FromSeconds(20), stoppingToken);
+        await DelaySafelyAsync(TimeSpan.FromSeconds(5), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -38,7 +39,7 @@ public sealed class EmailAutoSyncWorker(
         await using var scope = serviceProvider.CreateAsyncScope();
         var emails = scope.ServiceProvider.GetRequiredService<IEmailService>();
         var settings = await emails.GetServerSettingsAsync(cancellationToken);
-        var delay = TimeSpan.FromMinutes(Math.Clamp(settings.ImapSyncIntervalMinutes, 1, 1440));
+        var delay = ResolveDelay(settings.ImapSyncIntervalMinutes);
 
         if (!settings.IsConfigured || !settings.ImapAutoSyncEnabled)
         {
@@ -53,6 +54,11 @@ public sealed class EmailAutoSyncWorker(
 
         return delay;
     }
+
+    private static TimeSpan ResolveDelay(int configuredMinutes)
+        => configuredMinutes <= 0
+            ? FastSyncDelay
+            : TimeSpan.FromMinutes(Math.Clamp(configuredMinutes, 1, 1440));
 
     private static async Task NotifyImportedMessagesAsync(IServiceProvider services, EmailSyncSummaryDto summary, CancellationToken cancellationToken)
     {

@@ -88,6 +88,8 @@ Le bouton `Test SMTP` teste la connexion et l'authentification SMTP de la boite.
 
 Les hotes SMTP/IMAP ne sont pas definis dans `.env` : un administrateur les renseigne dans `Parametres > Boites mail`. Les boites mail utilisent ces serveurs communs; l'adresse et le mot de passe de chaque boite restent geres par l'administrateur. `SMTP_MAIN_PASSWORD` reste utile uniquement si une boite reference ce secret au lieu de stocker son mot de passe chiffre en base.
 
+Dans `Parametres > Boites mail`, la frequence IMAP automatique est exprimee en minutes. La valeur `0` active la releve serveur rapide toutes les 15 secondes; a utiliser si les boites doivent apparaitre presque immediatement dans l'ERP.
+
 Le logo des devis configure dans `Parametres > Devis` est stocke dans le volume `oceanerp_documents`; il est donc inclus dans les sauvegardes documents.
 
 ## Commandes utiles
