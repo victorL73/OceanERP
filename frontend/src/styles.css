@@ -28,17 +28,24 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 280px 1fr;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
   gap: 24px;
+  height: 100vh;
+  min-height: 0;
   border-right: 1px solid #e5e7eb;
   background: #0f172a;
   color: #f8fafc;
   padding: 22px;
+  overflow: hidden;
 }
 
 .brand {
@@ -74,7 +81,12 @@ button {
 
 .nav-list {
   display: grid;
+  flex: 1;
   gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-color: #334155 transparent;
 }
 
 .nav-list button,
@@ -105,6 +117,7 @@ button {
 .account-button {
   display: grid;
   grid-template-columns: 18px 1fr;
+  flex: 0 0 auto;
   margin-top: auto;
 }
 
@@ -122,10 +135,13 @@ button {
 }
 
 .logout {
+  flex: 0 0 auto;
   margin-top: 0;
 }
 
 .workspace {
+  min-width: 0;
+  height: 100vh;
   padding: 28px;
   overflow: auto;
 }
@@ -1907,6 +1923,8 @@ button.drive-main {
 @media (max-width: 880px) {
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .sidebar {
@@ -1914,12 +1932,17 @@ button.drive-main {
     top: 0;
     z-index: 10;
     display: block;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
     padding: 14px;
   }
 
   .nav-list {
     grid-template-columns: repeat(3, 1fr);
     margin-top: 14px;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .nav-list button,
@@ -1936,6 +1959,7 @@ button.drive-main {
   }
 
   .workspace {
+    height: auto;
     padding: 18px;
   }
 
