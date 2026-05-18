@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Erp.Application.Common;
 using Erp.Application.Documents;
 using Erp.Domain.Documents;
@@ -19,6 +21,10 @@ public sealed class OnlyOfficeService(
     private static readonly HashSet<string> WordFileTypes = new(StringComparer.OrdinalIgnoreCase) { "doc", "docx", "odt", "rtf", "txt" };
     private static readonly HashSet<string> CellFileTypes = new(StringComparer.OrdinalIgnoreCase) { "xls", "xlsx", "ods", "csv" };
     private static readonly HashSet<string> SlideFileTypes = new(StringComparer.OrdinalIgnoreCase) { "ppt", "pptx", "odp" };
+    private static readonly JsonSerializerOptions JwtJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     public async Task<Result<OnlyOfficeConfigDto>> GetConfigAsync(Guid driveItemId, Uri requestBaseUri, CancellationToken cancellationToken)
     {
@@ -35,26 +41,40 @@ public sealed class OnlyOfficeService(
             return Result<OnlyOfficeConfigDto>.Failure("Ce type de fichier n'est pas pris en charge par ONLYOFFICE.");
         }
 
-        var documentServerUrl = configuration["OnlyOffice:DocumentServerUrl"]?.TrimEnd('/') ?? "/onlyoffice";
-        var publicBaseUrl = configuration["App:PublicBaseUrl"]?.TrimEnd('/') ?? requestBaseUri.ToString().TrimEnd('/');
+        var configuredDocumentServerUrl = configuration["OnlyOffice:DocumentServerUrl"];
+        var documentServerUrl = string.IsNullOrWhiteSpace(configuredDocumentServerUrl)
+            ? "/onlyoffice"
+            : configuredDocumentServerUrl.TrimEnd('/');
+        var configuredPublicBaseUrl = configuration["App:PublicBaseUrl"];
+        var publicBaseUrl = string.IsNullOrWhiteSpace(configuredPublicBaseUrl)
+            ? requestBaseUri.ToString().TrimEnd('/')
+            : configuredPublicBaseUrl.TrimEnd('/');
         var userId = currentUser.UserId?.ToString() ?? "anonymous";
         var userName = currentUser.Email ?? "OceanERP";
         var key = $"{item.Id:N}-{item.CurrentVersion}-{item.Size}".Replace("-", string.Empty, StringComparison.Ordinal);
         var accessToken = CreateDocumentToken(item.Id, item.CurrentVersion, DateTimeOffset.UtcNow.AddHours(2));
+        var documentUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/download?token={Uri.EscapeDataString(accessToken)}";
+        var callbackUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/callback?token={Uri.EscapeDataString(accessToken)}";
+        var permissions = new OnlyOfficeDocumentPermissionsDto(Edit: true, Download: true, Print: true);
+        var customization = new OnlyOfficeCustomizationDto(Autosave: true, Forcesave: true, Chat: false, Comments: true);
+        var document = new OnlyOfficeDocumentDto(fileType, key, item.Name, documentUrl, permissions);
+        var editorConfig = new OnlyOfficeEditorConfigDto("edit", callbackUrl, new OnlyOfficeUserDto(userId, userName), customization);
+        var jwtPayload = new
+        {
+            documentType,
+            type = "desktop",
+            document,
+            editorConfig
+        };
+        var jwt = CreateOnlyOfficeJwt(jwtPayload);
 
         var config = new OnlyOfficeConfigDto(
             documentServerUrl,
             documentType,
             "desktop",
-            new OnlyOfficeDocumentDto(
-                fileType,
-                key,
-                item.Name,
-                $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/download?token={Uri.EscapeDataString(accessToken)}"),
-            new OnlyOfficeEditorConfigDto(
-                "edit",
-                $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/callback?token={Uri.EscapeDataString(accessToken)}",
-                new OnlyOfficeUserDto(userId, userName)));
+            document,
+            editorConfig,
+            jwt);
 
         return Result<OnlyOfficeConfigDto>.Success(config);
     }
@@ -236,6 +256,16 @@ public sealed class OnlyOfficeService(
             ?? configuration["Jwt:SigningKey"]
             ?? "CHANGE_ME_OCEANERP_ONLYOFFICE_CALLBACK_SECRET_32_CHARS_MINIMUM";
         return HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), payload);
+    }
+
+    private string CreateOnlyOfficeJwt(object payload)
+    {
+        var header = JsonSerializer.Serialize(new { alg = "HS256", typ = "JWT" }, JwtJsonOptions);
+        var body = JsonSerializer.Serialize(payload, JwtJsonOptions);
+        var headerSegment = Base64UrlEncode(Encoding.UTF8.GetBytes(header));
+        var bodySegment = Base64UrlEncode(Encoding.UTF8.GetBytes(body));
+        var signature = ComputeSignature(Encoding.UTF8.GetBytes($"{headerSegment}.{bodySegment}"));
+        return $"{headerSegment}.{bodySegment}.{Base64UrlEncode(signature)}";
     }
 
     private static string Base64UrlEncode(byte[] value)

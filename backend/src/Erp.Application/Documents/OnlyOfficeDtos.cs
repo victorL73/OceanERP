@@ -7,10 +7,13 @@ public sealed record OnlyOfficeConfigDto(
     string DocumentType,
     string Type,
     OnlyOfficeDocumentDto Document,
-    OnlyOfficeEditorConfigDto EditorConfig);
+    OnlyOfficeEditorConfigDto EditorConfig,
+    string? Token = null);
 
-public sealed record OnlyOfficeDocumentDto(string FileType, string Key, string Title, string Url);
-public sealed record OnlyOfficeEditorConfigDto(string Mode, string CallbackUrl, OnlyOfficeUserDto User);
+public sealed record OnlyOfficeDocumentDto(string FileType, string Key, string Title, string Url, OnlyOfficeDocumentPermissionsDto? Permissions = null);
+public sealed record OnlyOfficeDocumentPermissionsDto(bool Edit, bool Download, bool Print);
+public sealed record OnlyOfficeEditorConfigDto(string Mode, string CallbackUrl, OnlyOfficeUserDto User, OnlyOfficeCustomizationDto? Customization = null);
+public sealed record OnlyOfficeCustomizationDto(bool Autosave, bool Forcesave, bool Chat, bool Comments);
 public sealed record OnlyOfficeUserDto(string Id, string Name);
 public sealed record OnlyOfficeCallbackRequest(int Status, string? Url, string? Key, IReadOnlyList<string>? Users);
 

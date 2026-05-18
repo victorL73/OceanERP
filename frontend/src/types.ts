@@ -699,11 +699,17 @@ export type OnlyOfficeConfig = {
   documentServerUrl: string;
   documentType: string;
   type: string;
+  token?: string;
   document: {
     fileType: string;
     key: string;
     title: string;
     url: string;
+    permissions?: {
+      edit: boolean;
+      download: boolean;
+      print: boolean;
+    };
   };
   editorConfig: {
     mode: string;
@@ -711,6 +717,12 @@ export type OnlyOfficeConfig = {
     user: {
       id: string;
       name: string;
+    };
+    customization?: {
+      autosave: boolean;
+      forcesave: boolean;
+      chat: boolean;
+      comments: boolean;
     };
   };
 };

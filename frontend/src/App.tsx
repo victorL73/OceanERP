@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, Clock, Download, FileSignature, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, LifeBuoy, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'signatures' | 'flowcean';
 
@@ -6913,6 +6913,14 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
 type DriveEntryRef = { kind: 'folder' | 'file'; id: string; name: string };
 type DriveFolderOption = { id: string; name: string; depth: number };
 type DrivePreview = { file: DriveItem; url: string; mimeType: string };
+type DriveOfficeSession = { file: DriveItem; config: OnlyOfficeConfig };
+type OnlyOfficeWindow = Window & {
+  DocsAPI?: {
+    DocEditor: new (holderId: string, config: Record<string, unknown>) => { destroyEditor?: () => void };
+  };
+};
+
+const onlyOfficeScriptPromises = new Map<string, Promise<void>>();
 
 function isImageDriveFile(file: DriveItem) {
   return file.mimeType.toLowerCase().startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name);
@@ -6928,6 +6936,51 @@ function isTextDriveFile(file: DriveItem) {
 
 function isOfficeDriveFile(file: DriveItem) {
   return /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv|txt)$/i.test(file.name);
+}
+
+function getOnlyOfficeEditorConfig(config: OnlyOfficeConfig) {
+  return {
+    documentType: config.documentType,
+    type: config.type,
+    document: config.document,
+    editorConfig: config.editorConfig,
+    token: config.token
+  };
+}
+
+function loadOnlyOfficeScript(documentServerUrl: string) {
+  const baseUrl = documentServerUrl.replace(/\/$/, '');
+  const src = `${baseUrl}/web-apps/apps/api/documents/api.js`;
+  const existing = onlyOfficeScriptPromises.get(src);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = new Promise<void>((resolve, reject) => {
+    const apiWindow = window as OnlyOfficeWindow;
+    if (apiWindow.DocsAPI?.DocEditor) {
+      resolve();
+      return;
+    }
+
+    const currentScript = document.querySelector<HTMLScriptElement>(`script[data-onlyoffice-src="${src}"]`);
+    if (currentScript) {
+      currentScript.addEventListener('load', () => resolve(), { once: true });
+      currentScript.addEventListener('error', () => reject(new Error('Chargement ONLYOFFICE impossible.')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.dataset.onlyofficeSrc = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Chargement ONLYOFFICE impossible.'));
+    document.body.appendChild(script);
+  });
+
+  onlyOfficeScriptPromises.set(src, promise);
+  return promise;
 }
 
 function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
@@ -6950,6 +7003,7 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => (localStorage.getItem('oceanerp.driveViewMode') === 'grid' ? 'grid' : 'list'));
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<DrivePreview | null>(null);
+  const [officeSession, setOfficeSession] = useState<DriveOfficeSession | null>(null);
 
   async function refreshDrive() {
     const [nextFolders, nextFiles] = await Promise.all([api.folders(currentFolderId, search, showTrash), api.files(currentFolderId, search, showTrash)]);
@@ -7284,19 +7338,16 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
     setMessage(null);
     try {
       const config = await api.onlyOfficeConfig(file.id);
-      const editor = window.open('', '_blank', 'noopener,noreferrer,width=1280,height=900');
-      if (!editor) {
-        setMessage('Ouverture ONLYOFFICE impossible.');
-        return;
-      }
-
-      const serializedConfig = JSON.stringify(config).replace(/</g, '\\u003c');
-      const title = file.name.replace(/[<>&"]/g, '');
-      editor.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>html,body,#editor{width:100%;height:100%;margin:0}</style><script src="${config.documentServerUrl}/web-apps/apps/api/documents/api.js"></script></head><body><div id="editor"></div><script>new DocsAPI.DocEditor("editor", ${serializedConfig});</script></body></html>`);
-      editor.document.close();
+      setOfficeSession({ file, config });
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Ouverture ONLYOFFICE impossible');
     }
+  }
+
+  async function closeOnlyOffice() {
+    setOfficeSession(null);
+    await refreshDrive();
+    await onChanged();
   }
 
   return (
@@ -7524,7 +7575,82 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
           </section>
         </div>
       )}
+      {officeSession && (
+        <OnlyOfficeEditorModal session={officeSession} onClose={() => void closeOnlyOffice()} />
+      )}
     </>
+  );
+}
+
+function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSession; onClose: () => void }) {
+  const editorId = useMemo(() => `onlyoffice-editor-${session.file.id.replace(/[^a-z0-9]/gi, '')}`, [session.file.id]);
+  const editorRef = useRef<{ destroyEditor?: () => void } | null>(null);
+  const [status, setStatus] = useState('Chargement de l editeur ONLYOFFICE...');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function startEditor() {
+      setStatus('Connexion a ONLYOFFICE...');
+      await loadOnlyOfficeScript(session.config.documentServerUrl);
+      if (cancelled) {
+        return;
+      }
+
+      const apiWindow = window as OnlyOfficeWindow;
+      if (!apiWindow.DocsAPI?.DocEditor) {
+        throw new Error('ONLYOFFICE Docs n est pas accessible depuis OceanERP.');
+      }
+
+      editorRef.current?.destroyEditor?.();
+      const editorConfig = {
+        ...getOnlyOfficeEditorConfig(session.config),
+        events: {
+          onDocumentReady: () => setStatus(''),
+          onError: (event: unknown) => {
+            const raw = typeof event === 'object' && event && 'data' in event ? String((event as { data?: unknown }).data ?? '') : '';
+            setStatus(raw ? `Erreur ONLYOFFICE : ${raw}` : 'Erreur ONLYOFFICE pendant l edition.');
+          },
+          onRequestClose: onClose
+        }
+      };
+      editorRef.current = new apiWindow.DocsAPI.DocEditor(editorId, editorConfig);
+    }
+
+    startEditor().catch((err) => {
+      if (!cancelled) {
+        setStatus(err instanceof Error ? err.message : 'Ouverture ONLYOFFICE impossible.');
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      try {
+        editorRef.current?.destroyEditor?.();
+      } finally {
+        editorRef.current = null;
+      }
+    };
+  }, [editorId, onClose, session.config]);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="modal-panel onlyoffice-dialog" role="dialog" aria-modal="true" aria-labelledby="onlyoffice-title" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-header onlyoffice-header">
+          <div>
+            <p className="eyebrow">ONLYOFFICE</p>
+            <h2 id="onlyoffice-title">{session.file.name}</h2>
+          </div>
+          <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+        <div className="onlyoffice-frame">
+          {status && <div className="onlyoffice-status">{status}</div>}
+          <div id={editorId} className="onlyoffice-host" />
+        </div>
+      </section>
+    </div>
   );
 }
 

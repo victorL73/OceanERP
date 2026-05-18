@@ -12,10 +12,12 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-OceanERP}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-CHANGE_ME_WITH_64_RANDOM_CHARACTERS_MINIMUM_FOR_PROD}
       Storage__RootPath: /var/lib/oceanerp/documents
+      App__PublicBaseUrl: ${PUBLIC_URL:-}
       Seed__AdminEmail: ${ERP_ADMIN_EMAIL:-admin@oceanerp.local}
       Seed__AdminPassword: ${ERP_ADMIN_PASSWORD:-ChangeMe!12345}
       Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost}
       Email__EnableSmtpSending: ${EMAIL_ENABLE_SMTP_SENDING:-false}
+      OnlyOffice__DocumentServerUrl: ${ONLYOFFICE_DOCUMENT_SERVER_URL:-/onlyoffice}
       OnlyOffice__CallbackSecret: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
       Prestashop__ColissimoLabelEndpointTemplate: ${PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE:-}
       Prestashop__ColissimoBridgeToken: ${PRESTASHOP_COLISSIMO_BRIDGE_TOKEN:-}
