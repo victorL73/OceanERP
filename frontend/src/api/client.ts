@@ -499,6 +499,10 @@ export class ApiClient {
     return this.request<Invoice>(`/api/invoices/${invoiceId}/payments`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  cancelInvoice(invoiceId: string) {
+    return this.request<Invoice>(`/api/invoices/${invoiceId}/cancel`, { method: 'POST', auth: true });
+  }
+
   generateInvoicePdf(invoiceId: string) {
     return this.request<InvoiceDocument>(`/api/invoices/${invoiceId}/pdf`, { method: 'POST', auth: true });
   }

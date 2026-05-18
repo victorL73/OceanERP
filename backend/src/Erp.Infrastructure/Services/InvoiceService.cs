@@ -91,6 +91,11 @@ public sealed class InvoiceService(
             return Result<InvoiceDto>.Failure("Invoice not found.");
         }
 
+        if (invoice.Status == "Cancelled")
+        {
+            return Result<InvoiceDto>.Failure("Cancelled invoices cannot receive payments.");
+        }
+
         var dto = await MapAsync(invoice, cancellationToken);
         if (request.Amount > dto.BalanceDue)
         {
@@ -109,6 +114,31 @@ public sealed class InvoiceService(
             await db.SaveChangesAsync(cancellationToken);
         }
 
+        return Result<InvoiceDto>.Success(await MapAsync(invoice, cancellationToken));
+    }
+
+    public async Task<Result<InvoiceDto>> CancelAsync(Guid invoiceId, CancellationToken cancellationToken)
+    {
+        var invoice = await db.Invoices.FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken);
+        if (invoice is null)
+        {
+            return Result<InvoiceDto>.Failure("Invoice not found.");
+        }
+
+        if (invoice.Status == "Cancelled")
+        {
+            return Result<InvoiceDto>.Success(await MapAsync(invoice, cancellationToken));
+        }
+
+        var paid = await db.InvoicePayments.Where(x => x.InvoiceId == invoiceId).SumAsync(x => x.Amount, cancellationToken);
+        if (paid > 0)
+        {
+            return Result<InvoiceDto>.Failure("Invoices with payments cannot be cancelled directly. Create a credit note when the credit note module is enabled.");
+        }
+
+        invoice.Status = "Cancelled";
+        db.InvoiceStatusHistories.Add(new InvoiceStatusHistory { InvoiceId = invoice.Id, Status = invoice.Status });
+        await db.SaveChangesAsync(cancellationToken);
         return Result<InvoiceDto>.Success(await MapAsync(invoice, cancellationToken));
     }
 
@@ -179,21 +209,39 @@ public sealed class InvoiceService(
         var total = lineDtos.Sum(x => x.LineTotal);
         var paid = await db.InvoicePayments.Where(x => x.InvoiceId == invoice.Id).SumAsync(x => x.Amount, cancellationToken);
         var documents = await db.InvoiceDocuments.Where(x => x.InvoiceId == invoice.Id).OrderByDescending(x => x.Version).ToListAsync(cancellationToken);
+        var history = await db.InvoiceStatusHistories.Where(x => x.InvoiceId == invoice.Id).OrderByDescending(x => x.ChangedAt).ToListAsync(cancellationToken);
+        var balanceDue = total - paid;
         return new InvoiceDto(
             invoice.Id,
             invoice.Number,
             invoice.CustomerId,
             invoice.SalesOrderId,
-            invoice.Status,
+            EffectiveStatus(invoice.Status, invoice.DueDate, balanceDue),
             invoice.IssueDate,
             invoice.DueDate,
             total,
             paid,
-            total - paid,
+            balanceDue,
             lineDtos,
-            documents.Select(Map).ToList());
+            documents.Select(Map).ToList(),
+            history.Select(x => new InvoiceStatusHistoryDto(x.Id, x.Status, x.ChangedAt)).ToList());
     }
 
     private static InvoiceDocumentDto Map(InvoiceDocument document)
         => new(document.Id, document.FileName, document.MimeType, document.Size, document.Version, document.CreatedAt);
+
+    private static string EffectiveStatus(string status, DateOnly dueDate, decimal balanceDue)
+    {
+        if (status is "Cancelled" or "Paid")
+        {
+            return status;
+        }
+
+        if (balanceDue <= 0)
+        {
+            return "Paid";
+        }
+
+        return dueDate < DateOnly.FromDateTime(DateTime.UtcNow) ? "Overdue" : status;
+    }
 }

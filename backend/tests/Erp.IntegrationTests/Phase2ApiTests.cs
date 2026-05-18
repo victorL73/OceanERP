@@ -74,7 +74,7 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
-    public async Task Invoice_CreateFromShippedOrderAndGeneratePdf_ReturnsDocument()
+    public async Task Invoice_CreateFromShippedOrder_CalculatesOverdueGeneratesPdfAndCancels()
     {
         using var client = await CreateAuthenticatedClientAsync();
         var customer = await CreateCustomerAsync(client);
@@ -89,17 +89,29 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         (await client.PostAsJsonAsync($"/api/orders/{order!.Id}/status", new UpdateSalesOrderStatusRequest("Confirmed"))).EnsureSuccessStatusCode();
         (await client.PostAsJsonAsync($"/api/orders/{order.Id}/status", new UpdateSalesOrderStatusRequest("Shipped"))).EnsureSuccessStatusCode();
 
-        var invoiceResponse = await client.PostAsJsonAsync("/api/invoices/from-order", new CreateInvoiceFromOrderRequest(order!.Id));
+        var dueDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var invoiceResponse = await client.PostAsJsonAsync("/api/invoices/from-order", new CreateInvoiceFromOrderRequest(order!.Id, dueDate));
 
         Assert.Equal(HttpStatusCode.Created, invoiceResponse.StatusCode);
         var invoice = await invoiceResponse.Content.ReadFromJsonAsync<InvoiceDto>();
         Assert.Equal(100, invoice!.Total);
         Assert.Equal(100, invoice.BalanceDue);
+        Assert.Equal("Overdue", invoice.Status);
+        Assert.Contains(invoice.StatusHistory, x => x.Status == "Issued");
 
         var documentResponse = await client.PostAsync($"/api/invoices/{invoice.Id}/pdf", null);
         Assert.Equal(HttpStatusCode.OK, documentResponse.StatusCode);
         var document = await documentResponse.Content.ReadFromJsonAsync<InvoiceDocumentDto>();
         Assert.EndsWith(".pdf", document!.FileName);
+
+        var cancelResponse = await client.PostAsync($"/api/invoices/{invoice.Id}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+        var cancelled = await cancelResponse.Content.ReadFromJsonAsync<InvoiceDto>();
+        Assert.Equal("Cancelled", cancelled!.Status);
+        Assert.Contains(cancelled.StatusHistory, x => x.Status == "Cancelled");
+
+        var paymentAfterCancel = await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/payments", new AddInvoicePaymentRequest(10, DateOnly.FromDateTime(DateTime.UtcNow)));
+        Assert.Equal(HttpStatusCode.BadRequest, paymentAfterCancel.StatusCode);
     }
 
     [Fact]

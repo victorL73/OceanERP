@@ -28,9 +28,9 @@ PostgreSQL stocke uniquement les métadonnées :
 
 Le contenu binaire est stocké dans le volume `oceanerp_documents`.
 
-## Évolutions prévues
+## Evolutions prevues
 
-Les phases suivantes ajouteront les tables opérationnelles complètes pour stock, commandes, factures, achats, SAV, emails, agenda, signatures, PrestaShop, Factur-X et API keys.
+La Phase 2 est cloturee sur les tables operationnelles de commandes, factures, stock, achats, emails et PrestaShop. Les phases suivantes ajouteront les tables completes pour SAV, agenda, signature interne, exports comptables avances, Factur-X et API keys externes.
 
 ## Tables Phase 2
 
@@ -82,3 +82,15 @@ La migration `PrestashopProtectedApiKey` ajoute :
 La migration `PrestashopSyncExecutionLog` ajoute :
 
 - `PrestashopSyncLogs.Message`, `StartedAt` et `CompletedAt` pour suivre la file de synchronisation PrestaShop et diagnostiquer les etats `Queued`, `Running`, `Completed` et `Failed`.
+
+Les migrations Phase 2 suivantes completent les usages terrain :
+
+- `ProductImageUrl` et `ProductBrands` ajoutent les images catalogue et la marque issue de PrestaShop.
+- `PrestashopWarehouseAssignment` et `PrestashopAllWarehousesByDefault` rattachent les stocks ERP aux connexions PrestaShop tout en laissant les produits changer d'entrepot.
+- `WarehouseContactDetails` enrichit les entrepots avec adresse, representant, telephone, email et notes.
+- `PurchaseOrdersAndLowStockAlerts`, `PurchaseOrderMultiLineCharges` et `PurchaseOrderReceivingWarehouse` ajoutent les commandes fournisseurs, leurs lignes, frais annexes, commentaires, date de reception et entrepot de reception.
+- `EmailAutoSyncSettings` ajoute le rafraichissement IMAP automatique configurable par compte.
+- `CustomerProfileFields` ajoute les champs utiles sur les clients : raison sociale, nom commercial, SIREN/SIRET, TVA, telephones, site, origine, code comptable, conditions de paiement, remise et notes.
+- `SalesOrderShippingDetails` et `SalesOrderPrestashopDetails` ajoutent les informations boutique, livraison, paiement, facture et transporteur necessaires au detail commande et aux documents d'expedition.
+
+Les factures conservent l'historique dans `InvoiceStatusHistories`. Le statut `Overdue` est calcule par l'API a partir de `DueDate` et du solde restant, sans dupliquer cet etat derive en base.

@@ -12,9 +12,11 @@ public sealed record InvoiceDto(
     decimal PaidTotal,
     decimal BalanceDue,
     IReadOnlyList<InvoiceLineDto> Lines,
-    IReadOnlyList<InvoiceDocumentDto> Documents);
+    IReadOnlyList<InvoiceDocumentDto> Documents,
+    IReadOnlyList<InvoiceStatusHistoryDto> StatusHistory);
 
 public sealed record InvoiceLineDto(Guid Id, string Description, decimal Quantity, decimal UnitPrice, decimal LineTotal);
 public sealed record InvoiceDocumentDto(Guid Id, string FileName, string MimeType, long Size, int Version, DateTimeOffset CreatedAt);
+public sealed record InvoiceStatusHistoryDto(Guid Id, string Status, DateTimeOffset ChangedAt);
 public sealed record CreateInvoiceFromOrderRequest(Guid SalesOrderId, DateOnly? DueDate = null);
 public sealed record AddInvoicePaymentRequest(decimal Amount, DateOnly PaidOn);

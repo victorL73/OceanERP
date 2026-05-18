@@ -38,6 +38,14 @@ public sealed class InvoicesController(IInvoiceService invoices) : ControllerBas
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPost("{id:guid}/cancel")]
+    [Authorize(Policy = "invoices.write")]
+    public async Task<ActionResult<InvoiceDto>> Cancel(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await invoices.CancelAsync(id, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpPost("{id:guid}/pdf")]
     [Authorize(Policy = "invoices.write")]
     public async Task<ActionResult<InvoiceDocumentDto>> GeneratePdf(Guid id, CancellationToken cancellationToken)

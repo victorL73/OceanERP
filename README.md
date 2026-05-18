@@ -90,14 +90,15 @@ Phase 1 couvre maintenant aussi :
 - notifications internes SignalR avec notification navigateur quand l'application est ouverte ;
 - workflow devis/PDF/email compatible avec le mode SMTP reel ou journalise pour les tests.
 
-## Phase 2 en cours
+## Phase 2 cloturee
 
-La Phase 2 contient maintenant :
+La Phase 2 est maintenant cloturee sur son socle metier :
 
-- commandes avec produit, entrepot, reservation et expedition stock ;
-- factures depuis commandes expediees, paiements et PDF facture ;
-- stock avec quantite physique, reservee, disponible, seuil bas et mouvements ;
-- module email avec serveurs SMTP/IMAP globaux geres par admin, boites affectees aux utilisateurs, signature HTML, synchronisation IMAP et journal d'envoi ;
+- commandes clients synchronisees PrestaShop, detail de livraison, expedition, bon d'expedition ERP et tentative de recuperation d'etiquette Colissimo officielle ;
+- factures depuis commandes expediees, paiements, statut en retard automatique, annulation controlee, historique de statut et PDF facture ;
+- stock avec quantite physique, reservee, disponible, seuil bas, statut automatique, mouvements, filtres et rattachement aux achats fournisseurs ;
+- achats fournisseurs avec commandes multi-lignes, fournisseur, entrepot de reception, frais annexes, commentaires, date de reception, retour de statut et reception vers stock ;
+- module email avec serveurs SMTP/IMAP globaux geres par admin, boites affectees aux utilisateurs, signatures HTML, CC/CCI, pieces jointes, suppression logique, synchronisation IMAP et journal d'envoi ;
 - personnalisation admin des devis depuis `Parametres > Devis` : identite entreprise, logo, mentions et pied de page PDF ;
 - PrestaShop avec connexions, cle API configurable par admin dans `Parametres`, import produits/clients/stocks/commandes et journal de synchronisation traite par worker (`Queued`, `Running`, `Completed`, `CompletedWithWarnings`, `Failed`).
 

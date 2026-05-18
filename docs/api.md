@@ -55,19 +55,35 @@ Swagger est activé en environnement `Development`.
 ## Endpoints Phase 2 ajoutes
 
 - `GET /api/orders`
+- `GET /api/orders/{id}`
 - `POST /api/orders`
 - `POST /api/orders/from-quote`
 - `POST /api/orders/{id}/status`
+- `GET /api/orders/{id}/shipment-slip`
+- `GET /api/orders/{id}/colissimo-label`
 - `GET /api/invoices`
+- `GET /api/invoices/{id}`
 - `POST /api/invoices/from-order`
 - `POST /api/invoices/{id}/payments`
+- `POST /api/invoices/{id}/cancel`
 - `POST /api/invoices/{id}/pdf`
 - `GET /api/invoices/{invoiceId}/documents/{documentId}/download`
+- `GET /api/purchases/orders`
+- `GET /api/purchases/orders/{id}`
+- `POST /api/purchases/orders`
+- `PUT /api/purchases/orders/{id}`
+- `POST /api/purchases/orders/{id}/status`
+- `PUT /api/purchases/orders/{id}/expected-date`
+- `PUT /api/purchases/orders/{id}/warehouse`
+- `POST /api/purchases/orders/{id}/receive-to-stock`
 - `GET /api/stock/warehouses`
 - `POST /api/stock/warehouses`
+- `PUT /api/stock/warehouses/{id}`
+- `DELETE /api/stock/warehouses/{id}`
 - `GET /api/stock/items`
 - `GET /api/stock/movements`
 - `POST /api/stock/adjustments`
+- `PUT /api/stock/items/{id}`
 - `GET /api/emails/server-settings`
 - `PUT /api/emails/server-settings`
 - `GET /api/emails/accounts`
@@ -76,6 +92,7 @@ Swagger est activé en environnement `Development`.
 - `DELETE /api/emails/accounts/{id}`
 - `POST /api/emails/accounts/{id}/test-smtp`
 - `POST /api/emails/accounts/{id}/sync-imap`
+- `POST /api/emails/sync-imap`
 - `GET /api/emails/messages`
 - `GET /api/emails/messages/{id}`
 - `POST /api/emails/messages/{id}/read`
@@ -112,7 +129,9 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - `GET /api/orders/{id}/shipment-slip` genere le bon d'expedition ERP pour les commandes Colissimo.
 - `GET /api/orders/{id}/colissimo-label` recupere l'etiquette Colissimo officielle si le module PrestaShop l'expose via API ou via `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE`. Sinon l'API renvoie une erreur explicite et l'etiquette reste a generer dans PrestaShop.
 - Une facture ne peut etre creee que depuis une commande `Shipped` ou `Completed`.
+- Le statut facture expose par l'API devient automatiquement `Overdue` quand l'echeance est depassee et que le solde reste positif. `POST /api/invoices/{id}/cancel` annule une facture sans paiement et ajoute une entree dans l'historique de statut.
 - `POST /api/invoices/{id}/pdf` genere un PDF facture via QuestPDF et stocke uniquement ses metadonnees en PostgreSQL.
+- Les achats fournisseurs acceptent plusieurs lignes produit, uniquement rattachees au fournisseur et a l'entrepot choisis. Une commande recue peut etre injectee dans le stock via `POST /api/purchases/orders/{id}/receive-to-stock`, ce qui declenche aussi la publication stock PrestaShop lorsque le produit dispose d'une reference externe.
 - Le module email se configure dans `Parametres > Boites mail`. Les administrateurs gerent les serveurs SMTP/IMAP globaux, creent les boites, renseignent l'adresse, le mot de passe ou le secret, et affectent les utilisateurs autorises.
 - Les utilisateurs autorises ne voient dans l'onglet Emails et dans l'envoi des devis que les boites auxquelles ils ont acces. Ils peuvent ajuster les informations non sensibles de leur boite, notamment la signature HTML.
 - Le module email journalise les envois, stocke les pieces jointes hors PostgreSQL et permet la synchronisation IMAP. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true`; sinon l'email reste journalise avec le statut `Logged` et l'interface indique explicitement qu'il n'a pas ete envoye.

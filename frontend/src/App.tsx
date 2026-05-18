@@ -4241,6 +4241,18 @@ function purchaseStatusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function invoiceStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    Draft: 'Brouillon',
+    Issued: 'Emise',
+    PartiallyPaid: 'Partiellement payee',
+    Paid: 'Payee',
+    Overdue: 'En retard',
+    Cancelled: 'Annulee'
+  };
+  return labels[status] ?? status;
+}
+
 function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: SalesOrder[]; onChanged: () => Promise<void> }) {
   const [orderId, setOrderId] = useState('');
   const [paymentInvoiceId, setPaymentInvoiceId] = useState('');
@@ -4280,6 +4292,15 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
     if (document) {
       await api.downloadInvoiceDocument(invoice.id, document.id, document.fileName);
     }
+  }
+
+  async function cancelInvoice(invoice: Invoice) {
+    if (!window.confirm(`Annuler la facture ${invoice.number} ?`)) {
+      return;
+    }
+
+    await api.cancelInvoice(invoice.id);
+    await onChanged();
   }
 
   return (
@@ -4322,13 +4343,15 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
         </form>
       </Panel>
       <DataTable
-        columns={['Numero', 'Client', 'Statut', 'Total', 'Solde', 'PDF']}
+        columns={['Numero', 'Client', 'Statut', 'Echeance', 'Total', 'Solde', 'Historique', 'Actions']}
         rows={items.map((item) => [
           item.number,
           item.customerId,
-          item.status,
+          invoiceStatusLabel(item.status),
+          formatOrderDate(item.dueDate),
           `${item.total.toFixed(2)} EUR`,
           `${item.balanceDue.toFixed(2)} EUR`,
+          `${item.statusHistory.length} statut(s)`,
           <div className="table-actions">
             <button className="secondary" onClick={() => generatePdf(item)} type="button">
               <FileText size={15} />
@@ -4337,6 +4360,10 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
             <button className="secondary" disabled={item.documents.length === 0} onClick={() => downloadPdf(item)} type="button">
               <Download size={15} />
               PDF
+            </button>
+            <button className="danger" disabled={item.status === 'Paid' || item.status === 'Cancelled' || item.paidTotal > 0} onClick={() => cancelInvoice(item)} type="button">
+              <X size={15} />
+              Annuler
             </button>
           </div>
         ])}

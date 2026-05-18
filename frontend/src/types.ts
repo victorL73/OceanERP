@@ -396,6 +396,7 @@ export type Invoice = {
   balanceDue: number;
   lines: Array<{ id: string; description: string; quantity: number; unitPrice: number; lineTotal: number }>;
   documents: InvoiceDocument[];
+  statusHistory: Array<{ id: string; status: string; changedAt: string }>;
 };
 
 export type InvoiceDocument = {
