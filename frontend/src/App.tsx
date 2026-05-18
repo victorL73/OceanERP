@@ -536,30 +536,157 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
 }
 
 function Dashboard({ summary }: { summary: DashboardSummary | null }) {
+  const [isEditing, setEditing] = useState(false);
+  const [selectedBlocks, setSelectedBlocks] = useState<string[]>(() => readDashboardBlocks());
+  const selectedBlockSet = useMemo(() => new Set(selectedBlocks), [selectedBlocks]);
   const indicators = useMemo(
-    () => [
-      ['CA du mois', summary?.monthlyRevenue.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) ?? '0 EUR'],
-      ['Devis en attente', summary?.pendingQuotes ?? 0],
-      ['Factures impayees', summary?.unpaidInvoices ?? 0],
-      ['Commandes en cours', summary?.openOrders ?? 0],
-      ['Stock bas', summary?.lowStockItems ?? 0],
-      ['SAV ouverts', summary?.openServiceTickets ?? 0],
-      ['Nouveaux emails', summary?.newEmails ?? 0],
-      ['Documents recents', summary?.recentDocuments ?? 0]
-    ],
-    [summary]
+    () => dashboardBlocks.filter((block) => selectedBlockSet.has(block.key)).map((block) => ({
+      ...block,
+      value: formatDashboardValue(summary?.[block.key] ?? 0, block.format)
+    })),
+    [selectedBlockSet, summary]
   );
 
+  function toggleBlock(key: keyof DashboardSummary) {
+    setSelectedBlocks((current) => {
+      const next = current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key];
+      const safeNext = next.length === 0 ? [...defaultDashboardBlocks] : next;
+      storeChoice(dashboardStorageKey, JSON.stringify(safeNext));
+      return safeNext;
+    });
+  }
+
+  function resetBlocks() {
+    setSelectedBlocks([...defaultDashboardBlocks]);
+    storeChoice(dashboardStorageKey, JSON.stringify(defaultDashboardBlocks));
+  }
+
   return (
-    <section className="grid metrics">
-      {indicators.map(([label, value]) => (
-        <article className="metric-card" key={label}>
-          <span>{label}</span>
-          <strong>{value}</strong>
-        </article>
-      ))}
-    </section>
+    <>
+      <div className="dashboard-toolbar">
+        <button className="secondary" type="button" onClick={() => setEditing((value) => !value)}>
+          <Pencil size={15} />
+          Modifier
+        </button>
+      </div>
+
+      {isEditing && (
+        <section className="panel dashboard-editor">
+          <div className="dashboard-editor-head">
+            <h2>Blocs du tableau de bord</h2>
+            <button className="secondary" type="button" onClick={resetBlocks}>Reinitialiser</button>
+          </div>
+          <div className="dashboard-block-picker">
+            {dashboardBlocks.map((block) => (
+              <label key={block.key} className="checkbox-line dashboard-block-option">
+                <input type="checkbox" checked={selectedBlockSet.has(block.key)} onChange={() => toggleBlock(block.key)} />
+                <span>
+                  <strong>{block.label}</strong>
+                  <small>{block.group}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="grid metrics">
+        {indicators.map((indicator) => (
+          <article className="metric-card" key={indicator.key}>
+            <span>{indicator.label}</span>
+            <strong>{indicator.value}</strong>
+          </article>
+        ))}
+      </section>
+    </>
   );
+}
+
+const dashboardStorageKey = 'oceanerp.dashboard.blocks';
+
+type DashboardBlock = {
+  key: keyof DashboardSummary;
+  label: string;
+  group: string;
+  format?: 'currency' | 'number';
+};
+
+const defaultDashboardBlocks: Array<keyof DashboardSummary> = [
+  'monthlyRevenue',
+  'pendingQuotes',
+  'unpaidInvoices',
+  'openOrders',
+  'lowStockItems',
+  'openServiceTickets',
+  'newEmails',
+  'recentDocuments'
+];
+
+const dashboardBlocks: DashboardBlock[] = [
+  { key: 'monthlyRevenue', label: 'CA du mois', group: 'Ventes', format: 'currency' },
+  { key: 'pendingQuotes', label: 'Devis en attente', group: 'Devis' },
+  { key: 'draftQuotes', label: 'Devis brouillons', group: 'Devis' },
+  { key: 'sentQuotes', label: 'Devis envoyes', group: 'Devis' },
+  { key: 'signedQuotes', label: 'Devis signes', group: 'Devis' },
+  { key: 'expiredQuotes', label: 'Devis expires', group: 'Devis' },
+  { key: 'quotesToExpireSoon', label: 'Devis a relancer', group: 'Devis' },
+  { key: 'pendingQuoteAmount', label: 'Montant devis ouverts', group: 'Devis', format: 'currency' },
+  { key: 'openOrders', label: 'Commandes en cours', group: 'Commandes' },
+  { key: 'draftOrders', label: 'Commandes brouillons', group: 'Commandes' },
+  { key: 'confirmedOrders', label: 'Commandes confirmees', group: 'Commandes' },
+  { key: 'preparingOrders', label: 'Commandes en preparation', group: 'Commandes' },
+  { key: 'shippedOrders', label: 'Commandes expediees', group: 'Commandes' },
+  { key: 'unpaidInvoices', label: 'Factures impayees', group: 'Factures' },
+  { key: 'overdueInvoices', label: 'Factures en retard', group: 'Factures' },
+  { key: 'openPurchaseOrders', label: 'Achats en cours', group: 'Achats' },
+  { key: 'purchaseOrdersExpectedSoon', label: 'Receptions a venir', group: 'Achats' },
+  { key: 'lowStockItems', label: 'Stock bas', group: 'Stock' },
+  { key: 'outOfStockItems', label: 'Ruptures stock', group: 'Stock' },
+  { key: 'stockQuantityOnHand', label: 'Quantite en stock', group: 'Stock', format: 'number' },
+  { key: 'stockQuantityReserved', label: 'Stock reserve', group: 'Stock', format: 'number' },
+  { key: 'newEmails', label: 'Nouveaux emails', group: 'Communication' },
+  { key: 'unreadNotifications', label: 'Notifications non lues', group: 'Communication' },
+  { key: 'openServiceTickets', label: 'SAV ouverts', group: 'SAV' },
+  { key: 'recentDocuments', label: 'Documents recents', group: 'Documents' },
+  { key: 'totalDocuments', label: 'Documents Drive', group: 'Documents' },
+  { key: 'trashedDocuments', label: 'Documents corbeille', group: 'Documents' },
+  { key: 'totalCustomers', label: 'Clients total', group: 'Clients' },
+  { key: 'activeCustomers', label: 'Clients actifs', group: 'Clients' },
+  { key: 'totalProducts', label: 'Articles total', group: 'Produits' },
+  { key: 'activeProducts', label: 'Articles actifs', group: 'Produits' },
+  { key: 'inactiveProducts', label: 'Articles inactifs', group: 'Produits' },
+  { key: 'suppliers', label: 'Fournisseurs', group: 'Achats' },
+  { key: 'warehouses', label: 'Entrepots', group: 'Stock' },
+  { key: 'mailAccounts', label: 'Boites mail', group: 'Communication' },
+  { key: 'activePrestashopConnections', label: 'Connexions PrestaShop', group: 'PrestaShop' }
+];
+
+function readDashboardBlocks() {
+  try {
+    const raw = localStorage.getItem(dashboardStorageKey);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) {
+      const allowed = new Set(dashboardBlocks.map((block) => block.key));
+      const cleaned = parsed.filter((item): item is keyof DashboardSummary => typeof item === 'string' && allowed.has(item as keyof DashboardSummary));
+      if (cleaned.length > 0) {
+        return cleaned;
+      }
+    }
+  } catch {
+    // La personnalisation reste optionnelle si le stockage local est bloque.
+  }
+
+  return [...defaultDashboardBlocks];
+}
+
+function formatDashboardValue(value: number, format?: 'currency' | 'number') {
+  if (format === 'currency') {
+    return value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+  }
+
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 }
 
 function Settings({

@@ -247,6 +247,54 @@ h1 {
   gap: 14px;
 }
 
+.dashboard-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 14px;
+}
+
+.dashboard-editor {
+  margin-bottom: 16px;
+}
+
+.dashboard-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dashboard-editor-head h2 {
+  margin: 0;
+}
+
+.dashboard-block-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.dashboard-block-option {
+  align-items: flex-start;
+  min-height: 58px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.dashboard-block-option span,
+.dashboard-block-option small {
+  display: block;
+}
+
+.dashboard-block-option small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
 .metric-card,
 .table-surface,
 .drive-row,

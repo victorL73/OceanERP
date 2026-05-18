@@ -255,12 +255,40 @@ export type NotificationItem = {
 export type DashboardSummary = {
   monthlyRevenue: number;
   pendingQuotes: number;
+  draftQuotes: number;
+  sentQuotes: number;
+  signedQuotes: number;
+  expiredQuotes: number;
+  quotesToExpireSoon: number;
+  pendingQuoteAmount: number;
   unpaidInvoices: number;
+  overdueInvoices: number;
   openOrders: number;
+  draftOrders: number;
+  confirmedOrders: number;
+  preparingOrders: number;
+  shippedOrders: number;
+  openPurchaseOrders: number;
+  purchaseOrdersExpectedSoon: number;
   lowStockItems: number;
+  outOfStockItems: number;
+  stockQuantityOnHand: number;
+  stockQuantityReserved: number;
   openServiceTickets: number;
   newEmails: number;
+  unreadNotifications: number;
   recentDocuments: number;
+  totalDocuments: number;
+  trashedDocuments: number;
+  totalCustomers: number;
+  activeCustomers: number;
+  totalProducts: number;
+  activeProducts: number;
+  inactiveProducts: number;
+  suppliers: number;
+  warehouses: number;
+  mailAccounts: number;
+  activePrestashopConnections: number;
 };
 
 export type SalesOrder = {
