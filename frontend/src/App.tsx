@@ -604,20 +604,33 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
 function PublicSignaturePage({ token }: { token: string }) {
   const [signature, setSignature] = useState<PublicSignature | null>(null);
   const [conditionsAccepted, setConditionsAccepted] = useState(false);
-  const [signatureMode, setSignatureMode] = useState<'Click' | 'Drawn'>('Click');
+  const [signatureMode, setSignatureMode] = useState<'Click' | 'Drawn'>('Drawn');
+  const [signerName, setSignerName] = useState('');
+  const [signerEmail, setSignerEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signatureDirty, setSignatureDirty] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
 
   useEffect(() => {
     api.publicSignature(token)
-      .then(setSignature)
+      .then((next) => {
+        setSignature(next);
+        setSignerName(next.signerName ?? '');
+        setSignerEmail(next.signerEmail ?? '');
+      })
       .catch((err) => setError(err instanceof Error ? err.message : 'Lien de signature invalide'))
       .finally(() => setLoading(false));
   }, [token]);
+
+  useEffect(() => {
+    if (!loading) {
+      setTimeout(() => resetSignatureCanvas(false), 0);
+    }
+  }, [loading, signatureMode]);
 
   function pointerPosition(event: PointerEvent<HTMLCanvasElement>) {
     const canvas = event.currentTarget;
@@ -639,6 +652,7 @@ function PublicSignaturePage({ token }: { token: string }) {
       return;
     }
 
+    setSignatureDirty(true);
     const point = pointerPosition(event);
     isDrawingRef.current = true;
     canvas.setPointerCapture(event.pointerId);
@@ -672,10 +686,19 @@ function PublicSignaturePage({ token }: { token: string }) {
   }
 
   function clearDrawing() {
+    resetSignatureCanvas(true);
+  }
+
+  function resetSignatureCanvas(markClean: boolean) {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
     if (canvas && context) {
       context.clearRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    if (markClean) {
+      setSignatureDirty(false);
     }
   }
 
@@ -685,26 +708,54 @@ function PublicSignaturePage({ token }: { token: string }) {
     setSuccess(null);
 
     try {
+      if (signatureMode === 'Drawn' && !signatureDirty) {
+        setError('La signature dessinee est obligatoire ou choisissez la signature par clic.');
+        return;
+      }
+
       const drawnSignatureDataUrl = signatureMode === 'Drawn' ? canvasRef.current?.toDataURL('image/png') ?? null : null;
-      await api.acceptPublicSignature(token, { conditionsAccepted, signatureMode, drawnSignatureDataUrl, otpCode: signature?.requiresOtp ? otpCode.trim() : null });
+      await api.acceptPublicSignature(token, {
+        conditionsAccepted,
+        signatureMode,
+        drawnSignatureDataUrl,
+        otpCode: signature?.requiresOtp ? otpCode.trim() : null,
+        signerName: signerName.trim() || null,
+        signerEmail: signerEmail.trim() || null
+      });
+      const next = await api.publicSignature(token);
       setSuccess('Document signe. La preuve de signature a ete enregistree.');
-      setSignature((current) => current ? { ...current, status: 'Signed' } : current);
+      setSignature(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signature impossible');
     }
   }
 
+  const publicDocumentUrl = signature
+    ? api.publicSignatureDocumentUrl(token, signature.status === 'Signed' || signature.status === 'Completed')
+    : '';
+  const canSign = Boolean(signature && signature.status !== 'Signed' && signature.status !== 'Completed' && signature.status !== 'Revoked' && signature.status !== 'Expired');
+
   return (
-    <main className="login-screen public-signature-screen">
-      <section className="login-panel public-signature-panel">
+    <main className="public-signature-screen">
+      <header className="public-signature-topbar">
         <div className="brand large">
           <div className="brand-mark">OE</div>
           <div>
             <strong>OceanERP</strong>
-            <span>Signature interne</span>
+            <span>Signature securisee</span>
           </div>
         </div>
+        {signature && <span className={canSign ? 'status-badge' : 'status-badge signed'}>{signature.status}</span>}
+      </header>
 
+      <section className="public-signature-layout">
+        <div className="public-document-panel">
+          {loading && <EmptyState icon={FileSignature} title="Chargement du document" />}
+          {!loading && publicDocumentUrl && <iframe title="Document a signer" src={publicDocumentUrl} />}
+          {!loading && !publicDocumentUrl && <EmptyState icon={FileSignature} title="Document introuvable" />}
+        </div>
+
+        <aside className="public-signature-panel">
         {loading && <EmptyState icon={FileSignature} title="Chargement de la demande de signature" />}
         {!loading && signature && (
           <form onSubmit={accept}>
@@ -718,25 +769,36 @@ function PublicSignaturePage({ token }: { token: string }) {
               </div>
             </div>
 
+            <label>
+              Nom du signataire
+              <input value={signerName} onChange={(event) => setSignerName(event.target.value)} disabled={!canSign} autoComplete="name" />
+            </label>
+
+            <label>
+              Email
+              <input value={signerEmail} onChange={(event) => setSignerEmail(event.target.value)} disabled={!canSign} type="email" autoComplete="email" />
+            </label>
+
             <label className="checkbox-label">
-              <input type="checkbox" checked={conditionsAccepted} onChange={(event) => setConditionsAccepted(event.target.checked)} />
+              <input type="checkbox" checked={conditionsAccepted} disabled={!canSign} onChange={(event) => setConditionsAccepted(event.target.checked)} />
               <span>J'accepte les conditions de signature et confirme mon accord sur ce document.</span>
             </label>
 
             <div className="signature-mode">
-              <button className={signatureMode === 'Click' ? 'primary' : 'secondary'} type="button" onClick={() => setSignatureMode('Click')}>Signature par clic</button>
-              <button className={signatureMode === 'Drawn' ? 'primary' : 'secondary'} type="button" onClick={() => setSignatureMode('Drawn')}>Signature dessinee</button>
+              <button className={signatureMode === 'Drawn' ? 'primary' : 'secondary'} type="button" disabled={!canSign} onClick={() => setSignatureMode('Drawn')}>Dessiner</button>
+              <button className={signatureMode === 'Click' ? 'primary' : 'secondary'} type="button" disabled={!canSign} onClick={() => setSignatureMode('Click')}>Signer par clic</button>
             </div>
 
             {signature.requiresOtp && (
               <label>
                 Code OTP recu par email
-                <input inputMode="numeric" maxLength={6} placeholder="123456" value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
+                <input inputMode="numeric" maxLength={6} placeholder="123456" value={otpCode} disabled={!canSign} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
               </label>
             )}
 
             {signatureMode === 'Drawn' && (
               <div className="signature-drawing">
+                <span>Signature</span>
                 <canvas
                   ref={canvasRef}
                   width={720}
@@ -746,20 +808,22 @@ function PublicSignaturePage({ token }: { token: string }) {
                   onPointerUp={stopDrawing}
                   onPointerLeave={stopDrawing}
                 />
-                <button className="secondary" type="button" onClick={clearDrawing}>Effacer</button>
+                <button className="secondary" type="button" disabled={!canSign} onClick={clearDrawing}>Effacer</button>
               </div>
             )}
 
             {error && <div className="alert">{error}</div>}
             {success && <div className="success">{success}</div>}
-            <button className="primary" type="submit" disabled={signature.status === 'Signed' || signature.status === 'Completed'}>
+            {signature.signedDocumentUrl && <a className="secondary" href={api.publicSignatureDocumentUrl(token, true)} target="_blank" rel="noreferrer">Ouvrir le document signe</a>}
+            <button className="primary" type="submit" disabled={!canSign}>
               <FileSignature size={18} />
-              Signer le document
+              Signer et valider
             </button>
           </form>
         )}
         {!loading && !signature && !error && <EmptyState icon={FileSignature} title="Demande de signature introuvable" />}
         {error && !signature && <div className="alert">{error}</div>}
+        </aside>
       </section>
     </main>
   );
@@ -8131,118 +8195,443 @@ function calendarEventPlacement(event: CalendarEvent, day: Date) {
   return { top: `${top}%`, height: `${height}%` };
 }
 
+type SignatureRecipientDraft = {
+  id: string;
+  email: string;
+  name: string;
+};
+
 function Signatures({ requests, files, onChanged }: { requests: SignatureRequest[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
-  const [selected, setSelected] = useState<SignatureRequest | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     driveItemId: '',
     title: '',
-    email: '',
-    name: '',
-    expiresAt: toDateTimeLocalValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
+    expiresAt: toDateTimeLocalValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
+    recipients: [createSignatureRecipientDraft()]
   });
 
-  const signableFiles = files.filter((file) => file.mimeType === 'application/pdf' || /\.(pdf|docx|xlsx|pptx)$/i.test(file.name));
+  const signableFiles = useMemo(
+    () => files
+      .filter((file) => file.mimeType === 'application/pdf' || /\.pdf$/i.test(file.name))
+      .sort((left, right) => left.name.localeCompare(right.name, 'fr', { numeric: true, sensitivity: 'base' })),
+    [files]
+  );
+  const selected = useMemo(() => requests.find((request) => request.id === selectedId) ?? null, [requests, selectedId]);
+  const filteredRequests = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase('fr');
+    const ordered = [...requests].sort((left, right) => new Date(right.expiresAt).getTime() - new Date(left.expiresAt).getTime());
+    if (!term) {
+      return ordered;
+    }
+
+    return ordered.filter((request) => [
+      request.title,
+      request.driveItemName ?? '',
+      request.status,
+      ...request.recipients.map((recipient) => `${recipient.name ?? ''} ${recipient.email}`)
+    ].join(' ').toLocaleLowerCase('fr').includes(term));
+  }, [requests, search]);
+
+  useEffect(() => {
+    if (selectedId && !requests.some((request) => request.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [requests, selectedId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPreviewUrl(null);
+
+    if (!selected) {
+      return undefined;
+    }
+
+    api.signatureDocumentObjectUrl(selected.id)
+      .then((url) => {
+        objectUrl = url;
+        if (!cancelled) {
+          setPreviewUrl(url);
+        } else {
+          URL.revokeObjectURL(url);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewUrl(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [selected?.id]);
+
+  function chooseDocument(driveItemId: string) {
+    const file = signableFiles.find((item) => item.id === driveItemId);
+    setDraft((current) => ({
+      ...current,
+      driveItemId,
+      title: current.title || file?.name.replace(/\.pdf$/i, '') || ''
+    }));
+  }
+
+  function updateRecipient(id: string, patch: Partial<SignatureRecipientDraft>) {
+    setDraft((current) => ({
+      ...current,
+      recipients: current.recipients.map((recipient) => recipient.id === id ? { ...recipient, ...patch } : recipient)
+    }));
+  }
+
+  function addRecipient() {
+    setDraft((current) => ({ ...current, recipients: [...current.recipients, createSignatureRecipientDraft()] }));
+  }
+
+  function removeRecipient(id: string) {
+    setDraft((current) => {
+      const recipients = current.recipients.filter((recipient) => recipient.id !== id);
+      return { ...current, recipients: recipients.length > 0 ? recipients : [createSignatureRecipientDraft()] };
+    });
+  }
 
   async function create(event: FormEvent) {
     event.preventDefault();
-    if (!draft.driveItemId || !draft.email.trim()) {
+    setError(null);
+    setMessage(null);
+
+    const recipients = draft.recipients
+      .map((recipient) => ({ email: recipient.email.trim(), name: recipient.name.trim() || null }))
+      .filter((recipient) => recipient.email.length > 0);
+
+    if (!draft.driveItemId || recipients.length === 0) {
+      setError('Selectionnez un PDF et ajoutez au moins un signataire.');
       return;
     }
 
-    await api.createSignatureRequest({
-      driveItemId: draft.driveItemId,
-      title: draft.title,
-      expiresAt: fromDateTimeLocalValue(draft.expiresAt),
-      recipients: [{ email: draft.email, name: draft.name || null }]
-    });
-    setDraft({ ...draft, driveItemId: '', title: '', email: '', name: '' });
-    await onChanged();
+    try {
+      const created = await api.createSignatureRequest({
+        driveItemId: draft.driveItemId,
+        title: draft.title.trim(),
+        expiresAt: fromDateTimeLocalValue(draft.expiresAt),
+        recipients
+      });
+      setDraft({
+        driveItemId: '',
+        title: '',
+        expiresAt: toDateTimeLocalValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
+        recipients: [createSignatureRecipientDraft()]
+      });
+      setSelectedId(created.id);
+      setMessage('Demande creee. Les emails OTP ont ete envoyes aux signataires.');
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Creation de la demande impossible');
+    }
+  }
+
+  async function changeStatus(status: 'Pending' | 'Revoked') {
+    if (!selected) {
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+    try {
+      const updated = await api.changeSignatureStatus(selected.id, status);
+      setSelectedId(updated.id);
+      setMessage(status === 'Revoked' ? 'Demande suspendue.' : 'Demande reactivee.');
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Changement de statut impossible');
+    }
+  }
+
+  async function deleteRequest(id: string) {
+    setError(null);
+    setMessage(null);
+    try {
+      await api.deleteSignatureRequest(id);
+      if (selectedId === id) {
+        setSelectedId(null);
+      }
+      setMessage('Demande supprimee.');
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suppression impossible');
+    }
+  }
+
+  async function copySigningUrl(url?: string) {
+    if (!url) {
+      setError('Lien de signature indisponible pour ce signataire.');
+      return;
+    }
+
+    const absoluteUrl = absoluteSignatureUrl(url);
+    setError(null);
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      setMessage('Lien de signature copie.');
+    } catch {
+      setMessage(absoluteUrl);
+    }
+  }
+
+  function openSigningUrl(url?: string) {
+    if (!url) {
+      setError('Lien de signature indisponible pour ce signataire.');
+      return;
+    }
+
+    window.open(absoluteSignatureUrl(url), '_blank', 'noopener,noreferrer');
   }
 
   return (
-    <>
-      <Panel title="Nouvelle demande de signature">
-        <form className="form-grid" onSubmit={create}>
+    <section className="signature-workbench">
+      <form className="signature-create-card" onSubmit={create}>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Signature interne</p>
+            <h2>Nouvelle demande</h2>
+          </div>
+          <button className="primary" type="submit">
+            <FileSignature size={16} />
+            Envoyer
+          </button>
+        </div>
+
+        <div className="signature-create-grid">
           <label className="field">
-            Document Drive
-            <select value={draft.driveItemId} onChange={(event) => setDraft({ ...draft, driveItemId: event.target.value })}>
-              <option value="">Document</option>
+            PDF a signer
+            <select value={draft.driveItemId} onChange={(event) => chooseDocument(event.target.value)}>
+              <option value="">Document Drive PDF</option>
               {signableFiles.map((file) => (
                 <option key={file.id} value={file.id}>{file.name}</option>
               ))}
             </select>
           </label>
           <label className="field">
-            Titre
-            <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
-          </label>
-          <label className="field">
-            Email signataire
-            <input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} />
-          </label>
-          <label className="field">
-            Nom
-            <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+            Titre de la demande
+            <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Contrat, devis, accord..." />
           </label>
           <label className="field">
             Expiration
             <input type="datetime-local" value={draft.expiresAt} onChange={(event) => setDraft({ ...draft, expiresAt: event.target.value })} />
           </label>
-          <button className="primary form-actions" type="submit">
-            <FileSignature size={16} />
-            Creer
-          </button>
-        </form>
-      </Panel>
-
-      <DataTable
-        columns={['Titre', 'Document', 'Statut', 'Expiration', 'Signataires']}
-        rows={requests.map((request) => [request.title, request.driveItemName ?? '-', request.status, formatOrderDate(request.expiresAt), request.recipients.map((recipient) => recipient.email).join(', ')])}
-        onRowClick={(index) => setSelected(requests[index])}
-      />
-
-      {selected && (
-        <div className="modal-backdrop" onClick={() => setSelected(null)}>
-          <section className="modal-panel" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <header className="modal-header">
-              <div>
-                <p className="eyebrow">Signature</p>
-                <h2>{selected.title}</h2>
-              </div>
-              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setSelected(null)}>
-                <X size={18} />
-              </button>
-            </header>
-            <div className="detail-grid">
-              <DetailItem label="Document" value={selected.driveItemName ?? '-'} />
-              <DetailItem label="Statut" value={selected.status} />
-              <DetailItem label="Expiration" value={formatOrderDate(selected.expiresAt)} />
-              <DetailItem label="Terminee le" value={selected.completedAt ? formatOrderDate(selected.completedAt) : '-'} />
-            </div>
-            <Panel title="Signataires">
-              {selected.recipients.map((recipient) => (
-                <article className="document-link-row" key={recipient.id}>
-                  <strong>{recipient.name || recipient.email}</strong>
-                  <span>{recipient.status}</span>
-                  {recipient.signingUrl && <a href={recipient.signingUrl} target="_blank" rel="noreferrer">Lien signature</a>}
-                </article>
-              ))}
-            </Panel>
-            <Panel title="Preuves">
-              {selected.evidence.map((evidence) => (
-                <article className="document-link-row" key={evidence.id}>
-                  <span>{formatOrderDate(evidence.createdAt)}</span>
-                  <strong>{evidence.action}</strong>
-                  <span>{evidence.documentSha256}</span>
-                </article>
-              ))}
-              {selected.evidence.length === 0 && <p className="panel-note">Aucune preuve pour le moment.</p>}
-            </Panel>
-          </section>
         </div>
-      )}
-    </>
+
+        <div className="signature-recipient-editor">
+          <div className="signature-card-head">
+            <strong>Signataires</strong>
+            <button className="secondary" type="button" onClick={addRecipient}>
+              <Plus size={15} />
+              Ajouter
+            </button>
+          </div>
+          {draft.recipients.map((recipient, index) => (
+            <div className="recipient-editor-row" key={recipient.id}>
+              <label className="field">
+                Nom
+                <input value={recipient.name} onChange={(event) => updateRecipient(recipient.id, { name: event.target.value })} placeholder={`Signataire ${index + 1}`} />
+              </label>
+              <label className="field">
+                Email
+                <input type="email" value={recipient.email} onChange={(event) => updateRecipient(recipient.id, { email: event.target.value })} placeholder="email@exemple.fr" />
+              </label>
+              <button className="danger icon-only" type="button" title="Retirer" onClick={() => removeRecipient(recipient.id)}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {error && <div className="alert">{error}</div>}
+        {message && <div className="success">{message}</div>}
+      </form>
+
+      <div className="signature-main-card">
+        <div className="signature-list-pane">
+          <div className="signature-card-head">
+            <div>
+              <p className="eyebrow">Demandes</p>
+              <h2>Suivi des signatures</h2>
+            </div>
+            <span>{filteredRequests.length}</span>
+          </div>
+          <label className="field">
+            Recherche
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Titre, document, signataire..." />
+          </label>
+          <div className="signature-request-list">
+            {filteredRequests.map((request) => (
+              <button
+                key={request.id}
+                className={selected?.id === request.id ? 'signature-request-item selected' : 'signature-request-item'}
+                type="button"
+                onClick={() => setSelectedId(request.id)}
+              >
+                <span className={signatureStatusClass(request.status)}>{signatureStatusLabel(request.status)}</span>
+                <strong>{request.title}</strong>
+                <small>{request.driveItemName ?? 'Document Drive'}</small>
+                <span>{request.recipients.length} signataire(s) · expire {formatOrderDate(request.expiresAt)}</span>
+              </button>
+            ))}
+            {filteredRequests.length === 0 && <EmptyState icon={FileSignature} title="Aucune demande" />}
+          </div>
+        </div>
+
+        <div className="signature-detail-pane">
+          {!selected && <EmptyState icon={FileSignature} title="Selectionnez une demande" />}
+          {selected && (
+            <>
+              <header className="signature-detail-header">
+                <div>
+                  <p className="eyebrow">Dossier signature</p>
+                  <h2>{selected.title}</h2>
+                  <p>{selected.driveItemName ?? 'Document Drive'} · expiration {formatOrderDate(selected.expiresAt)}</p>
+                </div>
+                <div className="signature-actions">
+                  {selected.status === 'Revoked' ? (
+                    <button className="secondary" type="button" onClick={() => changeStatus('Pending')}>
+                      <ShieldCheck size={15} />
+                      Reactiver
+                    </button>
+                  ) : selected.status !== 'Completed' ? (
+                    <button className="secondary" type="button" onClick={() => changeStatus('Revoked')}>
+                      <X size={15} />
+                      Suspendre
+                    </button>
+                  ) : null}
+                  <button className="danger" type="button" onClick={() => deleteRequest(selected.id)}>
+                    <Trash2 size={15} />
+                    Supprimer
+                  </button>
+                </div>
+              </header>
+
+              <div className="detail-grid">
+                <DetailItem label="Statut" value={signatureStatusLabel(selected.status)} />
+                <DetailItem label="Terminee le" value={selected.completedAt ? formatOrderDate(selected.completedAt) : '-'} />
+                <DetailItem label="Signataires" value={selected.recipients.length} />
+                <DetailItem label="Preuves" value={selected.evidence.length} />
+              </div>
+
+              <section className="signature-preview">
+                {previewUrl ? <iframe title={`Apercu ${selected.title}`} src={previewUrl} /> : <EmptyState icon={FileText} title="Apercu PDF indisponible" />}
+              </section>
+
+              <section className="signature-section">
+                <h3>Signataires</h3>
+                <div className="signature-recipient-list">
+                  {selected.recipients.map((recipient) => (
+                    <article className="signature-recipient-row" key={recipient.id}>
+                      <div>
+                        <strong>{recipient.name || recipient.email}</strong>
+                        <span>{recipient.email}</span>
+                      </div>
+                      <span className={signatureStatusClass(recipient.status)}>{signatureStatusLabel(recipient.status)}</span>
+                      <small>{recipient.signedAt ? formatOrderDate(recipient.signedAt) : 'En attente'}</small>
+                      <div className="signature-row-actions">
+                        <button className="secondary" type="button" onClick={() => copySigningUrl(recipient.signingUrl)}>
+                          Copier lien
+                        </button>
+                        <button className="secondary" type="button" onClick={() => openSigningUrl(recipient.signingUrl)}>
+                          Ouvrir
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="signature-section">
+                <h3>Documents signes</h3>
+                <div className="signature-signed-list">
+                  {selected.signedDocuments.map((document) => (
+                    <article className="signature-signed-row" key={document.id}>
+                      <FileText size={18} />
+                      <div>
+                        <strong>{document.fileName}</strong>
+                        <span>{Math.round(document.size / 1024)} Ko · {formatOrderDate(document.createdAt)}</span>
+                      </div>
+                      <button className="secondary" type="button" onClick={() => api.downloadSignedSignatureDocument(selected.id, document.id, document.fileName)}>
+                        <Download size={15} />
+                        Telecharger
+                      </button>
+                    </article>
+                  ))}
+                  {selected.signedDocuments.length === 0 && <p className="panel-note">Aucun document signe pour le moment.</p>}
+                </div>
+              </section>
+
+              <section className="signature-section">
+                <h3>Journal de preuve</h3>
+                <div className="signature-proof-list">
+                  {selected.evidence.map((evidence) => (
+                    <article className="signature-proof-row" key={evidence.id}>
+                      <div>
+                        <strong>{evidence.action}</strong>
+                        <span>{formatOrderDate(evidence.createdAt)} · {evidence.signatureMode ?? 'Click'}</span>
+                      </div>
+                      <code>{evidence.documentSha256}</code>
+                      <small>{evidence.ipAddress ?? '-'} · {evidence.userAgent ?? '-'}</small>
+                    </article>
+                  ))}
+                  {selected.evidence.length === 0 && <p className="panel-note">Aucune preuve enregistree.</p>}
+                </div>
+              </section>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
   );
+}
+
+function createSignatureRecipientDraft(): SignatureRecipientDraft {
+  return { id: `${Date.now()}-${Math.random()}`, email: '', name: '' };
+}
+
+function signatureStatusLabel(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === 'pending') {
+    return 'En attente';
+  }
+  if (normalized === 'signed') {
+    return 'Signe';
+  }
+  if (normalized === 'completed') {
+    return 'Termine';
+  }
+  if (normalized === 'revoked') {
+    return 'Suspendu';
+  }
+  if (normalized === 'expired') {
+    return 'Expire';
+  }
+  return status;
+}
+
+function signatureStatusClass(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === 'completed' || normalized === 'signed') {
+    return 'signature-status signed';
+  }
+  if (normalized === 'revoked' || normalized === 'expired') {
+    return 'signature-status blocked';
+  }
+  return 'signature-status pending';
+}
+
+function absoluteSignatureUrl(url: string) {
+  return new URL(url, window.location.origin).toString();
 }
 
 function toDateTimeLocalValue(date: Date) {

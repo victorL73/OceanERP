@@ -675,6 +675,10 @@ export type PublicSignature = {
   expiresAt: string;
   status: string;
   requiresOtp: boolean;
+  documentUrl: string;
+  signedDocumentUrl?: string;
+  signerName?: string;
+  signerEmail?: string;
 };
 
 export type OnlyOfficeConfig = {

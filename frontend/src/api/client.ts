@@ -731,11 +731,36 @@ export class ApiClient {
     return this.request<SignatureRequest>('/api/signatures', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  signatureRequest(id: string) {
+    return this.request<SignatureRequest>(`/api/signatures/${id}`, { auth: true });
+  }
+
+  changeSignatureStatus(id: string, status: string) {
+    return this.request<SignatureRequest>(`/api/signatures/${id}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status }) });
+  }
+
+  deleteSignatureRequest(id: string) {
+    return this.request<void>(`/api/signatures/${id}`, { method: 'DELETE', auth: true });
+  }
+
+  async signatureDocumentObjectUrl(id: string) {
+    const blob = await this.blob(`/api/signatures/${id}/document`);
+    return URL.createObjectURL(blob);
+  }
+
+  async downloadSignedSignatureDocument(requestId: string, documentId: string, fileName: string) {
+    await this.download(`/api/signatures/${requestId}/signed-documents/${documentId}/download`, fileName);
+  }
+
+  publicSignatureDocumentUrl(token: string, signed = false) {
+    return `${API_BASE_URL}/api/signatures/public/${encodeURIComponent(token)}/document${signed ? '?signed=true' : ''}`;
+  }
+
   publicSignature(token: string) {
     return this.request<PublicSignature>(`/api/signatures/public/${encodeURIComponent(token)}`);
   }
 
-  acceptPublicSignature(token: string, payload: { conditionsAccepted: boolean; signatureMode: string; drawnSignatureDataUrl?: string | null; otpCode?: string | null }) {
+  acceptPublicSignature(token: string, payload: { conditionsAccepted: boolean; signatureMode: string; drawnSignatureDataUrl?: string | null; otpCode?: string | null; signerName?: string | null; signerEmail?: string | null }) {
     return this.request<SignatureRequest>(`/api/signatures/public/${encodeURIComponent(token)}/accept`, { method: 'POST', body: JSON.stringify(payload) });
   }
 

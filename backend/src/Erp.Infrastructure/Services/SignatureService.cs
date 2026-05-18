@@ -4,9 +4,13 @@ using Erp.Application.Common;
 using Erp.Application.Documents;
 using Erp.Application.Emails;
 using Erp.Application.Signatures;
+using Erp.Domain.Documents;
 using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 
 namespace Erp.Infrastructure.Services;
 
@@ -25,7 +29,7 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
-        return new PagedResult<SignatureRequestDto>(await MapManyAsync(requests, null, cancellationToken), total, page, pageSize);
+        return new PagedResult<SignatureRequestDto>(await MapManyAsync(requests, BuildRelativeSigningUrl, cancellationToken), total, page, pageSize);
     }
 
     public async Task<Result<SignatureRequestDto>> GetAsync(Guid id, CancellationToken cancellationToken)
@@ -33,7 +37,7 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         var request = await db.SignatureRequests.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         return request is null
             ? Result<SignatureRequestDto>.Failure("Demande de signature introuvable.")
-            : Result<SignatureRequestDto>.Success(await MapAsync(request, null, cancellationToken));
+            : Result<SignatureRequestDto>.Success(await MapAsync(request, BuildRelativeSigningUrl, cancellationToken));
     }
 
     public async Task<Result<SignatureRequestDto>> CreateAsync(CreateSignatureRequestRequest request, string publicBaseUrl, CancellationToken cancellationToken)
@@ -124,6 +128,99 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         return Result<SignatureRequestDto>.Success(await MapAsync(saved, (recipient) => BuildSigningUrl(publicBaseUrl, recipientSecrets.FirstOrDefault(secret => secret.RecipientId == recipient.Id)?.SigningToken), cancellationToken));
     }
 
+    public async Task<Result<SignatureRequestDto>> ChangeStatusAsync(Guid id, string status, CancellationToken cancellationToken)
+    {
+        var request = await db.SignatureRequests.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (request is null)
+        {
+            return Result<SignatureRequestDto>.Failure("Demande de signature introuvable.");
+        }
+
+        var normalized = NormalizeSignatureStatus(status);
+        if (normalized is null)
+        {
+            return Result<SignatureRequestDto>.Failure("Statut de signature invalide.");
+        }
+
+        if (string.Equals(request.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<SignatureRequestDto>.Failure("Une demande terminee ne peut pas etre modifiee.");
+        }
+
+        request.Status = normalized;
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<SignatureRequestDto>.Success(await MapAsync(request, BuildRelativeSigningUrl, cancellationToken));
+    }
+
+    public async Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var request = await db.SignatureRequests.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (request is null)
+        {
+            return Result.Failure("Demande de signature introuvable.");
+        }
+
+        db.SignatureRequests.Remove(request);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<Result<SignatureDocumentStream>> OpenDocumentAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var request = await db.SignatureRequests.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (request is null)
+        {
+            return Result<SignatureDocumentStream>.Failure("Demande de signature introuvable.");
+        }
+
+        return await OpenDriveDocumentAsync(request.DriveItemId, cancellationToken);
+    }
+
+    public async Task<Result<SignatureDocumentStream>> OpenSignedDocumentAsync(Guid id, Guid signedDocumentId, CancellationToken cancellationToken)
+    {
+        var document = await db.SignedDocuments
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == signedDocumentId && x.SignatureRequestId == id, cancellationToken);
+        if (document is null)
+        {
+            return Result<SignatureDocumentStream>.Failure("Document signe introuvable.");
+        }
+
+        var stream = await fileStorageService.OpenReadAsync(document.StoragePath, cancellationToken);
+        return Result<SignatureDocumentStream>.Success(new SignatureDocumentStream(stream, document.MimeType, document.FileName));
+    }
+
+    public async Task<Result<SignatureDocumentStream>> OpenPublicDocumentAsync(string token, bool signed, CancellationToken cancellationToken)
+    {
+        var recipient = await FindRecipientByTokenAsync(token, cancellationToken);
+        if (recipient is null)
+        {
+            return Result<SignatureDocumentStream>.Failure("Lien de signature invalide.");
+        }
+
+        var request = await db.SignatureRequests.AsNoTracking().FirstAsync(x => x.Id == recipient.SignatureRequestId, cancellationToken);
+        if (string.Equals(request.Status, "Revoked", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<SignatureDocumentStream>.Failure("Ce lien de signature est desactive.");
+        }
+
+        if (signed)
+        {
+            var signedDocument = await db.SignedDocuments
+                .AsNoTracking()
+                .Where(x => x.SignatureRequestId == request.Id)
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (signedDocument is not null)
+            {
+                var stream = await fileStorageService.OpenReadAsync(signedDocument.StoragePath, cancellationToken);
+                return Result<SignatureDocumentStream>.Success(new SignatureDocumentStream(stream, signedDocument.MimeType, signedDocument.FileName));
+            }
+        }
+
+        return await OpenDriveDocumentAsync(request.DriveItemId, cancellationToken);
+    }
+
     public async Task<Result<PublicSignatureDto>> GetPublicAsync(string token, CancellationToken cancellationToken)
     {
         var recipient = await FindRecipientByTokenAsync(token, cancellationToken);
@@ -134,8 +231,25 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
 
         var request = await db.SignatureRequests.FirstAsync(x => x.Id == recipient.SignatureRequestId, cancellationToken);
         var driveItem = await db.DriveItems.FirstOrDefaultAsync(x => x.Id == request.DriveItemId, cancellationToken);
+        var status = PublicSignatureStatus(request, recipient);
         var requiresOtp = await db.SignatureOtps.AnyAsync(x => x.SignatureRecipientId == recipient.Id && x.UsedAt == null && x.ExpiresAt > DateTimeOffset.UtcNow, cancellationToken);
-        return Result<PublicSignatureDto>.Success(new PublicSignatureDto(request.Id, recipient.Id, request.Title, driveItem?.Name ?? request.DriveItemId.ToString(), request.ExpiresAt, recipient.Status, requiresOtp));
+        var signedDocument = await db.SignedDocuments
+            .AsNoTracking()
+            .Where(x => x.SignatureRequestId == request.Id)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        return Result<PublicSignatureDto>.Success(new PublicSignatureDto(
+            request.Id,
+            recipient.Id,
+            request.Title,
+            driveItem?.Name ?? request.DriveItemId.ToString(),
+            request.ExpiresAt,
+            status,
+            requiresOtp,
+            $"/api/signatures/public/{Uri.EscapeDataString(token)}/document",
+            signedDocument is null ? null : $"/api/signatures/public/{Uri.EscapeDataString(token)}/document?signed=true",
+            recipient.Name,
+            recipient.Email));
     }
 
     public async Task<Result<SignatureRequestDto>> AcceptAsync(string token, AcceptSignatureRequest request, string? ipAddress, string? userAgent, CancellationToken cancellationToken)
@@ -152,6 +266,16 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         }
 
         var signatureRequest = await db.SignatureRequests.FirstAsync(x => x.Id == recipient.SignatureRequestId, cancellationToken);
+        if (string.Equals(signatureRequest.Status, "Revoked", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<SignatureRequestDto>.Failure("Ce lien de signature est desactive.");
+        }
+
+        if (string.Equals(recipient.Status, "Signed", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<SignatureRequestDto>.Failure("Ce destinataire a deja signe ce document.");
+        }
+
         if (signatureRequest.ExpiresAt <= DateTimeOffset.UtcNow)
         {
             signatureRequest.Status = "Expired";
@@ -165,6 +289,23 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             return Result<SignatureRequestDto>.Failure(otpResult.Error!);
         }
 
+        var signerName = NormalizeOptional(request.SignerName);
+        if (signerName is not null)
+        {
+            recipient.Name = signerName;
+        }
+
+        var signerEmail = NormalizeOptional(request.SignerEmail);
+        if (signerEmail is not null)
+        {
+            if (!signerEmail.Contains('@', StringComparison.Ordinal))
+            {
+                return Result<SignatureRequestDto>.Failure("Email signataire invalide.");
+            }
+
+            recipient.Email = signerEmail;
+        }
+
         var driveItem = await db.DriveItems.FirstOrDefaultAsync(x => x.Id == signatureRequest.DriveItemId && !x.IsTrashed, cancellationToken);
         if (driveItem is null)
         {
@@ -172,10 +313,12 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         }
 
         var sha256 = await ComputeSha256Async(driveItem.StoragePath, cancellationToken);
+        var signatureImage = DecodeSignatureDataUrl(request.DrawnSignatureDataUrl);
+        var signatureImageSha256 = signatureImage is null ? null : Convert.ToHexString(SHA256.HashData(signatureImage)).ToLowerInvariant();
         recipient.Status = "Signed";
         recipient.SignedAt = DateTimeOffset.UtcNow;
 
-        db.SignatureEvidences.Add(new SignatureEvidence
+        var evidence = new SignatureEvidence
         {
             SignatureRequestId = signatureRequest.Id,
             SignatureRecipientId = recipient.Id,
@@ -186,7 +329,8 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             DrawnSignatureDataUrl = NormalizeOptional(request.DrawnSignatureDataUrl),
             IpAddress = NormalizeOptional(ipAddress),
             UserAgent = NormalizeOptional(userAgent)
-        });
+        };
+        db.SignatureEvidences.Add(evidence);
 
         var recipients = await db.SignatureRecipients.Where(x => x.SignatureRequestId == signatureRequest.Id).ToListAsync(cancellationToken);
         if (recipients.All(x => x.Id == recipient.Id || string.Equals(x.Status, "Signed", StringComparison.OrdinalIgnoreCase)))
@@ -195,20 +339,24 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             signatureRequest.CompletedAt = DateTimeOffset.UtcNow;
             if (!await db.SignedDocuments.AnyAsync(x => x.SignatureRequestId == signatureRequest.Id, cancellationToken))
             {
+                var certificateBytes = GenerateSignatureCertificatePdf(signatureRequest, driveItem, recipient, evidence, signatureImage, signatureImageSha256);
+                await using var certificateStream = new MemoryStream(certificateBytes);
+                var signedFileName = $"signed-{Path.GetFileNameWithoutExtension(driveItem.Name)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.pdf";
+                var stored = await fileStorageService.SaveAsync("signatures", signedFileName, certificateStream, cancellationToken);
                 db.SignedDocuments.Add(new SignedDocument
                 {
                     SignatureRequestId = signatureRequest.Id,
-                    FileName = $"signed-{driveItem.Name}",
-                    MimeType = driveItem.MimeType,
-                    Size = driveItem.Size,
-                    StoragePath = driveItem.StoragePath,
-                    DocumentSha256 = sha256
+                    FileName = signedFileName,
+                    MimeType = "application/pdf",
+                    Size = stored.Size,
+                    StoragePath = stored.StoragePath,
+                    DocumentSha256 = stored.Sha256.ToLowerInvariant()
                 });
             }
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        return Result<SignatureRequestDto>.Success(await MapAsync(signatureRequest, null, cancellationToken));
+        return Result<SignatureRequestDto>.Success(await MapAsync(signatureRequest, BuildRelativeSigningUrl, cancellationToken));
     }
 
     private async Task<SignatureRecipient?> FindRecipientByTokenAsync(string token, CancellationToken cancellationToken)
@@ -218,7 +366,17 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             return null;
         }
 
-        var tokenHash = Hash(token.Trim());
+        var trimmed = token.Trim();
+        if (Guid.TryParse(trimmed, out var recipientId))
+        {
+            var recipientById = await db.SignatureRecipients.FirstOrDefaultAsync(x => x.Id == recipientId, cancellationToken);
+            if (recipientById is not null)
+            {
+                return recipientById;
+            }
+        }
+
+        var tokenHash = Hash(trimmed);
         return await db.SignatureRecipients.FirstOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
     }
 
@@ -252,6 +410,174 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         await using var stream = await fileStorageService.OpenReadAsync(storagePath, cancellationToken);
         var hash = await SHA256.HashDataAsync(stream, cancellationToken);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private async Task<Result<SignatureDocumentStream>> OpenDriveDocumentAsync(Guid driveItemId, CancellationToken cancellationToken)
+    {
+        var driveItem = await db.DriveItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == driveItemId && !x.IsTrashed, cancellationToken);
+        if (driveItem is null)
+        {
+            return Result<SignatureDocumentStream>.Failure("Document Drive introuvable.");
+        }
+
+        var stream = await fileStorageService.OpenReadAsync(driveItem.StoragePath, cancellationToken);
+        return Result<SignatureDocumentStream>.Success(new SignatureDocumentStream(stream, driveItem.MimeType, driveItem.Name));
+    }
+
+    private static string? NormalizeSignatureStatus(string status)
+    {
+        return status.Trim().ToLowerInvariant() switch
+        {
+            "pending" or "active" or "restore" => "Pending",
+            "revoked" or "revoke" or "disabled" => "Revoked",
+            _ => null
+        };
+    }
+
+    private static string PublicSignatureStatus(SignatureRequest request, SignatureRecipient recipient)
+    {
+        if (string.Equals(request.Status, "Revoked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Revoked";
+        }
+
+        if (request.ExpiresAt <= DateTimeOffset.UtcNow && !string.Equals(recipient.Status, "Signed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Expired";
+        }
+
+        return recipient.Status;
+    }
+
+    private static byte[]? DecodeSignatureDataUrl(string? dataUrl)
+    {
+        if (string.IsNullOrWhiteSpace(dataUrl))
+        {
+            return null;
+        }
+
+        var marker = "base64,";
+        var index = dataUrl.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index < 0 || !dataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            var base64 = dataUrl[(index + marker.Length)..].Trim();
+            var bytes = Convert.FromBase64String(base64);
+            return bytes.Length < 80 || bytes.Length > 2 * 1024 * 1024 ? null : bytes;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    private static byte[] GenerateSignatureCertificatePdf(
+        SignatureRequest request,
+        DriveItem driveItem,
+        SignatureRecipient recipient,
+        SignatureEvidence evidence,
+        byte[]? signatureImage,
+        string? signatureImageSha256)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var signedAt = recipient.SignedAt ?? DateTimeOffset.UtcNow;
+
+        return Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Margin(40);
+                page.Size(PageSizes.A4);
+                page.DefaultTextStyle(x => x.FontSize(10));
+
+                page.Header().Row(row =>
+                {
+                    row.RelativeItem().Column(column =>
+                    {
+                        column.Item().Text("OceanERP").FontSize(22).Bold();
+                        column.Item().Text("Certificat de signature electronique interne").FontSize(13).FontColor(Colors.Teal.Darken2);
+                    });
+                    row.ConstantItem(170).AlignRight().Column(column =>
+                    {
+                        column.Item().Text($"Date: {signedAt:dd/MM/yyyy HH:mm}").Bold();
+                        column.Item().Text($"Demande: {request.Id}");
+                    });
+                });
+
+                page.Content().PaddingVertical(24).Column(column =>
+                {
+                    column.Spacing(16);
+                    column.Item().Border(1).BorderColor(Colors.Teal.Lighten2).Background(Colors.Teal.Lighten5).Padding(14).Text(
+                        "Ce document constitue une preuve interne de signature. Il trace l'accord donne via un lien securise OceanERP et ne pretend pas etre une signature qualifiee eIDAS.").FontSize(10);
+
+                    column.Item().Row(row =>
+                    {
+                        row.RelativeItem().Element(Card).Column(card =>
+                        {
+                            card.Item().Text("Document").FontSize(9).FontColor(Colors.Grey.Darken2).Bold();
+                            card.Item().Text(driveItem.Name).FontSize(13).Bold();
+                            card.Item().Text($"Empreinte SHA-256: {evidence.DocumentSha256}").FontSize(8).FontColor(Colors.Grey.Darken1);
+                        });
+
+                        row.RelativeItem().Element(Card).Column(card =>
+                        {
+                            card.Item().Text("Signataire").FontSize(9).FontColor(Colors.Grey.Darken2).Bold();
+                            card.Item().Text(recipient.Name ?? recipient.Email).FontSize(13).Bold();
+                            card.Item().Text(recipient.Email).FontSize(9).FontColor(Colors.Grey.Darken1);
+                        });
+                    });
+
+                    column.Item().Element(Card).Column(card =>
+                    {
+                        card.Spacing(6);
+                        card.Item().Text("Preuve").FontSize(12).Bold();
+                        Fact(card, "Action", evidence.Action);
+                        Fact(card, "Mode", evidence.SignatureMode ?? "Click");
+                        Fact(card, "Conditions acceptees", evidence.ConditionsAccepted ? "Oui" : "Non");
+                        Fact(card, "IP", evidence.IpAddress ?? "-");
+                        Fact(card, "Navigateur", evidence.UserAgent ?? "-");
+                        Fact(card, "Empreinte image signature", signatureImageSha256 ?? "-");
+                    });
+
+                    column.Item().Element(Card).Column(card =>
+                    {
+                        card.Item().Text("Signature").FontSize(12).Bold();
+                        if (signatureImage is { Length: > 0 })
+                        {
+                            card.Item().Height(90).Width(260).Image(signatureImage).FitArea();
+                        }
+                        else
+                        {
+                            card.Item().PaddingTop(10).Text($"Signe par clic par {recipient.Name ?? recipient.Email}.").FontSize(11);
+                        }
+                    });
+                });
+
+                page.Footer().AlignCenter().DefaultTextStyle(x => x.FontSize(8).FontColor(Colors.Grey.Darken2)).Text(text =>
+                {
+                    text.Span("OceanERP - piste de preuve interne - Page ");
+                    text.CurrentPageNumber();
+                    text.Span(" / ");
+                    text.TotalPages();
+                });
+            });
+        }).GeneratePdf();
+
+        static IContainer Card(IContainer container)
+            => container.Border(1).BorderColor(Colors.Grey.Lighten2).Padding(12);
+
+        static void Fact(ColumnDescriptor column, string label, string value)
+        {
+            column.Item().Row(row =>
+            {
+                row.ConstantItem(145).Text(label).FontColor(Colors.Grey.Darken2).Bold();
+                row.RelativeItem().Text(value);
+            });
+        }
     }
 
     private async Task<IReadOnlyList<SignatureRequestDto>> MapManyAsync(IReadOnlyList<SignatureRequest> requests, Func<SignatureRecipient, string?>? signingUrlFactory, CancellationToken cancellationToken)
@@ -310,6 +636,9 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         var baseUrl = string.IsNullOrWhiteSpace(publicBaseUrl) ? "/" : publicBaseUrl.TrimEnd('/') + "/";
         return new Uri(new Uri(baseUrl, UriKind.Absolute), $"signature/{Uri.EscapeDataString(token)}").ToString();
     }
+
+    private static string? BuildRelativeSigningUrl(SignatureRecipient recipient)
+        => $"/signature/{recipient.Id:N}";
 
     private static string BuildOtpEmailBody(string? recipientName, string title, string? signingUrl, string otpCode)
     {
