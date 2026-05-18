@@ -701,7 +701,7 @@ export class ApiClient {
   }
 
   calendarEvents(from?: string, to?: string) {
-    const query = new URLSearchParams({ pageSize: '100' });
+    const query = new URLSearchParams({ pageSize: '500' });
     if (from) {
       query.set('from', from);
     }

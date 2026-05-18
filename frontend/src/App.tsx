@@ -1,6 +1,6 @@
 import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, CalendarDays, Download, FileSignature, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, LifeBuoy, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, Clock, Download, FileSignature, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, LifeBuoy, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -7620,95 +7620,515 @@ function ServiceTickets({ items, customers, products, orders, onChanged }: { ite
   );
 }
 
+type CalendarViewMode = 'day' | 'week' | 'month';
+
+type CalendarDraftState = {
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  location: string;
+  description: string;
+  isPrivate: boolean;
+  reminderMinutes: string;
+};
+
+const calendarWeekDayLabels = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const calendarHours = Array.from({ length: 15 }, (_, index) => index + 7);
+
 function Calendar({ events, onChanged }: { events: CalendarEvent[]; onChanged: () => Promise<void> }) {
-  const now = new Date();
-  const [draft, setDraft] = useState({
-    title: '',
-    startsAt: toDateTimeLocalValue(now),
-    endsAt: toDateTimeLocalValue(new Date(now.getTime() + 60 * 60 * 1000)),
-    location: '',
-    description: '',
-    isPrivate: false,
-    reminderMinutes: '30'
-  });
+  const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
+  const [cursorDate, setCursorDate] = useState(() => startOfCalendarDay(new Date()));
+  const [calendarItems, setCalendarItems] = useState<CalendarEvent[]>(events);
+  const [draft, setDraft] = useState<CalendarDraftState>(() => createCalendarDraft(new Date()));
+  const [selected, setSelected] = useState<CalendarEvent | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
-  async function create(event: FormEvent) {
-    event.preventDefault();
-    if (!draft.title.trim()) {
-      return;
-    }
+  const visibleRange = useMemo(() => calendarVisibleRange(cursorDate, viewMode), [cursorDate, viewMode]);
+  const visibleEvents = useMemo(
+    () => calendarItems
+      .filter((item) => eventIntersectsRange(item, visibleRange.start, visibleRange.end))
+      .sort(compareCalendarEvents),
+    [calendarItems, visibleRange.end, visibleRange.start]
+  );
+  const rangeTitle = calendarRangeTitle(cursorDate, viewMode);
 
-    const startsAt = fromDateTimeLocalValue(draft.startsAt);
-    const reminderMinutes = Number(draft.reminderMinutes);
-    await api.createCalendarEvent({
-      title: draft.title,
-      startsAt,
-      endsAt: fromDateTimeLocalValue(draft.endsAt),
-      location: draft.location || null,
-      description: draft.description || null,
-      isPrivate: draft.isPrivate,
-      reminders: Number.isFinite(reminderMinutes) && reminderMinutes > 0 ? [{ remindAt: new Date(new Date(startsAt).getTime() - reminderMinutes * 60000).toISOString() }] : []
+  useEffect(() => {
+    setCalendarItems(events);
+  }, [events]);
+
+  useEffect(() => {
+    let alive = true;
+    api.calendarEvents(visibleRange.start.toISOString(), visibleRange.end.toISOString())
+      .then((result) => {
+        if (alive) {
+          setCalendarItems(result.items);
+        }
+      })
+      .catch((err) => {
+        if (alive) {
+          setMessage(err instanceof Error ? err.message : "Chargement de l'agenda impossible.");
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [visibleRange.end, visibleRange.start]);
+
+  function openCreate(date = cursorDate) {
+    setDraft(createCalendarDraft(date));
+    setShowCreate(true);
+    setMessage(null);
+  }
+
+  function moveCursor(direction: -1 | 1) {
+    setCursorDate((current) => {
+      if (viewMode === 'month') {
+        return addCalendarMonths(current, direction);
+      }
+
+      return addCalendarDays(current, viewMode === 'week' ? direction * 7 : direction);
     });
-    setDraft({ ...draft, title: '', location: '', description: '' });
+  }
+
+  async function reloadVisibleEvents() {
+    const next = await api.calendarEvents(visibleRange.start.toISOString(), visibleRange.end.toISOString());
+    setCalendarItems(next.items);
     await onChanged();
   }
 
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    if (!draft.title.trim()) {
+      setMessage('Le titre est obligatoire.');
+      return;
+    }
+
+    await api.createCalendarEvent(calendarPayloadFromDraft(draft));
+    setShowCreate(false);
+    await reloadVisibleEvents();
+  }
+
+  async function update(event: FormEvent) {
+    event.preventDefault();
+    if (!selected) {
+      return;
+    }
+
+    setMessage(null);
+    if (!draft.title.trim()) {
+      setMessage('Le titre est obligatoire.');
+      return;
+    }
+
+    const updated = await api.updateCalendarEvent(selected.id, calendarPayloadFromDraft(draft));
+    setSelected(updated);
+    setEditing(false);
+    await reloadVisibleEvents();
+  }
+
   async function remove(eventId: string) {
+    if (!window.confirm('Supprimer cet evenement ?')) {
+      return;
+    }
+
     await api.deleteCalendarEvent(eventId);
-    await onChanged();
+    setSelected(null);
+    setEditing(false);
+    await reloadVisibleEvents();
+  }
+
+  function openEvent(event: CalendarEvent) {
+    setSelected(event);
+    setEditing(false);
+    setDraft(createCalendarDraftFromEvent(event));
+  }
+
+  function renderMonth() {
+    const days = eachCalendarDay(visibleRange.start, visibleRange.end);
+    return (
+      <section className="calendar-month-grid">
+        {calendarWeekDayLabels.map((label) => <div className="calendar-weekday-header" key={label}>{label}</div>)}
+        {days.map((day) => {
+          const dayEvents = visibleEvents.filter((event) => eventIntersectsDay(event, day)).slice(0, 5);
+          const hiddenCount = visibleEvents.filter((event) => eventIntersectsDay(event, day)).length - dayEvents.length;
+          return (
+            <article className={isSameCalendarMonth(day, cursorDate) ? 'calendar-month-cell' : 'calendar-month-cell muted'} key={day.toISOString()}>
+              <div className="calendar-cell-header">
+                <button type="button" onClick={() => { setCursorDate(day); setViewMode('day'); }}>
+                  {day.getDate()}
+                </button>
+                <button className="calendar-mini-add" type="button" title="Ajouter un evenement" onClick={() => openCreate(day)}>
+                  <Plus size={13} />
+                </button>
+              </div>
+              <div className="calendar-cell-events">
+                {dayEvents.map((event) => (
+                  <button className={event.isPrivate ? 'calendar-chip private' : 'calendar-chip'} key={`${day.toISOString()}-${event.id}`} type="button" onClick={() => openEvent(event)}>
+                    <span>{formatCalendarTime(event.startsAt)}</span>
+                    {event.title}
+                  </button>
+                ))}
+                {hiddenCount > 0 && <span className="calendar-more">+ {hiddenCount} autre(s)</span>}
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    );
+  }
+
+  function renderTimeline(days: Date[]) {
+    return (
+      <section className={days.length === 1 ? 'calendar-timeline day' : 'calendar-timeline week'}>
+        <div className="calendar-time-labels">
+          <div className="calendar-time-spacer" />
+          {calendarHours.map((hour) => <span key={hour}>{`${hour}:00`}</span>)}
+        </div>
+        {days.map((day) => {
+          const dayEvents = visibleEvents.filter((event) => eventIntersectsDay(event, day));
+          return (
+            <article className="calendar-day-lane" key={day.toISOString()}>
+              <button className={isSameCalendarDay(day, new Date()) ? 'calendar-day-heading today' : 'calendar-day-heading'} type="button" onClick={() => { setCursorDate(day); setViewMode('day'); }}>
+                <span>{calendarWeekDayLabels[calendarWeekdayIndex(day)]}</span>
+                <strong>{day.getDate()}</strong>
+              </button>
+              <div className="calendar-day-slots" onDoubleClick={() => openCreate(day)}>
+                {calendarHours.map((hour) => <div className="calendar-hour-line" key={hour} />)}
+                {dayEvents.map((event) => (
+                  <button
+                    className={event.isPrivate ? 'calendar-event-card private' : 'calendar-event-card'}
+                    key={event.id}
+                    style={calendarEventPlacement(event, day)}
+                    type="button"
+                    onClick={() => openEvent(event)}
+                  >
+                    <strong>{event.title}</strong>
+                    <span><Clock size={13} /> {formatCalendarEventRange(event)}</span>
+                    {event.location && <small>{event.location}</small>}
+                  </button>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    );
   }
 
   return (
     <>
-      <Panel title="Nouvel evenement">
-        <form className="form-grid" onSubmit={create}>
-          <label className="field">
-            Titre
-            <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
-          </label>
-          <label className="field">
-            Debut
-            <input type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft({ ...draft, startsAt: event.target.value })} />
-          </label>
-          <label className="field">
-            Fin
-            <input type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft({ ...draft, endsAt: event.target.value })} />
-          </label>
-          <label className="field">
-            Rappel minutes
-            <input type="number" min="0" value={draft.reminderMinutes} onChange={(event) => setDraft({ ...draft, reminderMinutes: event.target.value })} />
-          </label>
-          <label className="field">
-            Lieu
-            <input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} />
-          </label>
-          <label className="checkbox-line">
-            <input type="checkbox" checked={draft.isPrivate} onChange={(event) => setDraft({ ...draft, isPrivate: event.target.checked })} />
-            Prive
-          </label>
-          <label className="field wide-field">
-            Description
-            <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
-          </label>
-          <button className="primary form-actions" type="submit">
-            <Plus size={16} />
-            Ajouter
-          </button>
-        </form>
-      </Panel>
-      <DataTable
-        columns={['Titre', 'Debut', 'Fin', 'Lieu', 'Rappels', 'Actions']}
-        rows={events.map((event) => [
-          event.title,
-          formatOrderDate(event.startsAt),
-          formatOrderDate(event.endsAt),
-          event.location ?? '-',
-          event.reminders.length.toString(),
-          <button className="danger" type="button" onClick={() => remove(event.id)}><Trash2 size={15} /> Supprimer</button>
-        ])}
-      />
+      {message && <div className="alert">{message}</div>}
+      <section className="calendar-shell">
+        <div className="calendar-toolbar">
+          <div className="calendar-nav">
+            <button className="secondary icon-only" type="button" aria-label="Periode precedente" title="Periode precedente" onClick={() => moveCursor(-1)}>
+              <ChevronLeft size={18} />
+            </button>
+            <button className="secondary" type="button" onClick={() => setCursorDate(startOfCalendarDay(new Date()))}>Aujourd'hui</button>
+            <button className="secondary icon-only" type="button" aria-label="Periode suivante" title="Periode suivante" onClick={() => moveCursor(1)}>
+              <ChevronRight size={18} />
+            </button>
+          </div>
+          <div className="calendar-title">
+            <span>Agenda</span>
+            <h2>{rangeTitle}</h2>
+          </div>
+          <div className="calendar-actions">
+            <div className="view-switch" role="group" aria-label="Vue agenda">
+              {(['day', 'week', 'month'] as const).map((mode) => (
+                <button key={mode} className={viewMode === mode ? 'active' : ''} type="button" onClick={() => setViewMode(mode)}>
+                  {mode === 'day' ? 'Jour' : mode === 'week' ? 'Semaine' : 'Mois'}
+                </button>
+              ))}
+            </div>
+            <button className="primary" type="button" onClick={() => openCreate()}>
+              <Plus size={16} />
+              Evenement
+            </button>
+          </div>
+        </div>
+        {viewMode === 'month' ? renderMonth() : renderTimeline(viewMode === 'week' ? eachCalendarDay(visibleRange.start, addCalendarDays(visibleRange.start, 7)) : [cursorDate])}
+      </section>
+
+      {showCreate && (
+        <div className="modal-backdrop" onClick={() => setShowCreate(false)}>
+          <section className="modal-panel calendar-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Agenda</p>
+                <h2>Nouvel evenement</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setShowCreate(false)}>
+                <X size={18} />
+              </button>
+            </header>
+            <CalendarEventForm draft={draft} setDraft={setDraft} onSubmit={create} onCancel={() => setShowCreate(false)} submitLabel="Ajouter" />
+          </section>
+        </div>
+      )}
+
+      {selected && (
+        <div className="modal-backdrop" onClick={() => setSelected(null)}>
+          <section className="modal-panel calendar-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Agenda</p>
+                <h2>{selected.title}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setSelected(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            {editing ? (
+              <CalendarEventForm draft={draft} setDraft={setDraft} onSubmit={update} onCancel={() => setEditing(false)} submitLabel="Enregistrer" />
+            ) : (
+              <>
+                <div className="detail-grid">
+                  <DetailItem label="Debut" value={formatOrderDate(selected.startsAt)} />
+                  <DetailItem label="Fin" value={formatOrderDate(selected.endsAt)} />
+                  <DetailItem label="Lieu" value={selected.location ?? '-'} />
+                  <DetailItem label="Visibilite" value={selected.isPrivate ? 'Prive' : 'Public'} />
+                  <DetailItem label="Rappels" value={selected.reminders.length ? `${selected.reminders.length} rappel(s)` : '-'} />
+                  <DetailItem label="Description" value={selected.description ?? '-'} />
+                </div>
+                {selected.links.length > 0 && (
+                  <Panel title="Liens ERP">
+                    {selected.links.map((link) => (
+                      <article className="document-link-row" key={link.id}>
+                        <strong>{link.module}</strong>
+                        <span>{link.entityId}</span>
+                      </article>
+                    ))}
+                  </Panel>
+                )}
+                <div className="modal-footer">
+                  <button className="secondary" type="button" onClick={() => { setDraft(createCalendarDraftFromEvent(selected)); setEditing(true); }}>
+                    <Pencil size={16} />
+                    Modifier
+                  </button>
+                  <button className="danger" type="button" onClick={() => void remove(selected.id)}>
+                    <Trash2 size={16} />
+                    Supprimer
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
     </>
   );
+}
+
+function CalendarEventForm({ draft, setDraft, onSubmit, onCancel, submitLabel }: { draft: CalendarDraftState; setDraft: (next: CalendarDraftState) => void; onSubmit: (event: FormEvent) => void; onCancel: () => void; submitLabel: string }) {
+  return (
+    <form className="form-grid calendar-event-form" onSubmit={onSubmit}>
+      <label className="field full-field">
+        Titre
+        <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+      </label>
+      <label className="field">
+        Debut
+        <input type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft({ ...draft, startsAt: event.target.value })} />
+      </label>
+      <label className="field">
+        Fin
+        <input type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft({ ...draft, endsAt: event.target.value })} />
+      </label>
+      <label className="field">
+        Rappel minutes
+        <input type="number" min="0" value={draft.reminderMinutes} onChange={(event) => setDraft({ ...draft, reminderMinutes: event.target.value })} />
+      </label>
+      <label className="field">
+        Lieu
+        <input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} />
+      </label>
+      <label className="checkbox-line">
+        <input type="checkbox" checked={draft.isPrivate} onChange={(event) => setDraft({ ...draft, isPrivate: event.target.checked })} />
+        Prive
+      </label>
+      <label className="field full-field">
+        Description
+        <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+      </label>
+      <div className="modal-footer full-field">
+        <button className="secondary" type="button" onClick={onCancel}>Annuler</button>
+        <button className="primary" type="submit">
+          <Save size={16} />
+          {submitLabel}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function createCalendarDraft(date: Date): CalendarDraftState {
+  const start = new Date(date);
+  start.setHours(9, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(start.getHours() + 1);
+  return {
+    title: '',
+    startsAt: toDateTimeLocalValue(start),
+    endsAt: toDateTimeLocalValue(end),
+    location: '',
+    description: '',
+    isPrivate: false,
+    reminderMinutes: '30'
+  };
+}
+
+function createCalendarDraftFromEvent(event: CalendarEvent): CalendarDraftState {
+  const reminder = event.reminders
+    .map((item) => Math.round((new Date(event.startsAt).getTime() - new Date(item.remindAt).getTime()) / 60000))
+    .find((minutes) => Number.isFinite(minutes) && minutes >= 0);
+  return {
+    title: event.title,
+    startsAt: toDateTimeLocalValue(new Date(event.startsAt)),
+    endsAt: toDateTimeLocalValue(new Date(event.endsAt)),
+    location: event.location ?? '',
+    description: event.description ?? '',
+    isPrivate: event.isPrivate,
+    reminderMinutes: reminder?.toString() ?? '30'
+  };
+}
+
+function calendarPayloadFromDraft(draft: CalendarDraftState) {
+  const startsAt = fromDateTimeLocalValue(draft.startsAt);
+  const endsAt = fromDateTimeLocalValue(draft.endsAt);
+  const reminderMinutes = Number(draft.reminderMinutes);
+  return {
+    title: draft.title.trim(),
+    startsAt,
+    endsAt,
+    location: draft.location || null,
+    description: draft.description || null,
+    isPrivate: draft.isPrivate,
+    reminders: Number.isFinite(reminderMinutes) && reminderMinutes > 0
+      ? [{ remindAt: new Date(new Date(startsAt).getTime() - reminderMinutes * 60000).toISOString() }]
+      : []
+  };
+}
+
+function startOfCalendarDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function startOfCalendarWeek(date: Date) {
+  const day = startOfCalendarDay(date);
+  const dayIndex = calendarWeekdayIndex(day);
+  return addCalendarDays(day, -dayIndex);
+}
+
+function addCalendarDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addCalendarMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function calendarVisibleRange(date: Date, viewMode: CalendarViewMode) {
+  if (viewMode === 'day') {
+    const start = startOfCalendarDay(date);
+    return { start, end: addCalendarDays(start, 1) };
+  }
+
+  if (viewMode === 'week') {
+    const start = startOfCalendarWeek(date);
+    return { start, end: addCalendarDays(start, 7) };
+  }
+
+  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  const start = startOfCalendarWeek(monthStart);
+  const end = addCalendarDays(startOfCalendarWeek(monthEnd), 7);
+  return { start, end };
+}
+
+function eachCalendarDay(start: Date, end: Date) {
+  const days: Date[] = [];
+  for (let current = startOfCalendarDay(start); current < end; current = addCalendarDays(current, 1)) {
+    days.push(current);
+  }
+
+  return days;
+}
+
+function calendarWeekdayIndex(date: Date) {
+  return (date.getDay() + 6) % 7;
+}
+
+function isSameCalendarDay(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function isSameCalendarMonth(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
+}
+
+function eventIntersectsRange(event: CalendarEvent, start: Date, end: Date) {
+  const eventStart = new Date(event.startsAt);
+  const eventEnd = new Date(event.endsAt);
+  return eventStart < end && eventEnd > start;
+}
+
+function eventIntersectsDay(event: CalendarEvent, day: Date) {
+  const start = startOfCalendarDay(day);
+  return eventIntersectsRange(event, start, addCalendarDays(start, 1));
+}
+
+function compareCalendarEvents(left: CalendarEvent, right: CalendarEvent) {
+  return new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime();
+}
+
+function formatCalendarTime(value: string) {
+  return new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatCalendarEventRange(event: CalendarEvent) {
+  return `${formatCalendarTime(event.startsAt)} - ${formatCalendarTime(event.endsAt)}`;
+}
+
+function calendarRangeTitle(date: Date, viewMode: CalendarViewMode) {
+  if (viewMode === 'day') {
+    return date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  }
+
+  if (viewMode === 'week') {
+    const start = startOfCalendarWeek(date);
+    const end = addCalendarDays(start, 6);
+    return `${start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} - ${end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  }
+
+  return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+}
+
+function calendarEventPlacement(event: CalendarEvent, day: Date) {
+  const dayStart = startOfCalendarDay(day);
+  const visibleStart = new Date(dayStart);
+  visibleStart.setHours(7, 0, 0, 0);
+  const visibleEnd = new Date(dayStart);
+  visibleEnd.setHours(22, 0, 0, 0);
+  const eventStart = new Date(event.startsAt);
+  const eventEnd = new Date(event.endsAt);
+  const start = Math.max(eventStart.getTime(), visibleStart.getTime());
+  const end = Math.min(eventEnd.getTime(), visibleEnd.getTime());
+  const total = visibleEnd.getTime() - visibleStart.getTime();
+  const top = Math.max(0, ((start - visibleStart.getTime()) / total) * 100);
+  const height = Math.max(5, ((Math.max(end, start + 30 * 60000) - start) / total) * 100);
+  return { top: `${top}%`, height: `${height}%` };
 }
 
 function Signatures({ requests, files, onChanged }: { requests: SignatureRequest[]; files: DriveItem[]; onChanged: () => Promise<void> }) {

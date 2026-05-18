@@ -11,7 +11,7 @@ public sealed class CalendarService(ErpDbContext db) : ICalendarService
     public async Task<PagedResult<CalendarEventDto>> SearchAsync(DateTimeOffset? from, DateTimeOffset? to, int page, int pageSize, CancellationToken cancellationToken)
     {
         page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        pageSize = Math.Clamp(pageSize, 1, 500);
         var query = db.CalendarEvents.AsQueryable();
         if (from.HasValue)
         {
