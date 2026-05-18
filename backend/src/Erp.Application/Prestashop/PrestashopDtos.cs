@@ -5,8 +5,10 @@ public sealed record PrestashopSyncLogDto(Guid Id, Guid PrestashopConnectionId, 
 public sealed record CreatePrestashopConnectionRequest(string ShopUrl, string? ApiKey, Guid? WarehouseId);
 public sealed record UpdatePrestashopConnectionRequest(string ShopUrl, string? ApiKey, bool IsActive, bool ClearApiKey, Guid? WarehouseId);
 public sealed record PrestashopImportedOrderNotification(Guid SalesOrderId, string Number);
+public sealed record PrestashopImportedServiceTicketNotification(Guid ServiceTicketId, string Number, string Subject, int NewMessages);
 
 public interface IPrestashopSyncNotifier
 {
     Task NotifyNewOrdersAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedOrderNotification> orders, CancellationToken cancellationToken);
+    Task NotifyNewServiceMessagesAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedServiceTicketNotification> tickets, CancellationToken cancellationToken);
 }

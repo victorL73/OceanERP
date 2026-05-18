@@ -36,13 +36,13 @@ La Phase 2 dispose maintenant d'un socle backend/API et frontend pour :
 - achats fournisseurs multi-lignes avec fournisseur, entrepot de reception, frais annexes, commentaires, date de reception prevue, retour de statut et reception vers stock ;
 - notifications journaliere regroupee de stock bas, reactivee tant que le besoin reste ouvert et ignoree pour les produits inactifs ou deja couverts par une commande fournisseur ouverte ;
 - module email complet pour la Phase 2 : serveurs SMTP/IMAP globaux, boites affectees aux utilisateurs, signatures HTML, CC/CCI, pieces jointes, suppression logique, synchronisation IMAP manuelle/automatique et journal des messages ;
-- connecteur PrestaShop avec configuration protegee de cle API, import produits/clients/stocks/commandes, publication des modifications produits/clients/stocks et journal de synchronisation.
+- connecteur PrestaShop avec configuration protegee de cle API, import produits/clients/stocks/commandes/messages SAV, publication des modifications produits/clients/stocks et journal de synchronisation.
 
 ## Phase 3 cloturee
 
 La Phase 3 ajoute maintenant un socle exploitable et extensible pour :
 
-- SAV : tickets lies aux clients, produits et commandes, priorites, statuts, messages, historique et rattachement possible de piece Drive ;
+- SAV : tickets lies aux clients, produits et commandes, priorites, statuts, messages, historique, rattachement possible de piece Drive et import quasi temps reel des conversations PrestaShop ;
 - agenda : evenements, rappels, liens vers les modules metier, evenements prives/publics, vue calendrier simple et notifications automatiques de rappel ;
 - signature interne : demandes de signature sur documents Drive, liens publics securises, OTP email, expiration, acceptation des conditions, signature par clic ou dessinee, SHA-256 du document, IP, user-agent, horodatage, preuve et document signe stocke hors base ;
 - ONLYOFFICE : configuration d'edition pour DOCX/XLSX/PPTX, URL document temporaire signee et callback de sauvegarde vers une nouvelle version Drive ;

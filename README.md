@@ -100,13 +100,13 @@ La Phase 2 est maintenant cloturee sur son socle metier :
 - achats fournisseurs avec commandes multi-lignes, fournisseur, entrepot de reception, frais annexes, commentaires, date de reception, retour de statut et reception vers stock ;
 - module email avec serveurs SMTP/IMAP globaux geres par admin, boites affectees aux utilisateurs, signatures HTML, CC/CCI, pieces jointes, suppression logique, synchronisation IMAP et journal d'envoi ;
 - personnalisation admin des devis depuis `Parametres > Devis` : identite entreprise, logo, mentions et pied de page PDF ;
-- PrestaShop avec connexions, cle API configurable par admin dans `Parametres`, import produits/clients/stocks/commandes et journal de synchronisation traite par worker (`Queued`, `Running`, `Completed`, `CompletedWithWarnings`, `Failed`).
+- PrestaShop avec connexions, cle API configurable par admin dans `Parametres`, import produits/clients/stocks/commandes/messages SAV et journal de synchronisation traite par worker (`Queued`, `Running`, `Completed`, `CompletedWithWarnings`, `Failed`).
 
 ## Phase 3 cloturee
 
 La Phase 3 ajoute :
 
-- SAV avec tickets, priorites, statuts, messages, historique et liens clients/produits/commandes ;
+- SAV avec tickets, priorites, statuts, messages, historique, liens clients/produits/commandes et recuperation automatique des conversations PrestaShop ;
 - agenda avec evenements, rappels et liens vers les modules ERP ;
 - signature interne avec lien public securise, OTP email, expiration, preuve SHA-256, IP, user-agent, signature par clic ou dessinee ;
 - integration ONLYOFFICE pour ouvrir DOCX/XLSX/PPTX via URL temporaire signee et versionner les callbacks dans Drive ;

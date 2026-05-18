@@ -312,6 +312,8 @@ export default function App() {
         setView('emails');
       } else if (link.pathname === '/orders') {
         setView('orders');
+      } else if (link.pathname === '/service') {
+        setView('service');
       } else if (link.pathname === '/calendar') {
         setView('calendar');
       }
@@ -366,6 +368,13 @@ export default function App() {
       } else if (notification.type === 'prestashop.orders.new') {
         api.orders()
           .then(setOrders)
+          .catch(() => undefined);
+        api.summary()
+          .then(setSummary)
+          .catch(() => undefined);
+      } else if (notification.type.startsWith('service.')) {
+        api.serviceTickets()
+          .then(setServiceTickets)
           .catch(() => undefined);
         api.summary()
           .then(setSummary)

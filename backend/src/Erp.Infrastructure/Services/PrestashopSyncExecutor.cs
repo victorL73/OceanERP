@@ -6,6 +6,7 @@ using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -130,6 +131,13 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         if (ordersSummary.CreatedOrders.Count > 0)
         {
             await notifier.NotifyNewOrdersAsync(connection.Id, connection.ShopUrl, ordersSummary.CreatedOrders, cancellationToken);
+        }
+
+        var serviceSummary = await RunImportAsync("customer_threads", () => ImportServiceTicketsAsync(apiBaseUrl, connection, cancellationToken), cancellationToken);
+        summaries.Add(serviceSummary);
+        if (serviceSummary.CreatedServiceTickets.Count > 0)
+        {
+            await notifier.NotifyNewServiceMessagesAsync(connection.Id, connection.ShopUrl, serviceSummary.CreatedServiceTickets, cancellationToken);
         }
 
         var successCount = summaries.Count(x => x.IsSuccess);
@@ -414,6 +422,358 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         }
 
         return ImportSummary.Ok("orders", created, updated, createdOrders);
+    }
+
+    private async Task<ImportSummary> ImportServiceTicketsAsync(string apiBaseUrl, PrestashopConnection connection, CancellationToken cancellationToken)
+    {
+        using var threadsDocument = await GetJsonAsync($"{apiBaseUrl}/customer_threads?display=full&sort=[date_upd_DESC]&limit=200&output_format=JSON", "customer_threads", cancellationToken);
+        using var messagesDocument = await GetJsonAsync($"{apiBaseUrl}/customer_messages?display=full&sort=[date_add_DESC]&limit=200&output_format=JSON", "customer_messages", cancellationToken);
+
+        var created = 0;
+        var updated = 0;
+        var ticketsByThread = new Dictionary<string, ServiceTicket>(StringComparer.OrdinalIgnoreCase);
+        var newMessagesByTicket = new Dictionary<Guid, int>();
+
+        foreach (var thread in EnumerateItems(threadsDocument, "customer_threads"))
+        {
+            var threadExternalId = GetRequiredId(thread);
+            if (string.IsNullOrWhiteSpace(threadExternalId))
+            {
+                continue;
+            }
+
+            var upsert = await UpsertServiceTicketFromPrestashopThreadAsync(apiBaseUrl, thread, threadExternalId, cancellationToken);
+            ticketsByThread[threadExternalId] = upsert.Ticket;
+            if (upsert.Created)
+            {
+                created += 1;
+            }
+            else if (upsert.Updated)
+            {
+                updated += 1;
+            }
+        }
+
+        foreach (var messageItem in EnumerateItems(messagesDocument, "customer_messages"))
+        {
+            var messageExternalId = GetRequiredId(messageItem);
+            var threadExternalId = GetPrestashopResourceId(messageItem, "id_customer_thread") ?? GetString(messageItem, "id_customer_thread");
+            if (string.IsNullOrWhiteSpace(messageExternalId) || string.IsNullOrWhiteSpace(threadExternalId))
+            {
+                continue;
+            }
+
+            if (await FindReferenceAsync("customer_messages", messageExternalId, cancellationToken) is not null)
+            {
+                continue;
+            }
+
+            if (!ticketsByThread.TryGetValue(threadExternalId, out var ticket))
+            {
+                var thread = await FetchPrestashopThreadAsync(apiBaseUrl, threadExternalId, cancellationToken);
+                if (thread is null)
+                {
+                    continue;
+                }
+
+                var upsert = await UpsertServiceTicketFromPrestashopThreadAsync(apiBaseUrl, thread.Value, threadExternalId, cancellationToken);
+                ticket = upsert.Ticket;
+                ticketsByThread[threadExternalId] = ticket;
+                if (upsert.Created)
+                {
+                    created += 1;
+                }
+                else if (upsert.Updated)
+                {
+                    updated += 1;
+                }
+            }
+
+            var body = NormalizePrestashopMessageBody(GetString(messageItem, "message"));
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                continue;
+            }
+
+            var message = new ServiceTicketMessage
+            {
+                ServiceTicketId = ticket.Id,
+                Body = body,
+                IsInternal = IsPrestashopEmployeeMessage(messageItem),
+                CreatedAt = GetDateTimeOffset(messageItem, "date_add", "date_upd") ?? DateTimeOffset.UtcNow
+            };
+
+            db.ServiceTicketMessages.Add(message);
+            db.ExternalReferences.Add(new ExternalReference
+            {
+                Provider = Provider,
+                ExternalId = ExternalKey("customer_messages", messageExternalId),
+                Module = "customer_messages",
+                EntityId = message.Id
+            });
+
+            if (string.IsNullOrWhiteSpace(ticket.Description))
+            {
+                ticket.Description = Truncate(body, 1000);
+            }
+
+            ticket.UpdatedAt = DateTimeOffset.UtcNow;
+            newMessagesByTicket[ticket.Id] = newMessagesByTicket.GetValueOrDefault(ticket.Id) + 1;
+        }
+
+        var notifications = new List<PrestashopImportedServiceTicketNotification>();
+        foreach (var (ticketId, messageCount) in newMessagesByTicket)
+        {
+            var ticket = ticketsByThread.Values.FirstOrDefault(x => x.Id == ticketId)
+                ?? await db.ServiceTickets.FirstOrDefaultAsync(x => x.Id == ticketId, cancellationToken);
+            if (ticket is not null)
+            {
+                notifications.Add(new PrestashopImportedServiceTicketNotification(ticket.Id, ticket.Number, ticket.Subject, messageCount));
+            }
+        }
+
+        return ImportSummary.Ok("customer_threads", created, updated, null, notifications);
+    }
+
+    private async Task<(ServiceTicket Ticket, bool Created, bool Updated)> UpsertServiceTicketFromPrestashopThreadAsync(string apiBaseUrl, JsonElement thread, string threadExternalId, CancellationToken cancellationToken)
+    {
+        var existingReference = await FindReferenceAsync("customer_threads", threadExternalId, cancellationToken);
+        ServiceTicket? ticket = null;
+        if (existingReference is not null)
+        {
+            ticket = await db.ServiceTickets.FirstOrDefaultAsync(x => x.Id == existingReference.EntityId, cancellationToken);
+        }
+
+        var customer = await ResolveServiceTicketCustomerAsync(thread, threadExternalId, cancellationToken);
+        var productId = await ResolveEntityIdByExternalIdAsync("products", GetPrestashopResourceId(thread, "id_product") ?? GetString(thread, "id_product"), cancellationToken);
+        var orderId = await ResolveEntityIdByExternalIdAsync("orders", GetPrestashopResourceId(thread, "id_order") ?? GetString(thread, "id_order"), cancellationToken);
+        var subject = await BuildPrestashopServiceTicketSubjectAsync(thread, threadExternalId, orderId, cancellationToken);
+        var status = MapServiceTicketStatus(GetString(thread, "status"));
+        var createdAt = GetDateTimeOffset(thread, "date_add", "date_upd") ?? DateTimeOffset.UtcNow;
+
+        if (ticket is null)
+        {
+            ticket = new ServiceTicket
+            {
+                Number = await NextServiceTicketNumberAsync(cancellationToken),
+                CustomerId = customer.Id,
+                ProductId = productId,
+                SalesOrderId = orderId,
+                Subject = subject,
+                Priority = "Normal",
+                Status = status,
+                CreatedAt = createdAt
+            };
+
+            db.ServiceTickets.Add(ticket);
+            db.ExternalReferences.Add(new ExternalReference
+            {
+                Provider = Provider,
+                ExternalId = ExternalKey("customer_threads", threadExternalId),
+                Module = "customer_threads",
+                EntityId = ticket.Id
+            });
+            db.ServiceTicketStatusHistories.Add(new ServiceTicketStatusHistory
+            {
+                ServiceTicketId = ticket.Id,
+                Status = ticket.Status,
+                Comment = "Ticket cree depuis PrestaShop",
+                ChangedAt = createdAt
+            });
+
+            return (ticket, true, false);
+        }
+
+        var updated = false;
+        if (ticket.CustomerId != customer.Id)
+        {
+            ticket.CustomerId = customer.Id;
+            updated = true;
+        }
+
+        if (ticket.ProductId != productId)
+        {
+            ticket.ProductId = productId;
+            updated = true;
+        }
+
+        if (ticket.SalesOrderId != orderId)
+        {
+            ticket.SalesOrderId = orderId;
+            updated = true;
+        }
+
+        if (!string.Equals(ticket.Subject, subject, StringComparison.Ordinal))
+        {
+            ticket.Subject = subject;
+            updated = true;
+        }
+
+        if (!string.Equals(ticket.Status, status, StringComparison.OrdinalIgnoreCase))
+        {
+            ticket.Status = status;
+            updated = true;
+            db.ServiceTicketStatusHistories.Add(new ServiceTicketStatusHistory
+            {
+                ServiceTicketId = ticket.Id,
+                Status = ticket.Status,
+                Comment = "Statut PrestaShop synchronise"
+            });
+        }
+
+        if (updated)
+        {
+            ticket.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        return (ticket, false, updated);
+    }
+
+    private async Task<JsonElement?> FetchPrestashopThreadAsync(string apiBaseUrl, string threadExternalId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = await GetJsonAsync($"{apiBaseUrl}/customer_threads/{threadExternalId}?display=full&output_format=JSON", "customer_threads", cancellationToken);
+            return FindFirstItem(document, "customer_thread", "customer_threads")?.Clone();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<Customer> ResolveServiceTicketCustomerAsync(JsonElement thread, string threadExternalId, CancellationToken cancellationToken)
+    {
+        var customerExternalId = GetPrestashopResourceId(thread, "id_customer") ?? GetString(thread, "id_customer");
+        if (!string.IsNullOrWhiteSpace(customerExternalId) && customerExternalId is not "0")
+        {
+            var externalReference = await FindReferenceAsync("customers", customerExternalId, cancellationToken);
+            if (externalReference is not null)
+            {
+                var existing = await db.Customers.Include(x => x.Contacts).FirstOrDefaultAsync(x => x.Id == externalReference.EntityId, cancellationToken);
+                if (existing is not null)
+                {
+                    return existing;
+                }
+            }
+
+            var customerByCode = await db.Customers.Include(x => x.Contacts).FirstOrDefaultAsync(x => x.Code == $"PS-C-{customerExternalId}", cancellationToken);
+            if (customerByCode is not null)
+            {
+                await UpsertExternalReferenceAsync("customers", customerExternalId, customerByCode.Id, cancellationToken);
+                return customerByCode;
+            }
+        }
+
+        var email = TruncateOptional(GetString(thread, "email"), 320);
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var existingByEmail = await db.Customers
+                .Include(x => x.Contacts)
+                .FirstOrDefaultAsync(x => x.Email == email || x.Contacts.Any(contact => contact.Email == email), cancellationToken);
+            if (existingByEmail is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(customerExternalId) && customerExternalId is not "0")
+                {
+                    await UpsertExternalReferenceAsync("customers", customerExternalId, existingByEmail.Id, cancellationToken);
+                }
+
+                return existingByEmail;
+            }
+        }
+
+        var customer = new Customer
+        {
+            Code = Truncate(!string.IsNullOrWhiteSpace(customerExternalId) && customerExternalId is not "0" ? $"PS-C-{customerExternalId}" : $"PS-SAV-{threadExternalId}", 60),
+            CompanyName = Truncate(FirstNonEmpty(email, $"Client PrestaShop SAV {threadExternalId}"), 240),
+            Email = email,
+            CustomerType = "PrestaShop",
+            Source = Provider
+        };
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            customer.Contacts.Add(new CustomerContact
+            {
+                Email = email,
+                JobTitle = "PrestaShop SAV",
+                IsPrimary = true
+            });
+        }
+
+        db.Customers.Add(customer);
+        if (!string.IsNullOrWhiteSpace(customerExternalId) && customerExternalId is not "0")
+        {
+            db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("customers", customerExternalId), Module = "customers", EntityId = customer.Id });
+        }
+
+        return customer;
+    }
+
+    private async Task<Guid?> ResolveEntityIdByExternalIdAsync(string module, string? externalId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(externalId) || externalId is "0")
+        {
+            return null;
+        }
+
+        var reference = await FindReferenceAsync(module, externalId, cancellationToken);
+        return reference?.EntityId;
+    }
+
+    private async Task<string> BuildPrestashopServiceTicketSubjectAsync(JsonElement thread, string threadExternalId, Guid? orderId, CancellationToken cancellationToken)
+    {
+        var email = GetString(thread, "email");
+        string? orderNumber = null;
+        if (orderId.HasValue)
+        {
+            orderNumber = await db.SalesOrders.Where(x => x.Id == orderId.Value).Select(x => x.Number).FirstOrDefaultAsync(cancellationToken);
+        }
+
+        var subject = FirstNonEmpty(
+            GetString(thread, "subject"),
+            !string.IsNullOrWhiteSpace(orderNumber) ? $"Message PrestaShop {orderNumber}" : null,
+            !string.IsNullOrWhiteSpace(email) ? $"Message PrestaShop de {email}" : null,
+            $"Message PrestaShop #{threadExternalId}");
+
+        return Truncate(subject, 240);
+    }
+
+    private async Task<string> NextServiceTicketNumberAsync(CancellationToken cancellationToken)
+    {
+        var prefix = $"SAV-{DateTime.UtcNow:yyyy}-";
+        var persistedCount = await db.ServiceTickets.CountAsync(x => x.Number.StartsWith(prefix), cancellationToken);
+        var pendingCount = db.ServiceTickets.Local.Count(x => x.Number.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        return $"{prefix}{persistedCount + pendingCount + 1:0000}";
+    }
+
+    private static string MapServiceTicketStatus(string? prestashopStatus)
+        => prestashopStatus?.Trim().ToLowerInvariant() switch
+        {
+            "closed" => "Closed",
+            "pending1" or "pending2" => "WaitingCustomer",
+            _ => "Open"
+        };
+
+    private static bool IsPrestashopEmployeeMessage(JsonElement message)
+    {
+        var employeeId = GetPrestashopResourceId(message, "id_employee") ?? GetString(message, "id_employee");
+        return !string.IsNullOrWhiteSpace(employeeId) && employeeId is not "0";
+    }
+
+    private static string NormalizePrestashopMessageBody(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return string.Empty;
+        }
+
+        var decoded = WebUtility.HtmlDecode(body).Replace("\r\n", "\n").Replace('\r', '\n');
+        decoded = Regex.Replace(decoded, @"<\s*br\s*/?\s*>", "\n", RegexOptions.IgnoreCase);
+        decoded = Regex.Replace(decoded, @"</\s*p\s*>", "\n", RegexOptions.IgnoreCase);
+        decoded = Regex.Replace(decoded, @"<[^>]+>", " ");
+        decoded = Regex.Replace(decoded, @"[ \t]+", " ");
+        decoded = Regex.Replace(decoded, @"\n{3,}", "\n\n");
+        return decoded.Trim();
     }
 
     private async Task<Product?> FindProductByExternalIdAsync(string externalId, CancellationToken cancellationToken)
@@ -1386,10 +1746,24 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         };
 
     private sealed record PrestashopProbeResult(string Status, string Message);
-    private sealed record ImportSummary(string Resource, bool IsSuccess, int Created, int Updated, string? Error, IReadOnlyList<PrestashopImportedOrderNotification> CreatedOrders)
+    private sealed record ImportSummary(
+        string Resource,
+        bool IsSuccess,
+        int Created,
+        int Updated,
+        string? Error,
+        IReadOnlyList<PrestashopImportedOrderNotification> CreatedOrders,
+        IReadOnlyList<PrestashopImportedServiceTicketNotification> CreatedServiceTickets)
     {
-        public static ImportSummary Ok(string resource, int created, int updated, IReadOnlyList<PrestashopImportedOrderNotification>? createdOrders = null) => new(resource, true, created, updated, null, createdOrders ?? []);
-        public static ImportSummary Failed(string resource, string error) => new(resource, false, 0, 0, error, []);
+        public static ImportSummary Ok(
+            string resource,
+            int created,
+            int updated,
+            IReadOnlyList<PrestashopImportedOrderNotification>? createdOrders = null,
+            IReadOnlyList<PrestashopImportedServiceTicketNotification>? createdServiceTickets = null)
+            => new(resource, true, created, updated, null, createdOrders ?? [], createdServiceTickets ?? []);
+
+        public static ImportSummary Failed(string resource, string error) => new(resource, false, 0, 0, error, [], []);
         public string ToMessage() => IsSuccess ? $"{Resource}: {Created} cree(s), {Updated} maj" : $"{Resource}: echec {Error}";
     }
 }
