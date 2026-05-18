@@ -167,7 +167,7 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
             return Result<SalesOrderShipmentSlipFileDto>.Failure("Sales order not found.");
         }
 
-        if (!IsColissimoCarrier(order.ShippingCarrierName))
+        if (!IsColissimoCarrier(order.ShippingCarrierName) && !IsColissimoCarrier(order.ShippingServiceName))
         {
             return Result<SalesOrderShipmentSlipFileDto>.Failure("Le bon d'expedition est disponible uniquement pour les commandes avec livraison Colissimo.");
         }
@@ -178,11 +178,11 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
         var model = new SalesOrderShipmentSlipPdfModel(
             order.Number,
             customer?.CompanyName ?? order.ShippingAddressName ?? "Client",
-            order.ShippingCarrierName,
+            order.ShippingCarrierName ?? order.ShippingServiceName,
             order.ShippingTrackingNumber,
             address,
             lines,
-            order.CreatedAt);
+            order.OrderedAt ?? order.CreatedAt);
 
         var content = shipmentPdfService.Generate(model);
         return Result<SalesOrderShipmentSlipFileDto>.Success(new SalesOrderShipmentSlipFileDto(
@@ -415,6 +415,11 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
             .OrderByDescending(x => x.ChangedAt)
             .Select(x => new SalesOrderStatusHistoryDto(x.Id, x.Status, x.ChangedAt))
             .ToListAsync(cancellationToken);
+        if (statusHistory.Count == 0)
+        {
+            statusHistory.Add(new SalesOrderStatusHistoryDto(Guid.Empty, order.Status, order.OrderedAt ?? order.CreatedAt));
+        }
+
         return new SalesOrderDto(
             order.Id,
             order.Number,
@@ -423,11 +428,21 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
             order.WarehouseId,
             warehouseName,
             order.Status,
+            order.ExternalStatusName,
             lineDtos.Sum(x => x.LineTotal),
+            order.OrderedAt,
+            order.PaymentMethod,
+            order.PaymentModule,
+            order.PaidTotal,
+            order.ProductsTotal,
+            order.ShippingTotal,
+            order.ShippingWeightKg,
+            order.InvoiceReference,
+            order.ShippingServiceName,
             order.ShippingCarrierName,
             order.ShippingTrackingNumber,
             HasShippingAddress(order, customer) ? BuildShippingAddress(order, customer) : null,
-            IsColissimoCarrier(order.ShippingCarrierName),
+            IsColissimoCarrier(order.ShippingCarrierName) || IsColissimoCarrier(order.ShippingServiceName),
             order.CreatedAt,
             order.ConfirmedAt,
             order.ShippedAt,

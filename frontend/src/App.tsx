@@ -3435,13 +3435,13 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
       <div className="sync-note">Les commandes sont creees depuis un devis signe ou importees depuis PrestaShop.</div>
       {message && <div className="inline-message">{message}</div>}
       <DataTable
-        columns={['Numero', 'Client', 'Entrepot', 'Transporteur', 'Statut', 'Total', 'Actions']}
+        columns={['Numero', 'Date', 'Client', 'Transporteur', 'Statut', 'Total', 'Actions']}
         rows={items.map((item) => [
           item.number,
+          formatOrderDate(item.orderedAt ?? item.createdAt),
           item.customerName ?? customerById.get(item.customerId)?.companyName ?? item.customerId,
-          item.warehouseName ?? (item.warehouseId ? warehouseById.get(item.warehouseId)?.name : '-') ?? '-',
-          item.shippingCarrierName ?? '-',
-          salesOrderStatusLabel(item.status),
+          orderShippingLabel(item),
+          item.externalStatusName ?? salesOrderStatusLabel(item.status),
           `${item.total.toFixed(2)} EUR`,
           <div className="table-actions">
             {item.canPrintShippingSlip && (
@@ -3497,7 +3497,16 @@ function salesOrderStatusLabel(status: string) {
 }
 
 function formatOrderDate(value?: string | null) {
-  return value ? new Date(value).toLocaleString('fr-FR') : '-';
+  if (!value) {
+    return '-';
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('fr-FR');
+}
+
+function orderShippingLabel(order: SalesOrder) {
+  return order.shippingServiceName ?? order.shippingCarrierName ?? '-';
 }
 
 function SalesOrderDetailModal({
@@ -3550,18 +3559,28 @@ function SalesOrderDetailModal({
 
         <div className="detail-grid">
           <DetailItem label="Client" value={order.customerName ?? customer?.companyName ?? order.customerId} />
-          <DetailItem label="Statut" value={salesOrderStatusLabel(order.status)} />
+          <DetailItem label="Statut ERP" value={salesOrderStatusLabel(order.status)} />
+          <DetailItem label="Statut PrestaShop" value={order.externalStatusName ?? '-'} />
           <DetailItem label="Entrepot" value={order.warehouseName ?? warehouse?.name ?? '-'} />
           <DetailItem label="Total" value={purchaseAmount(order.total)} />
-          <DetailItem label="Creee le" value={formatOrderDate(order.createdAt)} />
+          <DetailItem label="Commande boutique le" value={formatOrderDate(order.orderedAt ?? order.createdAt)} />
+          <DetailItem label="Creee ERP le" value={formatOrderDate(order.createdAt)} />
           <DetailItem label="Confirmee le" value={formatOrderDate(order.confirmedAt)} />
           <DetailItem label="Expediee le" value={formatOrderDate(order.shippedAt)} />
           <DetailItem label="Terminee le" value={formatOrderDate(order.completedAt)} />
+          <DetailItem label="Paiement" value={order.paymentMethod ?? '-'} />
+          <DetailItem label="Module paiement" value={order.paymentModule ?? '-'} />
+          <DetailItem label="Total paye" value={order.paidTotal === undefined || order.paidTotal === null ? '-' : purchaseAmount(order.paidTotal)} />
+          <DetailItem label="Total produits" value={order.productsTotal === undefined || order.productsTotal === null ? '-' : purchaseAmount(order.productsTotal)} />
+          <DetailItem label="Frais de port" value={order.shippingTotal === undefined || order.shippingTotal === null ? '-' : purchaseAmount(order.shippingTotal)} />
+          <DetailItem label="Poids" value={order.shippingWeightKg === undefined || order.shippingWeightKg === null ? '-' : `${order.shippingWeightKg.toLocaleString('fr-FR')} kg`} />
+          <DetailItem label="Facture" value={order.invoiceReference ?? '-'} />
         </div>
 
         <section className="customer-detail-section">
           <h3>Livraison</h3>
           <div className="detail-grid">
+            <DetailItem label="Service" value={order.shippingServiceName ?? '-'} />
             <DetailItem label="Transporteur" value={order.shippingCarrierName ?? '-'} />
             <DetailItem label="Suivi" value={order.shippingTrackingNumber ?? '-'} />
             <DetailItem label="Nom" value={address?.name ?? '-'} />

@@ -301,6 +301,15 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasIndex(x => x.WarehouseId);
             entity.Property(x => x.Number).HasMaxLength(80);
             entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.ExternalStatusName).HasMaxLength(160);
+            entity.Property(x => x.PaymentMethod).HasMaxLength(160);
+            entity.Property(x => x.PaymentModule).HasMaxLength(120);
+            entity.Property(x => x.PaidTotal).HasPrecision(18, 2);
+            entity.Property(x => x.ProductsTotal).HasPrecision(18, 2);
+            entity.Property(x => x.ShippingTotal).HasPrecision(18, 2);
+            entity.Property(x => x.ShippingWeightKg).HasPrecision(18, 3);
+            entity.Property(x => x.InvoiceReference).HasMaxLength(80);
+            entity.Property(x => x.ShippingServiceName).HasMaxLength(180);
             entity.Property(x => x.ShippingCarrierName).HasMaxLength(160);
             entity.Property(x => x.ShippingTrackingNumber).HasMaxLength(120);
             entity.Property(x => x.ShippingAddressName).HasMaxLength(220);

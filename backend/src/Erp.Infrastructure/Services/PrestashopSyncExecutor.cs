@@ -376,7 +376,9 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 order = await db.SalesOrders.FirstOrDefaultAsync(x => x.Id == externalReference.EntityId, cancellationToken);
             }
 
-            var status = MapOrderStatus(GetString(item, "current_state"));
+            var currentStateId = GetPrestashopResourceId(item, "current_state") ?? GetString(item, "current_state");
+            var status = MapOrderStatus(currentStateId);
+            var externalStatusName = await ResolveOrderStateNameAsync(apiBaseUrl, currentStateId, cancellationToken);
             var carrierName = await ResolveCarrierNameAsync(apiBaseUrl, GetPrestashopResourceId(item, "id_carrier") ?? GetString(item, "id_carrier"), cancellationToken);
             var shippingAddress = await ResolveDeliveryAddressAsync(apiBaseUrl, GetPrestashopResourceId(item, "id_address_delivery") ?? GetString(item, "id_address_delivery"), cancellationToken);
             if (order is null)
@@ -386,6 +388,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 db.SalesOrders.Add(order);
                 db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("orders", externalId), Module = "orders", EntityId = order.Id });
                 AddOrderLines(order, item);
+                ApplyOrderDetails(order, item, externalStatusName);
                 ApplyOrderShippingDetails(order, item, carrierName, shippingAddress);
                 db.SalesOrderStatusHistories.Add(new SalesOrderStatusHistory { SalesOrderId = order.Id, Status = status });
                 createdOrders.Add(new PrestashopImportedOrderNotification(order.Id, order.Number));
@@ -399,6 +402,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                     db.SalesOrderStatusHistories.Add(new SalesOrderStatusHistory { SalesOrderId = order.Id, Status = status });
                 }
 
+                ApplyOrderDetails(order, item, externalStatusName);
                 ApplyOrderShippingDetails(order, item, carrierName, shippingAddress);
                 updated += 1;
             }
@@ -686,6 +690,16 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         }
     }
 
+    private async Task<string?> ResolveOrderStateNameAsync(string apiBaseUrl, string? stateExternalId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(stateExternalId) || stateExternalId is "0")
+        {
+            return null;
+        }
+
+        return await FetchPrestashopResourceNameAsync(apiBaseUrl, "order_states", "order_state", stateExternalId, cancellationToken);
+    }
+
     private async Task<PrestashopDeliveryAddress?> ResolveDeliveryAddressAsync(string apiBaseUrl, string? addressExternalId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(addressExternalId) || addressExternalId is "0")
@@ -725,7 +739,8 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private static void ApplyOrderShippingDetails(SalesOrder order, JsonElement orderItem, string? carrierName, PrestashopDeliveryAddress? address)
     {
-        order.ShippingCarrierName = TruncateOptional(FirstNonEmpty(carrierName, order.ShippingCarrierName), 160);
+        order.ShippingServiceName = TruncateOptional(FirstNonEmpty(GetString(orderItem, "carrier_name"), carrierName, GetString(orderItem, "module"), order.ShippingServiceName), 180);
+        order.ShippingCarrierName = TruncateOptional(FirstNonEmpty(carrierName, order.ShippingCarrierName, order.ShippingServiceName), 160);
         order.ShippingTrackingNumber = TruncateOptional(FirstNonEmpty(GetString(orderItem, "shipping_number", "delivery_number", "tracking_number"), order.ShippingTrackingNumber), 120);
         if (address is null)
         {
@@ -740,6 +755,30 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         order.ShippingCountry = FirstNonEmpty(address.Country, order.ShippingCountry);
         order.ShippingPhone = FirstNonEmpty(address.Phone, order.ShippingPhone);
         order.ShippingEmail = FirstNonEmpty(address.Email, order.ShippingEmail);
+    }
+
+    private static void ApplyOrderDetails(SalesOrder order, JsonElement orderItem, string? externalStatusName)
+    {
+        order.ExternalStatusName = TruncateOptional(FirstNonEmpty(externalStatusName, order.ExternalStatusName), 160);
+        order.OrderedAt = GetDateTimeOffset(orderItem, "date_add", "date_upd") ?? order.OrderedAt;
+        order.PaymentMethod = TruncateOptional(FirstNonEmpty(GetString(orderItem, "payment"), order.PaymentMethod), 160);
+        order.PaymentModule = TruncateOptional(FirstNonEmpty(GetString(orderItem, "module"), order.PaymentModule), 120);
+        order.PaidTotal = GetDecimal(orderItem, "total_paid_tax_incl", "total_paid") ?? order.PaidTotal;
+        order.ProductsTotal = GetDecimal(orderItem, "total_products_wt", "total_products") ?? order.ProductsTotal;
+        order.ShippingTotal = GetDecimal(orderItem, "total_shipping_tax_incl", "total_shipping") ?? order.ShippingTotal;
+        order.ShippingWeightKg = GetDecimal(orderItem, "total_weight", "weight") ?? order.ShippingWeightKg;
+        order.InvoiceReference = BuildInvoiceReference(GetString(orderItem, "invoice_number")) ?? order.InvoiceReference;
+        order.CreatedAt = order.OrderedAt ?? order.CreatedAt;
+    }
+
+    private static string? BuildInvoiceReference(string? invoiceNumber)
+    {
+        if (string.IsNullOrWhiteSpace(invoiceNumber) || invoiceNumber is "0")
+        {
+            return null;
+        }
+
+        return invoiceNumber.StartsWith('#') ? Truncate(invoiceNumber, 80) : Truncate($"#{invoiceNumber}", 80);
     }
 
     private static JsonElement? FindFirstItem(JsonDocument document, params string[] propertyNames)
@@ -1046,6 +1085,24 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     {
         var value = GetString(item, propertyNames);
         return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+    }
+
+    private static DateTimeOffset? GetDateTimeOffset(JsonElement item, params string[] propertyNames)
+    {
+        var value = GetString(item, propertyNames);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedOffset))
+        {
+            return parsedOffset;
+        }
+
+        return DateTime.TryParseExact(value, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedDate)
+            ? new DateTimeOffset(parsedDate)
+            : null;
     }
 
     private static bool? GetBool(JsonElement item, string propertyName)

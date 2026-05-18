@@ -299,7 +299,17 @@ export type SalesOrder = {
   warehouseId?: string;
   warehouseName?: string;
   status: string;
+  externalStatusName?: string;
   total: number;
+  orderedAt?: string;
+  paymentMethod?: string;
+  paymentModule?: string;
+  paidTotal?: number;
+  productsTotal?: number;
+  shippingTotal?: number;
+  shippingWeightKg?: number;
+  invoiceReference?: string;
+  shippingServiceName?: string;
   shippingCarrierName?: string;
   shippingTrackingNumber?: string;
   shippingAddress?: {
