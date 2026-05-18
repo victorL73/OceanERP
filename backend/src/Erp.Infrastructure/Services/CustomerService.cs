@@ -83,18 +83,89 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
 
         ApplyChildren(customer, request.Contacts, request.Addresses);
         db.Customers.Add(customer);
-        await db.SaveChangesAsync(cancellationToken);
-        return Result<CustomerDto>.Success(Map(customer));
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return Result<CustomerDto>.Success(Map(customer));
+        }
+        catch (DbUpdateException ex)
+        {
+            return Result<CustomerDto>.Failure($"Enregistrement client impossible: {FormatDatabaseError(ex)}");
+        }
     }
 
     public async Task<Result<CustomerDto>> UpdateAsync(Guid id, UpdateCustomerRequest request, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.CompanyName))
+        {
+            return Result<CustomerDto>.Failure("Le nom du client est obligatoire.");
+        }
+
         var customer = await db.Customers.Include(x => x.Contacts).Include(x => x.Addresses).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (customer is null)
         {
             return Result<CustomerDto>.Failure("Customer not found.");
         }
 
+        ApplyCustomerFields(customer, request);
+        var nextContacts = BuildContacts(request.Contacts).ToList();
+        var nextAddresses = BuildAddresses(request.Addresses).ToList();
+        var publishSnapshot = BuildPublishSnapshot(customer, nextContacts, nextAddresses);
+        var publishResult = await PublishPrestashopCustomerAsync(publishSnapshot, cancellationToken);
+        if (!publishResult.Succeeded)
+        {
+            return Result<CustomerDto>.Failure(publishResult.Error!);
+        }
+
+        var currentContacts = customer.Contacts.ToList();
+        var currentAddresses = customer.Addresses.ToList();
+        foreach (var contact in nextContacts)
+        {
+            contact.CustomerId = customer.Id;
+        }
+
+        foreach (var address in nextAddresses)
+        {
+            address.CustomerId = customer.Id;
+        }
+
+        db.CustomerContacts.RemoveRange(currentContacts);
+        db.CustomerAddresses.RemoveRange(currentAddresses);
+        db.CustomerContacts.AddRange(nextContacts);
+        db.CustomerAddresses.AddRange(nextAddresses);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            return Result<CustomerDto>.Failure($"Enregistrement client impossible: {FormatDatabaseError(ex)}");
+        }
+
+        var updatedCustomer = await db.Customers
+            .AsNoTracking()
+            .Include(x => x.Contacts)
+            .Include(x => x.Addresses)
+            .FirstAsync(x => x.Id == id, cancellationToken);
+        return Result<CustomerDto>.Success(Map(updatedCustomer));
+    }
+
+    private static void ApplyChildren(Customer customer, IReadOnlyList<UpsertCustomerContactRequest>? contacts, IReadOnlyList<UpsertCustomerAddressRequest>? addresses)
+    {
+        foreach (var contact in BuildContacts(contacts))
+        {
+            customer.Contacts.Add(contact);
+        }
+
+        foreach (var address in BuildAddresses(addresses))
+        {
+            customer.Addresses.Add(address);
+        }
+    }
+
+    private static void ApplyCustomerFields(Customer customer, UpdateCustomerRequest request)
+    {
         customer.CompanyName = request.CompanyName.Trim();
         customer.LegalName = Clean(request.LegalName);
         customer.TradeName = Clean(request.TradeName);
@@ -113,51 +184,82 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         customer.DefaultDiscountRate = Math.Max(0, request.DefaultDiscountRate ?? 0);
         customer.Notes = Clean(request.Notes);
         customer.IsActive = request.IsActive;
-        db.CustomerContacts.RemoveRange(customer.Contacts);
-        db.CustomerAddresses.RemoveRange(customer.Addresses);
-        customer.Contacts.Clear();
-        customer.Addresses.Clear();
-        ApplyChildren(customer, request.Contacts, request.Addresses);
-        var publishResult = await PublishPrestashopCustomerAsync(customer, cancellationToken);
-        if (!publishResult.Succeeded)
-        {
-            return Result<CustomerDto>.Failure(publishResult.Error!);
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-        return Result<CustomerDto>.Success(Map(customer));
     }
 
-    private static void ApplyChildren(Customer customer, IReadOnlyList<UpsertCustomerContactRequest>? contacts, IReadOnlyList<UpsertCustomerAddressRequest>? addresses)
-    {
-        foreach (var contact in contacts ?? [])
+    private static IEnumerable<CustomerContact> BuildContacts(IReadOnlyList<UpsertCustomerContactRequest>? contacts)
+        => (contacts ?? []).Select(contact => new CustomerContact
         {
-            customer.Contacts.Add(new CustomerContact
-            {
-                FirstName = contact.FirstName,
-                LastName = contact.LastName,
-                Email = contact.Email,
-                Phone = contact.Phone,
-                JobTitle = contact.JobTitle,
-                IsPrimary = contact.IsPrimary
-            });
-        }
+            FirstName = Clean(contact.FirstName) ?? string.Empty,
+            LastName = Clean(contact.LastName) ?? string.Empty,
+            Email = Clean(contact.Email),
+            Phone = Clean(contact.Phone),
+            JobTitle = Clean(contact.JobTitle),
+            IsPrimary = contact.IsPrimary
+        });
 
-        foreach (var address in addresses ?? [])
+    private static IEnumerable<CustomerAddress> BuildAddresses(IReadOnlyList<UpsertCustomerAddressRequest>? addresses)
+        => (addresses ?? []).Select(address => new CustomerAddress
         {
-            customer.Addresses.Add(new CustomerAddress
-            {
-                Label = address.Label,
-                Line1 = address.Line1,
-                Line2 = address.Line2,
-                PostalCode = address.PostalCode,
-                City = address.City,
-                Country = address.Country,
-                IsBilling = address.IsBilling,
-                IsShipping = address.IsShipping
-            });
-        }
-    }
+            Label = Clean(address.Label) ?? "Adresse principale",
+            Line1 = Clean(address.Line1) ?? string.Empty,
+            Line2 = Clean(address.Line2),
+            PostalCode = Clean(address.PostalCode) ?? string.Empty,
+            City = Clean(address.City) ?? string.Empty,
+            Country = Clean(address.Country) ?? "France",
+            IsBilling = address.IsBilling,
+            IsShipping = address.IsShipping
+        });
+
+    private static Customer BuildPublishSnapshot(Customer customer, IReadOnlyList<CustomerContact> contacts, IReadOnlyList<CustomerAddress> addresses)
+        => new()
+        {
+            Id = customer.Id,
+            Code = customer.Code,
+            CompanyName = customer.CompanyName,
+            LegalName = customer.LegalName,
+            TradeName = customer.TradeName,
+            SirenNumber = customer.SirenNumber,
+            SiretNumber = customer.SiretNumber,
+            VatNumber = customer.VatNumber,
+            Email = customer.Email,
+            Phone = customer.Phone,
+            MobilePhone = customer.MobilePhone,
+            Website = customer.Website,
+            Industry = customer.Industry,
+            CustomerType = customer.CustomerType,
+            Source = customer.Source,
+            AccountingCode = customer.AccountingCode,
+            PaymentTerms = customer.PaymentTerms,
+            DefaultDiscountRate = customer.DefaultDiscountRate,
+            Notes = customer.Notes,
+            IsActive = customer.IsActive,
+            Contacts = contacts.Select(CloneContact).ToList(),
+            Addresses = addresses.Select(CloneAddress).ToList()
+        };
+
+    private static CustomerContact CloneContact(CustomerContact contact)
+        => new()
+        {
+            FirstName = contact.FirstName,
+            LastName = contact.LastName,
+            Email = contact.Email,
+            Phone = contact.Phone,
+            JobTitle = contact.JobTitle,
+            IsPrimary = contact.IsPrimary
+        };
+
+    private static CustomerAddress CloneAddress(CustomerAddress address)
+        => new()
+        {
+            Label = address.Label,
+            Line1 = address.Line1,
+            Line2 = address.Line2,
+            PostalCode = address.PostalCode,
+            City = address.City,
+            Country = address.Country,
+            IsBilling = address.IsBilling,
+            IsShipping = address.IsShipping
+        };
 
     private static CustomerDto Map(Customer customer)
         => new(
@@ -188,7 +290,15 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string? CleanIdentifier(string? value)
-        => string.IsNullOrWhiteSpace(value) ? null : new string(value.Where(char.IsLetterOrDigit).ToArray()).Trim();
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var cleaned = new string(value.Where(char.IsLetterOrDigit).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
+    }
 
     private async Task<Result> PublishPrestashopCustomerAsync(Customer customer, CancellationToken cancellationToken)
     {
@@ -458,5 +568,11 @@ public sealed class CustomerService(ErpDbContext db, IConfiguration configuratio
         }
 
         return string.Join(" | ", messages.Distinct());
+    }
+
+    private static string FormatDatabaseError(DbUpdateException exception)
+    {
+        var detail = FullExceptionMessage(exception);
+        return string.IsNullOrWhiteSpace(detail) ? "erreur base de donnees inconnue." : TrimDetail(detail);
     }
 }

@@ -127,6 +127,52 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task Customer_UpdateCanReplaceContactsWithoutAddress()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/customers/{customer.Id}", new UpdateCustomerRequest(
+            CompanyName: "Client modifie",
+            LegalName: "Client modifie SAS",
+            TradeName: "Client modifie",
+            SirenNumber: "123456789",
+            SiretNumber: "12345678900010",
+            VatNumber: "FR123456789",
+            Email: "contact@example.com",
+            Phone: "0102030405",
+            MobilePhone: null,
+            Website: "https://example.com",
+            Industry: "Nautisme",
+            CustomerType: "Professionnel",
+            Source: "ERP",
+            AccountingCode: "411TEST",
+            PaymentTerms: "30 jours",
+            DefaultDiscountRate: 5,
+            Notes: "Note client",
+            IsActive: true,
+            Contacts:
+            [
+                new UpsertCustomerContactRequest(
+                    FirstName: "Victor",
+                    LastName: "Lerivray",
+                    Email: "victor@example.com",
+                    Phone: null,
+                    JobTitle: "Dirigeant",
+                    IsPrimary: true)
+            ],
+            Addresses: []));
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<CustomerDto>();
+        Assert.Equal("Client modifie", updated!.CompanyName);
+        Assert.Empty(updated.Addresses);
+        var contact = Assert.Single(updated.Contacts);
+        Assert.Equal("victor@example.com", contact.Email);
+        Assert.True(contact.IsPrimary);
+    }
+
+    [Fact]
     public async Task Warehouses_AdminCanUpdateDeleteAndMoveStockItem()
     {
         using var client = await CreateAuthenticatedClientAsync();
