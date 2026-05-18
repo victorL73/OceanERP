@@ -292,6 +292,20 @@ export type DashboardSummary = {
   activePrestashopConnections: number;
 };
 
+export type FlowceanWorkspaceSummary = {
+  id: string;
+  slug: string;
+  name: string;
+  version: number;
+  isPersonal: boolean;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type FlowceanWorkspace = FlowceanWorkspaceSummary & {
+  dataJson: string;
+};
+
 export type SalesOrder = {
   id: string;
   number: string;

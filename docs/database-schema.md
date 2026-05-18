@@ -109,3 +109,12 @@ La migration `Phase3Core` ajoute :
 Les tables de signature ne stockent pas le binaire signe en PostgreSQL. `SignedDocuments.StoragePath` pointe vers le stockage fichiers securise, et `SignedDocuments.DocumentSha256` conserve l'empreinte de preuve.
 
 Les tables `ApiClients`, `ApiKeys` et `ApiRequestLogs` sont posees pour le futur module API externe : le durcissement complet des cles, permissions par cle et limitation par client reste a finaliser dans une evolution dediee.
+
+## Tables Espace de travail Flowcean
+
+La migration `FlowceanWorkspace` ajoute le module d'espace collaboratif inspire de Flowcean :
+
+- `FlowceanWorkspaces` stocke le nom, le slug, le proprietaire, la version et le contenu de l'espace en `jsonb`.
+- `FlowceanWorkspaceEvents` trace les sauvegardes et actions structurantes avec l'utilisateur et un payload JSON.
+
+Ce module ne stocke pas de fichiers binaires. Les documents restent dans le Drive; Flowcean conserve uniquement les pages, blocs, vues et bases de travail structurees.

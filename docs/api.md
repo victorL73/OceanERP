@@ -47,6 +47,10 @@ Swagger est activé en environnement `Development`.
 - `GET /api/drive/links/{module}/{entityId}`
 - `POST /api/drive/links`
 - `DELETE /api/drive/links/{id}`
+- `GET /api/flowcean/workspaces`
+- `GET /api/flowcean/workspaces/{slug}`
+- `POST /api/flowcean/workspaces`
+- `PUT /api/flowcean/workspaces/{slug}`
 - `GET /api/notifications`
 - `POST /api/notifications`
 - `GET /api/dashboard/summary`

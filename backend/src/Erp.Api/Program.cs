@@ -99,7 +99,8 @@ var permissionCodes = new[]
     "service.read", "service.write",
     "calendar.read", "calendar.write",
     "signatures.read", "signatures.write",
-    "onlyoffice.read", "onlyoffice.write"
+    "onlyoffice.read", "onlyoffice.write",
+    "flowcean.read", "flowcean.write"
 };
 
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();

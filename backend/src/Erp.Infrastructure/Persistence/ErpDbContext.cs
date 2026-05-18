@@ -84,6 +84,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<ApiClient> ApiClients => Set<ApiClient>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<ApiRequestLog> ApiRequestLogs => Set<ApiRequestLog>();
+    public DbSet<FlowceanWorkspace> FlowceanWorkspaces => Set<FlowceanWorkspace>();
+    public DbSet<FlowceanWorkspaceEvent> FlowceanWorkspaceEvents => Set<FlowceanWorkspaceEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -626,6 +628,24 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasIndex(x => x.CreatedAt);
             entity.Property(x => x.Path).HasMaxLength(1000);
             entity.HasOne<ApiClient>().WithMany().HasForeignKey(x => x.ApiClientId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<FlowceanWorkspace>(entity =>
+        {
+            entity.HasIndex(x => x.Slug).IsUnique();
+            entity.Property(x => x.Slug).HasMaxLength(120);
+            entity.Property(x => x.Name).HasMaxLength(190);
+            entity.Property(x => x.DataJson).HasColumnType("jsonb");
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<FlowceanWorkspaceEvent>(entity =>
+        {
+            entity.HasIndex(x => new { x.FlowceanWorkspaceId, x.CreatedAt });
+            entity.Property(x => x.EventType).HasMaxLength(80);
+            entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            entity.HasOne<FlowceanWorkspace>().WithMany().HasForeignKey(x => x.FlowceanWorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.SetNull);
         });
     }
 

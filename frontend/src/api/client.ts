@@ -10,6 +10,8 @@ import type {
   EmailMessage,
   EmailSyncSummary,
   EmailTemplate,
+  FlowceanWorkspace,
+  FlowceanWorkspaceSummary,
   Invoice,
   InvoiceDocument,
   MailAccount,
@@ -368,6 +370,22 @@ export class ApiClient {
 
   markNotificationRead(notificationId: string) {
     return this.request<void>(`/api/notifications/${notificationId}/read`, { method: 'POST', auth: true });
+  }
+
+  flowceanWorkspaces() {
+    return this.request<PagedResult<FlowceanWorkspaceSummary>>('/api/flowcean/workspaces', { auth: true });
+  }
+
+  flowceanWorkspace(slug: string) {
+    return this.request<FlowceanWorkspace>(`/api/flowcean/workspaces/${encodeURIComponent(slug)}`, { auth: true });
+  }
+
+  createFlowceanWorkspace(payload: { name: string }) {
+    return this.request<FlowceanWorkspace>('/api/flowcean/workspaces', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  saveFlowceanWorkspace(slug: string, payload: { dataJson: string; version: number; eventType?: string | null }) {
+    return this.request<FlowceanWorkspace>(`/api/flowcean/workspaces/${encodeURIComponent(slug)}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
   users() {
