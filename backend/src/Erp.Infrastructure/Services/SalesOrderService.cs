@@ -1,6 +1,7 @@
 using Erp.Application.Common;
 using Erp.Application.Sales;
 using Erp.Application.Stock;
+using Erp.Domain.Customers;
 using Erp.Domain.FutureModules;
 using Erp.Domain.Quotes;
 using Erp.Infrastructure.Persistence;
@@ -8,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService lowStockAlerts) : ISalesOrderService
+public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService lowStockAlerts, ISalesOrderShipmentPdfService shipmentPdfService) : ISalesOrderService
 {
     private static readonly IReadOnlyDictionary<string, string[]> AllowedTransitions = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
@@ -156,6 +157,38 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
         }
 
         return Result<SalesOrderDto>.Success(await MapAsync(order, cancellationToken));
+    }
+
+    public async Task<Result<SalesOrderShipmentSlipFileDto>> GenerateShipmentSlipAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var order = await db.SalesOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (order is null)
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Sales order not found.");
+        }
+
+        if (!IsColissimoCarrier(order.ShippingCarrierName))
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Le bon d'expedition est disponible uniquement pour les commandes avec livraison Colissimo.");
+        }
+
+        var customer = await db.Customers.Include(x => x.Addresses).FirstOrDefaultAsync(x => x.Id == order.CustomerId, cancellationToken);
+        var address = BuildShippingAddress(order, customer);
+        var lines = await MapLinesAsync(order.Id, cancellationToken);
+        var model = new SalesOrderShipmentSlipPdfModel(
+            order.Number,
+            customer?.CompanyName ?? order.ShippingAddressName ?? "Client",
+            order.ShippingCarrierName,
+            order.ShippingTrackingNumber,
+            address,
+            lines,
+            order.CreatedAt);
+
+        var content = shipmentPdfService.Generate(model);
+        return Result<SalesOrderShipmentSlipFileDto>.Success(new SalesOrderShipmentSlipFileDto(
+            $"bon-expedition-{SanitizeFileName(order.Number)}.pdf",
+            "application/pdf",
+            content));
     }
 
     private async Task<Result<SalesOrderLine>> BuildLineAsync(Guid orderId, CreateSalesOrderLineRequest request, CancellationToken cancellationToken)
@@ -372,9 +405,73 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
 
     private async Task<SalesOrderDto> MapAsync(SalesOrder order, CancellationToken cancellationToken)
     {
-        var lines = await db.SalesOrderLines.Where(x => x.SalesOrderId == order.Id).OrderBy(x => x.Id).ToListAsync(cancellationToken);
-        var lineDtos = lines.Select(x => new SalesOrderLineDto(x.Id, x.ProductId, x.Description, x.Quantity, x.UnitPrice, decimal.Round(x.Quantity * x.UnitPrice, 2))).ToList();
-        return new SalesOrderDto(order.Id, order.Number, order.CustomerId, order.WarehouseId, order.Status, lineDtos.Sum(x => x.LineTotal), lineDtos);
+        var customer = await db.Customers.Include(x => x.Addresses).FirstOrDefaultAsync(x => x.Id == order.CustomerId, cancellationToken);
+        var warehouseName = order.WarehouseId.HasValue
+            ? await db.Warehouses.Where(x => x.Id == order.WarehouseId.Value).Select(x => x.Name).FirstOrDefaultAsync(cancellationToken)
+            : null;
+        var lineDtos = await MapLinesAsync(order.Id, cancellationToken);
+        var statusHistory = await db.SalesOrderStatusHistories
+            .Where(x => x.SalesOrderId == order.Id)
+            .OrderByDescending(x => x.ChangedAt)
+            .Select(x => new SalesOrderStatusHistoryDto(x.Id, x.Status, x.ChangedAt))
+            .ToListAsync(cancellationToken);
+        return new SalesOrderDto(
+            order.Id,
+            order.Number,
+            order.CustomerId,
+            customer?.CompanyName,
+            order.WarehouseId,
+            warehouseName,
+            order.Status,
+            lineDtos.Sum(x => x.LineTotal),
+            order.ShippingCarrierName,
+            order.ShippingTrackingNumber,
+            HasShippingAddress(order, customer) ? BuildShippingAddress(order, customer) : null,
+            IsColissimoCarrier(order.ShippingCarrierName),
+            order.CreatedAt,
+            order.ConfirmedAt,
+            order.ShippedAt,
+            order.CompletedAt,
+            order.CancelledAt,
+            lineDtos,
+            statusHistory);
+    }
+
+    private async Task<IReadOnlyList<SalesOrderLineDto>> MapLinesAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        var lines = await db.SalesOrderLines.Where(x => x.SalesOrderId == orderId).OrderBy(x => x.Id).ToListAsync(cancellationToken);
+        return lines.Select(x => new SalesOrderLineDto(x.Id, x.ProductId, x.Description, x.Quantity, x.UnitPrice, decimal.Round(x.Quantity * x.UnitPrice, 2))).ToList();
+    }
+
+    private static bool HasShippingAddress(SalesOrder order, Customer? customer)
+        => !string.IsNullOrWhiteSpace(order.ShippingAddressLine1)
+           || !string.IsNullOrWhiteSpace(order.ShippingCity)
+           || customer?.Addresses.Any(x => x.IsShipping) == true;
+
+    private static SalesOrderShippingAddressDto BuildShippingAddress(SalesOrder order, Customer? customer)
+    {
+        var fallback = customer?.Addresses.FirstOrDefault(x => x.IsShipping) ?? customer?.Addresses.FirstOrDefault();
+        return new SalesOrderShippingAddressDto(
+            FirstNonEmpty(order.ShippingAddressName, customer?.CompanyName),
+            FirstNonEmpty(order.ShippingAddressLine1, fallback?.Line1),
+            FirstNonEmpty(order.ShippingAddressLine2, fallback?.Line2),
+            FirstNonEmpty(order.ShippingPostalCode, fallback?.PostalCode),
+            FirstNonEmpty(order.ShippingCity, fallback?.City),
+            FirstNonEmpty(order.ShippingCountry, fallback?.Country),
+            FirstNonEmpty(order.ShippingPhone, customer?.MobilePhone, customer?.Phone),
+            FirstNonEmpty(order.ShippingEmail, customer?.Email));
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))?.Trim();
+
+    private static bool IsColissimoCarrier(string? carrierName)
+        => !string.IsNullOrWhiteSpace(carrierName) && carrierName.Contains("colissimo", StringComparison.OrdinalIgnoreCase);
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return new string(value.Select(x => invalid.Contains(x) ? '-' : x).ToArray());
     }
 
     private static string? NormalizeStatus(string status)

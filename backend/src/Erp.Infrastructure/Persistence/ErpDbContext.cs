@@ -297,8 +297,20 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         modelBuilder.Entity<SalesOrder>(entity =>
         {
             entity.HasIndex(x => x.Number).IsUnique();
+            entity.HasIndex(x => x.CustomerId);
+            entity.HasIndex(x => x.WarehouseId);
             entity.Property(x => x.Number).HasMaxLength(80);
             entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.ShippingCarrierName).HasMaxLength(160);
+            entity.Property(x => x.ShippingTrackingNumber).HasMaxLength(120);
+            entity.Property(x => x.ShippingAddressName).HasMaxLength(220);
+            entity.Property(x => x.ShippingAddressLine1).HasMaxLength(240);
+            entity.Property(x => x.ShippingAddressLine2).HasMaxLength(240);
+            entity.Property(x => x.ShippingPostalCode).HasMaxLength(40);
+            entity.Property(x => x.ShippingCity).HasMaxLength(160);
+            entity.Property(x => x.ShippingCountry).HasMaxLength(120);
+            entity.Property(x => x.ShippingPhone).HasMaxLength(80);
+            entity.Property(x => x.ShippingEmail).HasMaxLength(220);
         });
 
         modelBuilder.Entity<SalesOrderLine>(entity =>

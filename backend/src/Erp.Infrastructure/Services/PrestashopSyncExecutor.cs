@@ -377,6 +377,8 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             }
 
             var status = MapOrderStatus(GetString(item, "current_state"));
+            var carrierName = await ResolveCarrierNameAsync(apiBaseUrl, GetPrestashopResourceId(item, "id_carrier") ?? GetString(item, "id_carrier"), cancellationToken);
+            var shippingAddress = await ResolveDeliveryAddressAsync(apiBaseUrl, GetPrestashopResourceId(item, "id_address_delivery") ?? GetString(item, "id_address_delivery"), cancellationToken);
             if (order is null)
             {
                 var customer = await ResolveOrderCustomerAsync(GetString(item, "id_customer"), cancellationToken);
@@ -384,6 +386,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 db.SalesOrders.Add(order);
                 db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("orders", externalId), Module = "orders", EntityId = order.Id });
                 AddOrderLines(order, item);
+                ApplyOrderShippingDetails(order, item, carrierName, shippingAddress);
                 db.SalesOrderStatusHistories.Add(new SalesOrderStatusHistory { SalesOrderId = order.Id, Status = status });
                 createdOrders.Add(new PrestashopImportedOrderNotification(order.Id, order.Number));
                 created += 1;
@@ -395,6 +398,8 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                     order.Status = status;
                     db.SalesOrderStatusHistories.Add(new SalesOrderStatusHistory { SalesOrderId = order.Id, Status = status });
                 }
+
+                ApplyOrderShippingDetails(order, item, carrierName, shippingAddress);
                 updated += 1;
             }
         }
@@ -660,6 +665,81 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         {
             return null;
         }
+    }
+
+    private async Task<string?> ResolveCarrierNameAsync(string apiBaseUrl, string? carrierExternalId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(carrierExternalId) || carrierExternalId is "0")
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = await GetJsonAsync($"{apiBaseUrl}/carriers/{carrierExternalId}?display=full&output_format=JSON", "carriers", cancellationToken);
+            var carrier = FindFirstItem(document, "carrier", "carriers");
+            return carrier is null ? null : TruncateOptional(FirstNonEmpty(GetLocalizedString(carrier.Value, "name"), GetString(carrier.Value, "name")), 160);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<PrestashopDeliveryAddress?> ResolveDeliveryAddressAsync(string apiBaseUrl, string? addressExternalId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(addressExternalId) || addressExternalId is "0")
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = await GetJsonAsync($"{apiBaseUrl}/addresses/{addressExternalId}?display=full&output_format=JSON", "addresses", cancellationToken);
+            var address = FindFirstItem(document, "address", "addresses");
+            if (address is null)
+            {
+                return null;
+            }
+
+            var countryId = GetPrestashopResourceId(address.Value, "id_country") ?? GetString(address.Value, "id_country");
+            var country = !string.IsNullOrWhiteSpace(countryId)
+                ? await FetchPrestashopResourceNameAsync(apiBaseUrl, "countries", "country", countryId, cancellationToken)
+                : null;
+
+            return new PrestashopDeliveryAddress(
+                TruncateOptional(FirstNonEmpty(GetString(address.Value, "company"), $"{GetString(address.Value, "firstname")} {GetString(address.Value, "lastname")}".Trim()), 220),
+                TruncateOptional(GetString(address.Value, "address1"), 240),
+                TruncateOptional(GetString(address.Value, "address2"), 240),
+                TruncateOptional(GetString(address.Value, "postcode"), 40),
+                TruncateOptional(GetString(address.Value, "city"), 160),
+                TruncateOptional(FirstNonEmpty(country, countryId), 120),
+                TruncateOptional(FirstNonEmpty(GetString(address.Value, "phone_mobile"), GetString(address.Value, "phone")), 80),
+                TruncateOptional(GetString(address.Value, "email"), 220));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void ApplyOrderShippingDetails(SalesOrder order, JsonElement orderItem, string? carrierName, PrestashopDeliveryAddress? address)
+    {
+        order.ShippingCarrierName = TruncateOptional(FirstNonEmpty(carrierName, order.ShippingCarrierName), 160);
+        order.ShippingTrackingNumber = TruncateOptional(FirstNonEmpty(GetString(orderItem, "shipping_number", "delivery_number", "tracking_number"), order.ShippingTrackingNumber), 120);
+        if (address is null)
+        {
+            return;
+        }
+
+        order.ShippingAddressName = FirstNonEmpty(address.Name, order.ShippingAddressName);
+        order.ShippingAddressLine1 = FirstNonEmpty(address.Line1, order.ShippingAddressLine1);
+        order.ShippingAddressLine2 = FirstNonEmpty(address.Line2, order.ShippingAddressLine2);
+        order.ShippingPostalCode = FirstNonEmpty(address.PostalCode, order.ShippingPostalCode);
+        order.ShippingCity = FirstNonEmpty(address.City, order.ShippingCity);
+        order.ShippingCountry = FirstNonEmpty(address.Country, order.ShippingCountry);
+        order.ShippingPhone = FirstNonEmpty(address.Phone, order.ShippingPhone);
+        order.ShippingEmail = FirstNonEmpty(address.Email, order.ShippingEmail);
     }
 
     private static JsonElement? FindFirstItem(JsonDocument document, params string[] propertyNames)
@@ -1173,6 +1253,8 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
         return null;
     }
+
+    private sealed record PrestashopDeliveryAddress(string? Name, string? Line1, string? Line2, string? PostalCode, string? City, string? Country, string? Phone, string? Email);
 
     private async Task<string> BuildUniqueProductReferenceAsync(string requestedReference, string externalId, CancellationToken cancellationToken)
     {

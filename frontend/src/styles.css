@@ -1000,6 +1000,10 @@ th {
   width: min(1100px, 100%);
 }
 
+.order-modal {
+  width: min(1120px, 100%);
+}
+
 .email-modal {
   width: min(1120px, calc(100vw - 48px));
 }

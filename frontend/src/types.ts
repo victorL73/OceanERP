@@ -295,10 +295,31 @@ export type SalesOrder = {
   id: string;
   number: string;
   customerId: string;
+  customerName?: string;
   warehouseId?: string;
+  warehouseName?: string;
   status: string;
   total: number;
+  shippingCarrierName?: string;
+  shippingTrackingNumber?: string;
+  shippingAddress?: {
+    name?: string;
+    line1?: string;
+    line2?: string;
+    postalCode?: string;
+    city?: string;
+    country?: string;
+    phone?: string;
+    email?: string;
+  };
+  canPrintShippingSlip: boolean;
+  createdAt: string;
+  confirmedAt?: string;
+  shippedAt?: string;
+  completedAt?: string;
+  cancelledAt?: string;
   lines: Array<{ id: string; productId?: string; description: string; quantity: number; unitPrice: number; lineTotal: number }>;
+  statusHistory: Array<{ id: string; status: string; changedAt: string }>;
 };
 
 export type ProductSupplier = {

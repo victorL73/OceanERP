@@ -1,6 +1,6 @@
 import { type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { AuditLog, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -3374,11 +3374,23 @@ function Orders({ items, customers, products, warehouses, onChanged }: { items: 
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('0');
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const selectedProduct = products.find((product) => product.id === productId);
+  const selectedOrder = items.find((item) => item.id === selectedOrderId) ?? null;
+  const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
+  const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+
+  useEffect(() => {
+    if (selectedOrderId && !items.some((item) => item.id === selectedOrderId)) {
+      setSelectedOrderId(null);
+    }
+  }, [items, selectedOrderId]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setMessage(null);
     const selectedCustomerId = customerId || customers[0]?.id;
     const selectedWarehouseId = warehouseId || warehouses[0]?.id;
     if (!selectedCustomerId) {
@@ -3398,8 +3410,18 @@ function Orders({ items, customers, products, warehouses, onChanged }: { items: 
   }
 
   async function changeStatus(order: SalesOrder, status: string) {
+    setMessage(null);
     await api.changeOrderStatus(order.id, status);
     await onChanged();
+  }
+
+  async function openShipmentSlip(order: SalesOrder) {
+    setMessage(null);
+    try {
+      await api.openOrderShipmentSlip(order.id, order.number);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Generation du bon d'expedition impossible.");
+    }
   }
 
   return (
@@ -3449,33 +3471,169 @@ function Orders({ items, customers, products, warehouses, onChanged }: { items: 
           </button>
         </form>
       </Panel>
+      {message && <div className="inline-message">{message}</div>}
       <DataTable
-        columns={['Numero', 'Client', 'Statut', 'Total', 'Actions']}
+        columns={['Numero', 'Client', 'Entrepot', 'Transporteur', 'Statut', 'Total', 'Actions']}
         rows={items.map((item) => [
           item.number,
-          item.customerId,
-          item.status,
+          item.customerName ?? customerById.get(item.customerId)?.companyName ?? item.customerId,
+          item.warehouseName ?? (item.warehouseId ? warehouseById.get(item.warehouseId)?.name : '-') ?? '-',
+          item.shippingCarrierName ?? '-',
+          salesOrderStatusLabel(item.status),
           `${item.total.toFixed(2)} EUR`,
           <div className="table-actions">
+            {item.canPrintShippingSlip && (
+              <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void openShipmentSlip(item); }}>
+                <Printer size={15} />
+                Bon
+              </button>
+            )}
             {item.status === 'Draft' && (
-              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Confirmed')}>
+              <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void changeStatus(item, 'Confirmed'); }}>
                 Confirmer
               </button>
             )}
             {(item.status === 'Confirmed' || item.status === 'Preparing') && (
-              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Shipped')}>
+              <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void changeStatus(item, 'Shipped'); }}>
                 Expedier
               </button>
             )}
             {item.status === 'Shipped' && (
-              <button className="secondary" type="button" onClick={() => changeStatus(item, 'Completed')}>
+              <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void changeStatus(item, 'Completed'); }}>
                 Terminer
               </button>
             )}
           </div>
         ])}
+        onRowClick={(index) => setSelectedOrderId(items[index]?.id ?? null)}
+        selectedRowIndex={selectedOrder ? items.findIndex((item) => item.id === selectedOrder.id) : undefined}
       />
+      {selectedOrder && (
+        <SalesOrderDetailModal
+          order={selectedOrder}
+          customer={customerById.get(selectedOrder.customerId)}
+          warehouse={selectedOrder.warehouseId ? warehouseById.get(selectedOrder.warehouseId) : undefined}
+          onClose={() => setSelectedOrderId(null)}
+          onPrintShipmentSlip={() => openShipmentSlip(selectedOrder)}
+          onChangeStatus={(status) => changeStatus(selectedOrder, status)}
+        />
+      )}
     </>
+  );
+}
+
+function salesOrderStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    Draft: 'Brouillon',
+    Confirmed: 'Confirmee',
+    Preparing: 'Preparation',
+    Shipped: 'Expediee',
+    Completed: 'Terminee',
+    Cancelled: 'Annulee'
+  };
+  return labels[status] ?? status;
+}
+
+function formatOrderDate(value?: string | null) {
+  return value ? new Date(value).toLocaleString('fr-FR') : '-';
+}
+
+function SalesOrderDetailModal({
+  order,
+  customer,
+  warehouse,
+  onClose,
+  onPrintShipmentSlip,
+  onChangeStatus
+}: {
+  order: SalesOrder;
+  customer?: Customer;
+  warehouse?: Warehouse;
+  onClose: () => void;
+  onPrintShipmentSlip: () => Promise<void>;
+  onChangeStatus: (status: string) => Promise<void>;
+}) {
+  const address = order.shippingAddress;
+  const nextActions = [
+    order.status === 'Draft' ? { label: 'Confirmer', status: 'Confirmed' } : null,
+    order.status === 'Confirmed' || order.status === 'Preparing' ? { label: 'Expedier', status: 'Shipped' } : null,
+    order.status === 'Shipped' ? { label: 'Terminer', status: 'Completed' } : null
+  ].filter((item): item is { label: string; status: string } => Boolean(item));
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="modal-panel order-modal" role="dialog" aria-modal="true" aria-label={`Commande ${order.number}`} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">Commande</span>
+            <h2>{order.number}</h2>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="Fermer">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-actions">
+          {order.canPrintShippingSlip && (
+            <button className="secondary" type="button" onClick={() => void onPrintShipmentSlip()}>
+              <Printer size={16} />
+              Imprimer le bon d'expedition
+            </button>
+          )}
+          {nextActions.map((action) => (
+            <button className="secondary" type="button" key={action.status} onClick={() => void onChangeStatus(action.status)}>
+              {action.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="detail-grid">
+          <DetailItem label="Client" value={order.customerName ?? customer?.companyName ?? order.customerId} />
+          <DetailItem label="Statut" value={salesOrderStatusLabel(order.status)} />
+          <DetailItem label="Entrepot" value={order.warehouseName ?? warehouse?.name ?? '-'} />
+          <DetailItem label="Total" value={purchaseAmount(order.total)} />
+          <DetailItem label="Creee le" value={formatOrderDate(order.createdAt)} />
+          <DetailItem label="Confirmee le" value={formatOrderDate(order.confirmedAt)} />
+          <DetailItem label="Expediee le" value={formatOrderDate(order.shippedAt)} />
+          <DetailItem label="Terminee le" value={formatOrderDate(order.completedAt)} />
+        </div>
+
+        <section className="customer-detail-section">
+          <h3>Livraison</h3>
+          <div className="detail-grid">
+            <DetailItem label="Transporteur" value={order.shippingCarrierName ?? '-'} />
+            <DetailItem label="Suivi" value={order.shippingTrackingNumber ?? '-'} />
+            <DetailItem label="Nom" value={address?.name ?? '-'} />
+            <DetailItem label="Telephone" value={address?.phone ?? '-'} />
+            <DetailItem label="Email" value={address?.email ?? '-'} />
+            <DetailItem label="Adresse" value={[address?.line1, address?.line2, [address?.postalCode, address?.city].filter(Boolean).join(' '), address?.country].filter(Boolean).join(' - ') || '-'} />
+          </div>
+        </section>
+
+        <section className="customer-detail-section">
+          <h3>Lignes</h3>
+          <DataTable
+            columns={['Designation', 'Quantite', 'PU HT', 'Total HT']}
+            rows={order.lines.map((line) => [
+              line.description,
+              line.quantity.toLocaleString('fr-FR'),
+              purchaseAmount(line.unitPrice),
+              purchaseAmount(line.lineTotal)
+            ])}
+          />
+        </section>
+
+        <section className="customer-detail-section">
+          <h3>Historique</h3>
+          <DataTable
+            columns={['Statut', 'Date']}
+            rows={(order.statusHistory ?? []).map((history) => [
+              salesOrderStatusLabel(history.status),
+              formatOrderDate(history.changedAt)
+            ])}
+          />
+        </section>
+      </section>
+    </div>
   );
 }
 

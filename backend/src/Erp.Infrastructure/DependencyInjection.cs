@@ -54,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<IQuoteSettingsService, QuoteSettingsService>();
         services.AddScoped<IQuotePdfService, QuotePdfService>();
         services.AddScoped<IInvoicePdfService, InvoicePdfService>();
+        services.AddScoped<ISalesOrderShipmentPdfService, SalesOrderShipmentPdfService>();
         services.AddScoped<IFileStorageService, FileSystemStorageService>();
         services.AddScoped<IDriveService, DriveService>();
         services.AddScoped<INotificationService, NotificationService>();

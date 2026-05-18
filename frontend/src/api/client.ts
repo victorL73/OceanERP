@@ -405,6 +405,20 @@ export class ApiClient {
     return this.request<SalesOrder>(`/api/orders/${orderId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status }) });
   }
 
+  async openOrderShipmentSlip(orderId: string, orderNumber: string) {
+    const fileName = `bon-expedition-${orderNumber}.pdf`;
+    const pdf = await this.blob(`/api/orders/${orderId}/shipment-slip`);
+    const url = URL.createObjectURL(pdf);
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      await this.download(`/api/orders/${orderId}/shipment-slip`, fileName);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   purchaseOrders() {
     return this.request<PagedResult<PurchaseOrder>>('/api/purchases/orders?pageSize=100', { auth: true });
   }

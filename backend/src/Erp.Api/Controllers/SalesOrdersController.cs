@@ -45,5 +45,14 @@ public sealed class SalesOrdersController(ISalesOrderService orders) : Controlle
         var result = await orders.ChangeStatusAsync(id, request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
-}
 
+    [HttpGet("{id:guid}/shipment-slip")]
+    [Authorize(Policy = "orders.read")]
+    public async Task<ActionResult> ShipmentSlip(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await orders.GenerateShipmentSlipAsync(id, cancellationToken);
+        return result.Succeeded
+            ? File(result.Value!.Content, result.Value.MimeType, result.Value.FileName)
+            : BadRequest(new { error = result.Error });
+    }
+}
