@@ -23,6 +23,7 @@ public sealed record SalesOrderDto(
     string? ShippingTrackingNumber,
     SalesOrderShippingAddressDto? ShippingAddress,
     bool CanPrintShippingSlip,
+    bool CanPrintColissimoLabel,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ConfirmedAt,
     DateTimeOffset? ShippedAt,

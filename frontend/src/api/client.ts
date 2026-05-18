@@ -419,6 +419,20 @@ export class ApiClient {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
+  async openOrderColissimoLabel(orderId: string, orderNumber: string) {
+    const fileName = `etiquette-colissimo-${orderNumber}.pdf`;
+    const label = await this.blob(`/api/orders/${orderId}/colissimo-label`);
+    const url = URL.createObjectURL(label);
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      await this.download(`/api/orders/${orderId}/colissimo-label`, fileName);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   purchaseOrders() {
     return this.request<PagedResult<PurchaseOrder>>('/api/purchases/orders?pageSize=100', { auth: true });
   }

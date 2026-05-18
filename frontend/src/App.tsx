@@ -3430,6 +3430,15 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
     }
   }
 
+  async function openColissimoLabel(order: SalesOrder) {
+    setMessage(null);
+    try {
+      await api.openOrderColissimoLabel(order.id, order.number);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Impression de l'etiquette Colissimo impossible.");
+    }
+  }
+
   return (
     <>
       <div className="sync-note">Les commandes sont creees depuis un devis signe ou importees depuis PrestaShop.</div>
@@ -3448,6 +3457,12 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
               <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void openShipmentSlip(item); }}>
                 <Printer size={15} />
                 Bon
+              </button>
+            )}
+            {item.canPrintColissimoLabel && (
+              <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void openColissimoLabel(item); }}>
+                <Printer size={15} />
+                Etiquette
               </button>
             )}
             {item.status === 'Draft' && (
@@ -3477,6 +3492,7 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
           warehouse={selectedOrder.warehouseId ? warehouseById.get(selectedOrder.warehouseId) : undefined}
           onClose={() => setSelectedOrderId(null)}
           onPrintShipmentSlip={() => openShipmentSlip(selectedOrder)}
+          onPrintColissimoLabel={() => openColissimoLabel(selectedOrder)}
           onChangeStatus={(status) => changeStatus(selectedOrder, status)}
         />
       )}
@@ -3515,6 +3531,7 @@ function SalesOrderDetailModal({
   warehouse,
   onClose,
   onPrintShipmentSlip,
+  onPrintColissimoLabel,
   onChangeStatus
 }: {
   order: SalesOrder;
@@ -3522,6 +3539,7 @@ function SalesOrderDetailModal({
   warehouse?: Warehouse;
   onClose: () => void;
   onPrintShipmentSlip: () => Promise<void>;
+  onPrintColissimoLabel: () => Promise<void>;
   onChangeStatus: (status: string) => Promise<void>;
 }) {
   const address = order.shippingAddress;
@@ -3548,6 +3566,12 @@ function SalesOrderDetailModal({
             <button className="secondary" type="button" onClick={() => void onPrintShipmentSlip()}>
               <Printer size={16} />
               Imprimer le bon d'expedition
+            </button>
+          )}
+          {order.canPrintColissimoLabel && (
+            <button className="secondary" type="button" onClick={() => void onPrintColissimoLabel()}>
+              <Printer size={16} />
+              Imprimer l'etiquette Colissimo
             </button>
           )}
           {nextActions.map((action) => (

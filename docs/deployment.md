@@ -64,6 +64,7 @@ Variables importantes :
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
 - `EMAIL_ENABLE_SMTP_SENDING`
+- `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE` optionnel, si le module Colissimo expose une URL de recuperation d'etiquette. Variables disponibles : `{shopUrl}`, `{apiBaseUrl}`, `{orderId}`, `{orderReference}`, `{orderNumber}`.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
 - `BACKUP_RETENTION_DAYS`
 
@@ -91,6 +92,14 @@ Les hotes SMTP/IMAP ne sont pas definis dans `.env` : un administrateur les rens
 Dans `Parametres > Boites mail`, la frequence IMAP automatique est exprimee en minutes. La valeur `0` active la releve serveur rapide toutes les 15 secondes; a utiliser si les boites doivent apparaitre presque immediatement dans l'ERP.
 
 Le logo des devis configure dans `Parametres > Devis` est stocke dans le volume `oceanerp_documents`; il est donc inclus dans les sauvegardes documents.
+
+Pour imprimer les etiquettes Colissimo officielles depuis l'ERP, le module Colissimo PrestaShop doit exposer un endpoint telechargeable. Quand l'URL est connue, renseigner par exemple :
+
+```env
+PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE=https://boutique.example.com/modules/colissimo/label.php?id_order={orderId}
+```
+
+Puis recreer `erp-api` et `nginx`. Sans endpoint expose par le module, l'ERP garde le bouton visible sur les commandes Colissimo mais affiche un message clair et il faut generer l'etiquette dans le back-office PrestaShop.
 
 ## Commandes utiles
 

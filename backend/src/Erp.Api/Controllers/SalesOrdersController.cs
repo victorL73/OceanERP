@@ -55,4 +55,14 @@ public sealed class SalesOrdersController(ISalesOrderService orders) : Controlle
             ? File(result.Value!.Content, result.Value.MimeType, result.Value.FileName)
             : BadRequest(new { error = result.Error });
     }
+
+    [HttpGet("{id:guid}/colissimo-label")]
+    [Authorize(Policy = "orders.read")]
+    public async Task<ActionResult> ColissimoLabel(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await orders.GenerateColissimoLabelAsync(id, cancellationToken);
+        return result.Succeeded
+            ? File(result.Value!.Content, result.Value.MimeType, result.Value.FileName)
+            : BadRequest(new { error = result.Error });
+    }
 }

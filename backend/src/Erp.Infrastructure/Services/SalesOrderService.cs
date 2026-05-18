@@ -6,11 +6,24 @@ using Erp.Domain.FutureModules;
 using Erp.Domain.Quotes;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService lowStockAlerts, ISalesOrderShipmentPdfService shipmentPdfService) : ISalesOrderService
+public sealed class SalesOrderService(
+    ErpDbContext db,
+    ILowStockAlertService lowStockAlerts,
+    ISalesOrderShipmentPdfService shipmentPdfService,
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration) : ISalesOrderService
 {
+    private const string PrestashopProvider = "PrestaShop";
+    private const string PrestashopOrderModule = "orders";
+
     private static readonly IReadOnlyDictionary<string, string[]> AllowedTransitions = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["Draft"] = ["Confirmed", "Cancelled"],
@@ -20,6 +33,19 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
         ["Completed"] = [],
         ["Cancelled"] = []
     };
+
+    private static readonly string[] KnownColissimoLabelResources =
+    [
+        "colissimo_labels",
+        "colissimo_label",
+        "colissimo_shipping_labels",
+        "colissimo_order_labels",
+        "colissimo_shipments",
+        "colissimo_orders"
+    ];
+
+    private static readonly string[] LabelBase64PropertyNames = ["label", "etiquette", "pdf", "file", "content", "base64"];
+    private static readonly string[] LabelUrlPropertyNames = ["label_url", "etiquette_url", "pdf_url", "download_url", "file_url", "url", "href", "link"];
 
     public async Task<PagedResult<SalesOrderDto>> SearchAsync(int page, int pageSize, CancellationToken cancellationToken)
     {
@@ -189,6 +215,273 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
             $"bon-expedition-{SanitizeFileName(order.Number)}.pdf",
             "application/pdf",
             content));
+    }
+
+    public async Task<Result<SalesOrderShipmentSlipFileDto>> GenerateColissimoLabelAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var order = await db.SalesOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (order is null)
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Sales order not found.");
+        }
+
+        if (!IsColissimoCarrier(order.ShippingCarrierName) && !IsColissimoCarrier(order.ShippingServiceName))
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("L'etiquette Colissimo est disponible uniquement pour les commandes avec livraison Colissimo.");
+        }
+
+        var externalOrderId = await GetPrestashopExternalOrderIdAsync(order.Id, cancellationToken);
+        if (string.IsNullOrWhiteSpace(externalOrderId))
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Cette commande n'est pas reliee a une commande PrestaShop.");
+        }
+
+        var connection = await db.PrestashopConnections
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (connection is null)
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Aucune connexion PrestaShop active n'est configuree.");
+        }
+
+        var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
+        if (!apiKeyResult.Succeeded)
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure(apiKeyResult.Error ?? "Cle API PrestaShop non configuree.");
+        }
+
+        var configuredEndpoint = await TryConfiguredColissimoLabelEndpointAsync(order, externalOrderId, connection, apiKeyResult.Value!, cancellationToken);
+        if (configuredEndpoint.Succeeded)
+        {
+            return configuredEndpoint;
+        }
+
+        var discoveredResource = await TryKnownColissimoResourcesAsync(order, externalOrderId, connection, apiKeyResult.Value!, cancellationToken);
+        if (discoveredResource.Succeeded)
+        {
+            return discoveredResource;
+        }
+
+        var configuredDetail = configuredEndpoint.Error?.StartsWith("Aucun endpoint", StringComparison.OrdinalIgnoreCase) == false
+            ? $"{configuredEndpoint.Error} "
+            : string.Empty;
+        return Result<SalesOrderShipmentSlipFileDto>.Failure(
+            $"{configuredDetail}Etiquette Colissimo officielle introuvable via l'API PrestaShop. Configurez PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE si le module Colissimo expose une URL d'impression, sinon generez l'etiquette depuis PrestaShop.");
+    }
+
+    private async Task<Result<SalesOrderShipmentSlipFileDto>> TryConfiguredColissimoLabelEndpointAsync(
+        SalesOrder order,
+        string externalOrderId,
+        PrestashopConnection connection,
+        string apiKey,
+        CancellationToken cancellationToken)
+    {
+        var template = configuration["Prestashop:ColissimoLabelEndpointTemplate"];
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            template = configuration["Colissimo:LabelEndpointTemplate"];
+        }
+
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Aucun endpoint Colissimo n'est configure.");
+        }
+
+        try
+        {
+            var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
+            var shopRootUrl = GetShopRootUrl(connection.ShopUrl);
+            var url = BuildColissimoLabelUrl(template, apiBaseUrl, shopRootUrl, order, externalOrderId);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            AddPrestashopHeaders(request, apiKey, "application/pdf");
+
+            var client = httpClientFactory.CreateClient(nameof(SalesOrderService));
+            using var response = await client.SendAsync(request, cancellationToken);
+            return await BuildLabelFileFromResponseAsync(response, order, apiKey, shopRootUrl, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure($"Endpoint Colissimo: {TrimDetail(FullExceptionMessage(ex))}");
+        }
+    }
+
+    private async Task<Result<SalesOrderShipmentSlipFileDto>> TryKnownColissimoResourcesAsync(
+        SalesOrder order,
+        string externalOrderId,
+        PrestashopConnection connection,
+        string apiKey,
+        CancellationToken cancellationToken)
+    {
+        var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
+        var shopRootUrl = GetShopRootUrl(connection.ShopUrl);
+        var lastError = "Aucune ressource Colissimo d'etiquette n'a ete trouvee.";
+
+        foreach (var resource in KnownColissimoLabelResources)
+        {
+            try
+            {
+                var url = $"{apiBaseUrl}/{resource}?display=full&filter[id_order]=[{Uri.EscapeDataString(externalOrderId)}]&output_format=JSON";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                AddPrestashopHeaders(request, apiKey, "application/json");
+
+                var client = httpClientFactory.CreateClient(nameof(SalesOrderService));
+                using var response = await client.SendAsync(request, cancellationToken);
+                if ((int)response.StatusCode is 400 or 404)
+                {
+                    continue;
+                }
+
+                var result = await BuildLabelFileFromResponseAsync(response, order, apiKey, shopRootUrl, cancellationToken);
+                if (result.Succeeded)
+                {
+                    return result;
+                }
+
+                lastError = result.Error ?? lastError;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lastError = TrimDetail(FullExceptionMessage(ex));
+            }
+        }
+
+        return Result<SalesOrderShipmentSlipFileDto>.Failure(lastError);
+    }
+
+    private async Task<Result<SalesOrderShipmentSlipFileDto>> BuildLabelFileFromResponseAsync(
+        HttpResponseMessage response,
+        SalesOrder order,
+        string apiKey,
+        string shopRootUrl,
+        CancellationToken cancellationToken)
+    {
+        var mimeType = response.Content.Headers.ContentType?.MediaType ?? "application/pdf";
+        var content = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var detail = content.Length == 0 ? string.Empty : Encoding.UTF8.GetString(content);
+            return Result<SalesOrderShipmentSlipFileDto>.Failure($"HTTP {(int)response.StatusCode} {TrimDetail(detail)}");
+        }
+
+        if (content.Length == 0)
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("La reponse Colissimo est vide.");
+        }
+
+        if (LooksLikeLabelContent(mimeType, content))
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Success(new SalesOrderShipmentSlipFileDto(
+                BuildLabelFileName(order.Number, mimeType, content),
+                NormalizeMimeType(mimeType, content),
+                content));
+        }
+
+        var text = Encoding.UTF8.GetString(content);
+        var referenced = await TryExtractReferencedLabelAsync(text, order, apiKey, shopRootUrl, cancellationToken);
+        return referenced is not null
+            ? Result<SalesOrderShipmentSlipFileDto>.Success(referenced)
+            : Result<SalesOrderShipmentSlipFileDto>.Failure("La reponse Colissimo ne contient ni PDF, ni image, ni URL/base64 d'etiquette.");
+    }
+
+    private async Task<SalesOrderShipmentSlipFileDto?> TryExtractReferencedLabelAsync(
+        string text,
+        SalesOrder order,
+        string apiKey,
+        string shopRootUrl,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            foreach (var base64 in FindStringsByPropertyNames(document.RootElement, LabelBase64PropertyNames))
+            {
+                var decoded = DecodeBase64Label(base64);
+                if (decoded is not null)
+                {
+                    return new SalesOrderShipmentSlipFileDto(
+                        BuildLabelFileName(order.Number, decoded.Value.MimeType, decoded.Value.Content),
+                        decoded.Value.MimeType,
+                        decoded.Value.Content);
+                }
+            }
+
+            foreach (var url in FindStringsByPropertyNames(document.RootElement, LabelUrlPropertyNames))
+            {
+                var file = await DownloadReferencedLabelAsync(url, order, apiKey, shopRootUrl, cancellationToken);
+                if (file is not null)
+                {
+                    return file;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        var textUrl = FindUrlInText(text);
+        if (!string.IsNullOrWhiteSpace(textUrl))
+        {
+            return await DownloadReferencedLabelAsync(textUrl, order, apiKey, shopRootUrl, cancellationToken);
+        }
+
+        var textDecoded = DecodeBase64Label(text);
+        return textDecoded is null
+            ? null
+            : new SalesOrderShipmentSlipFileDto(BuildLabelFileName(order.Number, textDecoded.Value.MimeType, textDecoded.Value.Content), textDecoded.Value.MimeType, textDecoded.Value.Content);
+    }
+
+    private async Task<SalesOrderShipmentSlipFileDto?> DownloadReferencedLabelAsync(
+        string reference,
+        SalesOrder order,
+        string apiKey,
+        string shopRootUrl,
+        CancellationToken cancellationToken)
+    {
+        var url = ResolveLabelUrl(reference, shopRootUrl);
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return null;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        AddPrestashopHeaders(request, apiKey, "application/pdf");
+        var client = httpClientFactory.CreateClient(nameof(SalesOrderService));
+        using var response = await client.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var mimeType = response.Content.Headers.ContentType?.MediaType ?? "application/pdf";
+        var content = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        return LooksLikeLabelContent(mimeType, content)
+            ? new SalesOrderShipmentSlipFileDto(BuildLabelFileName(order.Number, mimeType, content), NormalizeMimeType(mimeType, content), content)
+            : null;
+    }
+
+    private async Task<string?> GetPrestashopExternalOrderIdAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        var reference = await db.ExternalReferences.FirstOrDefaultAsync(
+            x => x.Provider == PrestashopProvider && x.Module == PrestashopOrderModule && x.EntityId == orderId,
+            cancellationToken);
+        if (reference is null)
+        {
+            return null;
+        }
+
+        var prefix = $"{PrestashopOrderModule}:";
+        return reference.ExternalId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? reference.ExternalId[prefix.Length..]
+            : reference.ExternalId;
     }
 
     private async Task<Result<SalesOrderLine>> BuildLineAsync(Guid orderId, CreateSalesOrderLineRequest request, CancellationToken cancellationToken)
@@ -420,6 +713,7 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
             statusHistory.Add(new SalesOrderStatusHistoryDto(Guid.Empty, order.Status, order.OrderedAt ?? order.CreatedAt));
         }
 
+        var isColissimoOrder = IsColissimoCarrier(order.ShippingCarrierName) || IsColissimoCarrier(order.ShippingServiceName);
         return new SalesOrderDto(
             order.Id,
             order.Number,
@@ -442,7 +736,8 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
             order.ShippingCarrierName,
             order.ShippingTrackingNumber,
             HasShippingAddress(order, customer) ? BuildShippingAddress(order, customer) : null,
-            IsColissimoCarrier(order.ShippingCarrierName) || IsColissimoCarrier(order.ShippingServiceName),
+            isColissimoOrder,
+            isColissimoOrder,
             order.CreatedAt,
             order.ConfirmedAt,
             order.ShippedAt,
@@ -489,6 +784,222 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
         return new string(value.Select(x => invalid.Contains(x) ? '-' : x).ToArray());
     }
 
+    private static string BuildColissimoLabelUrl(string template, string apiBaseUrl, string shopRootUrl, SalesOrder order, string externalOrderId)
+        => template
+            .Replace("{apiBaseUrl}", apiBaseUrl, StringComparison.OrdinalIgnoreCase)
+            .Replace("{shopUrl}", shopRootUrl, StringComparison.OrdinalIgnoreCase)
+            .Replace("{orderId}", Uri.EscapeDataString(externalOrderId), StringComparison.OrdinalIgnoreCase)
+            .Replace("{orderReference}", Uri.EscapeDataString(order.Number), StringComparison.OrdinalIgnoreCase)
+            .Replace("{orderNumber}", Uri.EscapeDataString(order.Number), StringComparison.OrdinalIgnoreCase);
+
+    private static void AddPrestashopHeaders(HttpRequestMessage request, string apiKey, string accept)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
+        if (!string.Equals(accept, "application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("image/*"));
+        }
+    }
+
+    private static string GetApiBaseUrl(string shopUrl)
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : $"{normalized}/api";
+    }
+
+    private static string GetShopRootUrl(string shopUrl)
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized[..^4]
+            : normalized;
+    }
+
+    private static IReadOnlyList<string> FindStringsByPropertyNames(JsonElement element, string[] propertyNames)
+    {
+        var results = new List<string>();
+        CollectStringsByPropertyNames(element, propertyNames, results);
+        return results;
+    }
+
+    private static void CollectStringsByPropertyNames(JsonElement element, string[] propertyNames, List<string> results)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Value.ValueKind == JsonValueKind.String
+                    && propertyNames.Any(name => property.Name.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var value = property.Value.GetString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        results.Add(value);
+                    }
+                }
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                CollectStringsByPropertyNames(property.Value, propertyNames, results);
+            }
+
+            return;
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectStringsByPropertyNames(item, propertyNames, results);
+            }
+        }
+    }
+
+    private static LabelBinary? DecodeBase64Label(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim();
+        var mimeType = "application/pdf";
+        var match = Regex.Match(normalized, @"^data:(?<mime>[^;]+);base64,(?<data>.+)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (match.Success)
+        {
+            mimeType = match.Groups["mime"].Value;
+            normalized = match.Groups["data"].Value;
+        }
+
+        normalized = Regex.Replace(normalized, @"\s+", string.Empty);
+        if (normalized.Length < 60)
+        {
+            return null;
+        }
+
+        try
+        {
+            var content = Convert.FromBase64String(normalized);
+            if (!LooksLikeLabelContent(mimeType, content))
+            {
+                return null;
+            }
+
+            return new LabelBinary(NormalizeMimeType(mimeType, content), content);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    private static string? FindUrlInText(string text)
+    {
+        var match = Regex.Match(text, @"https?://[^\s""'<>]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return match.Success ? match.Value : null;
+    }
+
+    private static string? ResolveLabelUrl(string reference, string shopRootUrl)
+    {
+        var trimmed = reference.Trim().Trim('"', '\'');
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var absolute))
+        {
+            return absolute.ToString();
+        }
+
+        if (trimmed.StartsWith("//", StringComparison.Ordinal))
+        {
+            var shopUri = new Uri(shopRootUrl);
+            return $"{shopUri.Scheme}:{trimmed}";
+        }
+
+        return string.IsNullOrWhiteSpace(trimmed)
+            ? null
+            : $"{shopRootUrl.TrimEnd('/')}/{trimmed.TrimStart('/')}";
+    }
+
+    private static bool LooksLikeLabelContent(string? mimeType, byte[] content)
+    {
+        if (content.Length == 0)
+        {
+            return false;
+        }
+
+        var normalized = mimeType?.ToLowerInvariant() ?? string.Empty;
+        if (normalized.Contains("pdf", StringComparison.Ordinal)
+            || normalized.StartsWith("image/", StringComparison.Ordinal)
+            || normalized.Contains("octet-stream", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return IsPdf(content) || IsPng(content) || IsJpeg(content) || IsGif(content) || IsWebp(content);
+    }
+
+    private static string NormalizeMimeType(string? mimeType, byte[] content)
+    {
+        if (IsPdf(content)) return "application/pdf";
+        if (IsPng(content)) return "image/png";
+        if (IsJpeg(content)) return "image/jpeg";
+        if (IsGif(content)) return "image/gif";
+        if (IsWebp(content)) return "image/webp";
+        return string.IsNullOrWhiteSpace(mimeType) ? "application/pdf" : mimeType;
+    }
+
+    private static string BuildLabelFileName(string orderNumber, string? mimeType, byte[] content)
+        => $"etiquette-colissimo-{SanitizeFileName(orderNumber)}{ExtensionFromMimeType(NormalizeMimeType(mimeType, content))}";
+
+    private static string ExtensionFromMimeType(string mimeType)
+        => mimeType.ToLowerInvariant() switch
+        {
+            "application/pdf" => ".pdf",
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            _ => ".bin"
+        };
+
+    private static bool IsPdf(byte[] content)
+        => content.Length >= 4 && content[0] == 0x25 && content[1] == 0x50 && content[2] == 0x44 && content[3] == 0x46;
+
+    private static bool IsPng(byte[] content)
+        => content.Length >= 8 && content[0] == 0x89 && content[1] == 0x50 && content[2] == 0x4E && content[3] == 0x47;
+
+    private static bool IsJpeg(byte[] content)
+        => content.Length >= 3 && content[0] == 0xFF && content[1] == 0xD8 && content[2] == 0xFF;
+
+    private static bool IsGif(byte[] content)
+        => content.Length >= 3 && content[0] == 0x47 && content[1] == 0x49 && content[2] == 0x46;
+
+    private static bool IsWebp(byte[] content)
+        => content.Length >= 12 && content[0] == 0x52 && content[1] == 0x49 && content[2] == 0x46 && content[3] == 0x46
+           && content[8] == 0x57 && content[9] == 0x45 && content[10] == 0x42 && content[11] == 0x50;
+
+    private static string TrimDetail(string detail)
+        => detail.Length > 300 ? detail[..300] : detail;
+
+    private static string FullExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                messages.Add(current.Message);
+            }
+        }
+
+        return string.Join(" | ", messages.Distinct());
+    }
+
     private static string? NormalizeStatus(string status)
     {
         if (string.IsNullOrWhiteSpace(status))
@@ -501,4 +1012,5 @@ public sealed class SalesOrderService(ErpDbContext db, ILowStockAlertService low
     }
 
     private sealed record StockOrderLine(Guid ProductId, decimal Quantity);
+    private readonly record struct LabelBinary(string MimeType, byte[] Content);
 }

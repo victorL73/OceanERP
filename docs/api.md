@@ -109,6 +109,8 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 ## Notes Phase 2
 
 - Les commandes avec lignes produit peuvent etre confirmees puis expediees. La confirmation reserve le stock, l'expedition decremente le stock physique.
+- `GET /api/orders/{id}/shipment-slip` genere le bon d'expedition ERP pour les commandes Colissimo.
+- `GET /api/orders/{id}/colissimo-label` recupere l'etiquette Colissimo officielle si le module PrestaShop l'expose via API ou via `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE`. Sinon l'API renvoie une erreur explicite et l'etiquette reste a generer dans PrestaShop.
 - Une facture ne peut etre creee que depuis une commande `Shipped` ou `Completed`.
 - `POST /api/invoices/{id}/pdf` genere un PDF facture via QuestPDF et stocke uniquement ses metadonnees en PostgreSQL.
 - Le module email se configure dans `Parametres > Boites mail`. Les administrateurs gerent les serveurs SMTP/IMAP globaux, creent les boites, renseignent l'adresse, le mot de passe ou le secret, et affectent les utilisateurs autorises.
