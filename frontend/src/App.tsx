@@ -2520,6 +2520,7 @@ function escapeHtml(value: string) {
 type QuoteDraftLine = {
   id: string;
   productId: string;
+  productSearch: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -2537,7 +2538,7 @@ const quoteStatusLabels: Record<string, string> = {
 };
 
 function createQuoteDraftLine(): QuoteDraftLine {
-  return { id: createClientId('quote-line'), productId: '', description: '', quantity: '1', unitPrice: '0', discountRate: '0', vatRate: '20' };
+  return { id: createClientId('quote-line'), productId: '', productSearch: '', description: '', quantity: '1', unitPrice: '0', discountRate: '0', vatRate: '20' };
 }
 
 function defaultQuoteValidUntil() {
@@ -2558,6 +2559,7 @@ function nextQuoteStatuses(status: string) {
 
 function Quotes({ items, customers, products, mailAccounts, warehouses, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; mailAccounts: MailAccount[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [customerId, setCustomerId] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
   const [validUntil, setValidUntil] = useState(defaultQuoteValidUntil());
   const [lines, setLines] = useState<QuoteDraftLine[]>(() => [createQuoteDraftLine()]);
   const [editingQuoteId, setEditingQuoteId] = useState('');
@@ -2580,6 +2582,23 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
   const activeProducts = products.filter((product) => product.isActive);
   const activeMailAccounts = mailAccounts.filter((account) => account.isActive);
 
+  function customerOptionLabel(customer: Customer) {
+    return [customer.companyName, customer.email].filter(Boolean).join(' - ');
+  }
+
+  function productOptionLabel(product: Product) {
+    return `${product.reference} - ${product.name}`;
+  }
+
+  function productSearchLabel(line: QuoteDraftLine) {
+    if (line.productSearch) {
+      return line.productSearch;
+    }
+
+    const product = activeProducts.find((item) => item.id === line.productId);
+    return product ? productOptionLabel(product) : '';
+  }
+
   const totals = lines.reduce(
     (sum, line) => {
       const net = Number(line.quantity || 0) * Number(line.unitPrice || 0) * (1 - Math.min(100, Math.max(0, Number(line.discountRate || 0))) / 100);
@@ -2591,6 +2610,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
 
   function resetForm() {
     setCustomerId('');
+    setCustomerSearch('');
     setValidUntil(defaultQuoteValidUntil());
     setLines([createQuoteDraftLine()]);
     setEditingQuoteId('');
@@ -2604,21 +2624,81 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
     const product = activeProducts.find((item) => item.id === productId);
     updateLine(lineId, {
       productId,
+      productSearch: product ? productOptionLabel(product) : '',
       description: product ? `${product.reference} - ${product.name}` : '',
       unitPrice: product ? String(product.salePrice) : '0',
       vatRate: product ? String(product.vatRate) : '20'
     });
   }
 
+  function selectCustomerFromSearch(value: string) {
+    setCustomerSearch(value);
+    const normalized = value.trim().toLocaleLowerCase();
+    const customer = customers.find((item) =>
+      customerOptionLabel(item).toLocaleLowerCase() === normalized
+      || item.companyName.toLocaleLowerCase() === normalized
+      || item.code.toLocaleLowerCase() === normalized);
+    setCustomerId(customer?.id ?? '');
+  }
+
+  function commitCustomerSearch() {
+    if (customerId || !customerSearch.trim()) {
+      return;
+    }
+
+    const normalized = customerSearch.trim().toLocaleLowerCase();
+    const customer = customers.find((item) =>
+      customerOptionLabel(item).toLocaleLowerCase().startsWith(normalized)
+      || item.companyName.toLocaleLowerCase().startsWith(normalized)
+      || item.code.toLocaleLowerCase().startsWith(normalized));
+    if (customer) {
+      setCustomerId(customer.id);
+      setCustomerSearch(customerOptionLabel(customer));
+    }
+  }
+
+  function selectProductFromSearch(lineId: string, value: string) {
+    const normalized = value.trim().toLocaleLowerCase();
+    const product = activeProducts.find((item) =>
+      productOptionLabel(item).toLocaleLowerCase() === normalized
+      || item.reference.toLocaleLowerCase() === normalized
+      || item.name.toLocaleLowerCase() === normalized);
+
+    if (product) {
+      selectProduct(lineId, product.id);
+      return;
+    }
+
+    updateLine(lineId, { productId: '', productSearch: value });
+  }
+
+  function commitProductSearch(lineId: string, value: string) {
+    const line = lines.find((item) => item.id === lineId);
+    if (line?.productId || !value.trim()) {
+      return;
+    }
+
+    const normalized = value.trim().toLocaleLowerCase();
+    const product = activeProducts.find((item) =>
+      productOptionLabel(item).toLocaleLowerCase().startsWith(normalized)
+      || item.reference.toLocaleLowerCase().startsWith(normalized)
+      || item.name.toLocaleLowerCase().startsWith(normalized));
+    if (product) {
+      selectProduct(lineId, product.id);
+    }
+  }
+
   function startEdit(quote: Quote) {
     setEditingQuoteId(quote.id);
     setCustomerId(quote.customerId);
+    setCustomerSearch(customers.find((item) => item.id === quote.customerId)?.companyName ?? quote.customerName ?? '');
     setValidUntil(quote.validUntil);
     setLines(
       quote.lines.length > 0
         ? quote.lines.map((line) => ({
             id: createClientId('quote-line'),
             productId: line.productId ?? '',
+            productSearch: line.productReference ? `${line.productReference} - ${line.productName ?? ''}` : '',
             description: line.description,
             quantity: String(line.quantity),
             unitPrice: String(line.unitPrice),
@@ -2723,14 +2803,19 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
           <div className="form-grid">
             <label className="field">
               <span>Client</span>
-              <select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
-                <option value="">Selectionner un client</option>
+              <input
+                required
+                list="quote-customers"
+                placeholder="Rechercher un client"
+                value={customerSearch}
+                onBlur={commitCustomerSearch}
+                onChange={(event) => selectCustomerFromSearch(event.target.value)}
+              />
+              <datalist id="quote-customers">
                 {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.companyName}
-                  </option>
+                  <option key={customer.id} value={customerOptionLabel(customer)} />
                 ))}
-              </select>
+              </datalist>
             </label>
             <label className="field">
               <span>Validite</span>
@@ -2753,32 +2838,36 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
                   <div className="quote-line-row" key={line.id}>
                     <label className="field">
                       <span>Produit</span>
-                      <select value={line.productId} onChange={(event) => selectProduct(line.id, event.target.value)}>
-                        <option value="">Ligne libre</option>
+                      <input
+                        list={`quote-products-${line.id}`}
+                        placeholder="Rechercher un produit"
+                        value={productSearchLabel(line)}
+                        onBlur={(event) => commitProductSearch(line.id, event.target.value)}
+                        onChange={(event) => selectProductFromSearch(line.id, event.target.value)}
+                      />
+                      <datalist id={`quote-products-${line.id}`}>
                         {activeProducts.map((product) => (
-                          <option key={product.id} value={product.id}>
-                            {product.reference} - {product.name}
-                          </option>
+                          <option key={product.id} value={productOptionLabel(product)} />
                         ))}
-                      </select>
+                      </datalist>
                     </label>
                     <label className="field description-cell">
                       <span>Description</span>
                       <input required value={line.description} onChange={(event) => updateLine(line.id, { description: event.target.value })} />
                     </label>
-                    <label className="field">
+                    <label className="field quote-number-field">
                       <span>Quantite</span>
                       <input required type="number" step="0.001" min="0.001" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: event.target.value })} />
                     </label>
-                    <label className="field">
+                    <label className="field quote-number-field">
                       <span>Prix HT</span>
                       <input required type="number" step="0.01" min="0" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: event.target.value })} />
                     </label>
-                    <label className="field">
+                    <label className="field quote-number-field">
                       <span>Remise (%)</span>
                       <input required type="number" step="0.01" min="0" max="100" value={line.discountRate} onChange={(event) => updateLine(line.id, { discountRate: event.target.value })} />
                     </label>
-                    <label className="field">
+                    <label className="field quote-number-field">
                       <span>TVA (%)</span>
                       <input required type="number" step="0.01" min="0" max="100" value={line.vatRate} onChange={(event) => updateLine(line.id, { vatRate: event.target.value })} />
                     </label>

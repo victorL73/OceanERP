@@ -385,6 +385,9 @@ h1 {
 .email-template-form select,
 .email-template-form textarea,
 .inline-form input,
+.quote-builder input,
+.quote-builder select,
+.quote-builder textarea,
 .purchase-builder input,
 .purchase-builder select,
 .purchase-builder textarea {
@@ -400,6 +403,7 @@ h1 {
 .form-grid textarea,
 .email-compose-form textarea,
 .email-template-form textarea,
+.quote-builder textarea,
 .purchase-builder textarea {
   min-height: 82px;
   padding: 10px 12px;
@@ -684,7 +688,28 @@ h1 {
 }
 
 .quote-line-row {
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.5fr) repeat(4, minmax(86px, 0.5fr)) minmax(116px, 0.65fr) 42px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.quote-line-row > .field:first-child {
+  grid-column: span 6;
+}
+
+.quote-line-row .description-cell {
+  grid-column: span 6;
+}
+
+.quote-line-row .quote-number-field {
+  grid-column: span 2;
+}
+
+.quote-line-row .purchase-row-total {
+  grid-column: span 3;
+}
+
+.quote-line-row .icon-only {
+  grid-column: span 1;
+  justify-self: end;
 }
 
 .purchase-charge-row {
@@ -707,6 +732,9 @@ h1 {
 .quote-line-row select,
 .purchase-charge-row input,
 .purchase-charge-row select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1679,6 +1707,15 @@ th {
   .quote-line-row,
   .purchase-charge-row {
     grid-template-columns: 1fr;
+  }
+
+  .quote-line-row > .field:first-child,
+  .quote-line-row .description-cell,
+  .quote-line-row .quote-number-field,
+  .quote-line-row .purchase-row-total,
+  .quote-line-row .icon-only {
+    grid-column: 1 / -1;
+    justify-self: stretch;
   }
 
   .product-image-frame {
