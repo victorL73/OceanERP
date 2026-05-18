@@ -112,6 +112,41 @@ public sealed class QuoteApiTests(ApiFactory factory) : IClassFixture<ApiFactory
     }
 
     [Fact]
+    public async Task Quote_AdminCanDeleteConvertedQuoteAfterAssociatedOrderWasDeleted()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+        var product = await CreateProductAsync(client);
+        var warehouse = (await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses"))!.First();
+
+        var createResponse = await client.PostAsJsonAsync("/api/quotes", new CreateQuoteRequest(
+            customer.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)),
+            [new UpsertQuoteLineRequest(product.Id, string.Empty, 1, product.SalePrice, 0, product.VatRate)]));
+        createResponse.EnsureSuccessStatusCode();
+        var quote = await createResponse.Content.ReadFromJsonAsync<QuoteDto>();
+
+        var sentResponse = await client.PostAsJsonAsync($"/api/quotes/{quote!.Id}/status", new UpdateQuoteStatusRequest("Sent", null));
+        sentResponse.EnsureSuccessStatusCode();
+
+        var signedResponse = await client.PostAsJsonAsync($"/api/quotes/{quote.Id}/status", new UpdateQuoteStatusRequest("Signed", null));
+        signedResponse.EnsureSuccessStatusCode();
+
+        var orderResponse = await client.PostAsJsonAsync("/api/orders/from-quote", new CreateSalesOrderFromQuoteRequest(quote.Id, warehouse.Id));
+        orderResponse.EnsureSuccessStatusCode();
+        var order = await orderResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+
+        var blockedDeleteResponse = await client.DeleteAsync($"/api/quotes/{quote.Id}");
+        Assert.Equal(HttpStatusCode.BadRequest, blockedDeleteResponse.StatusCode);
+
+        var deleteOrderResponse = await client.DeleteAsync($"/api/orders/{order!.Id}");
+        deleteOrderResponse.EnsureSuccessStatusCode();
+
+        var deleteQuoteResponse = await client.DeleteAsync($"/api/quotes/{quote.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteQuoteResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task Quote_IncludesAvailableCustomerDetails()
     {
         using var client = await CreateAuthenticatedClientAsync();

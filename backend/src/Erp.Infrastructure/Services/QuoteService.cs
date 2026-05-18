@@ -6,6 +6,7 @@ using Erp.Domain.Customers;
 using Erp.Domain.Quotes;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace Erp.Infrastructure.Services;
 
@@ -310,9 +311,15 @@ public sealed class QuoteService(
             return Result.Failure("Devis introuvable.");
         }
 
-        if (quote.Status == QuoteStatus.ConvertedToOrder)
+        var quoteHistory = await db.QuoteStatusHistories.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
+        var linkedOrderNumbers = ExtractConvertedOrderNumbers(quoteHistory);
+        if (quote.Status == QuoteStatus.ConvertedToOrder && linkedOrderNumbers.Count > 0)
         {
-            return Result.Failure("Un devis transforme en commande ne peut pas etre supprime.");
+            var linkedOrderExists = await db.SalesOrders.AnyAsync(x => linkedOrderNumbers.Contains(x.Number), cancellationToken);
+            if (linkedOrderExists)
+            {
+                return Result.Failure("Ce devis est encore lie a une commande existante. Supprimez d'abord la commande associee.");
+            }
         }
 
         var documentStoragePaths = await db.QuoteDocuments
@@ -321,7 +328,6 @@ public sealed class QuoteService(
             .ToListAsync(cancellationToken);
         var quoteLines = await db.QuoteLines.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
         var quoteDocuments = await db.QuoteDocuments.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
-        var quoteHistory = await db.QuoteStatusHistories.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
         var emailLinks = await db.EmailLinks.Where(x => x.Module == "quotes" && x.EntityId == id).ToListAsync(cancellationToken);
         var documentLinks = await db.DocumentLinks.Where(x => x.Module == "quotes" && x.EntityId == id).ToListAsync(cancellationToken);
 
@@ -341,6 +347,16 @@ public sealed class QuoteService(
 
         return Result.Success();
     }
+
+    private static IReadOnlyList<string> ExtractConvertedOrderNumbers(IEnumerable<QuoteStatusHistory> histories)
+        => histories
+            .Select(x => x.Comment)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .SelectMany(comment => Regex.Matches(comment!, @"(?:Converted to order|Transforme(?:e)? en commande)\s+(?<number>[A-Z0-9-]+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                .Select(match => match.Groups["number"].Value))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private async Task<Result<QuoteLine>> BuildLineAsync(Guid quoteId, UpsertQuoteLineRequest request, CancellationToken cancellationToken)
     {

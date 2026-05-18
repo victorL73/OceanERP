@@ -3192,7 +3192,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, isAdmini
               Transformer
             </button>
             {isAdministrator && (
-              <button className="danger" disabled={item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); void deleteQuote(item); }} type="button">
+              <button className="danger" onClick={(event) => { event.stopPropagation(); void deleteQuote(item); }} type="button">
                 <Trash2 size={15} />
                 Supprimer
               </button>
@@ -3362,7 +3362,7 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder, on
             PDF
           </button>
           {onDeleteQuote && (
-            <button className="danger" disabled={quote.status === 'ConvertedToOrder'} type="button" onClick={() => void onDeleteQuote(quote)}>
+            <button className="danger" type="button" onClick={() => void onDeleteQuote(quote)}>
               <Trash2 size={15} />
               Supprimer
             </button>
