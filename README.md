@@ -94,7 +94,7 @@ Phase 1 couvre maintenant aussi :
 
 La Phase 2 est maintenant cloturee sur son socle metier :
 
-- commandes clients synchronisees PrestaShop, detail de livraison, expedition, bon d'expedition ERP et tentative de recuperation d'etiquette Colissimo officielle ;
+- commandes clients synchronisees PrestaShop, detail de livraison, expedition, bon d'expedition ERP et recuperation d'etiquette Colissimo officielle via API/module pont quand disponible ;
 - factures depuis commandes expediees, paiements, avoirs, statut en retard automatique, annulation controlee, historique de statut, preparation Factur-X et PDF facture ;
 - stock avec quantite physique, reservee, disponible, seuil bas, statut automatique, mouvements, filtres et rattachement aux achats fournisseurs ;
 - achats fournisseurs avec commandes multi-lignes, fournisseur, entrepot de reception, frais annexes, commentaires, date de reception, retour de statut et reception vers stock ;

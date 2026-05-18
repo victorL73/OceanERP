@@ -64,7 +64,8 @@ Variables importantes :
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
 - `EMAIL_ENABLE_SMTP_SENDING`
-- `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE` optionnel, si le module Colissimo expose une URL de recuperation d'etiquette. Variables disponibles : `{shopUrl}`, `{apiBaseUrl}`, `{orderId}`, `{externalOrderId}`, `{orderReference}`, `{orderNumber}`. Plusieurs URL peuvent etre separees par `;`.
+- `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE` optionnel, si le module Colissimo expose une URL de recuperation d'etiquette. Variables disponibles : `{shopUrl}`, `{apiBaseUrl}`, `{orderId}`, `{externalOrderId}`, `{orderReference}`, `{orderNumber}`, `{trackingNumber}`. Plusieurs URL peuvent etre separees par `;`.
+- `PRESTASHOP_COLISSIMO_BRIDGE_TOKEN` optionnel, recommande lorsque le Webservice PrestaShop ne publie pas les etiquettes Colissimo. Il doit correspondre au token du module PrestaShop `deploy/prestashop/oceanerpbridge`.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
 - `BACKUP_RETENTION_DAYS`
 
@@ -102,6 +103,26 @@ PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE=https://boutique.example.com/module
 ```
 
 L'ERP tente aussi les ressources API Colissimo connues, dont `colissimo_ace`, `colissimo_labels` et les variantes de labels. Si le module renvoie un PDF, une image ou un ZIP, le fichier officiel est ouvert directement.
+
+Si aucune ressource API ne contient l'etiquette, installer le pont PrestaShop fourni :
+
+1. Copier le dossier `deploy/prestashop/oceanerpbridge` dans le dossier `modules/` de PrestaShop, ou creer le zip avec `powershell -ExecutionPolicy Bypass -File deploy/prestashop/build-oceanerpbridge.ps1` puis l'installer depuis le back-office.
+2. Installer le module `OceanERP Bridge` dans PrestaShop.
+3. Copier son token de securite.
+4. Renseigner le meme token dans `~/OceanERP/deploy/ubuntu/.env` :
+
+```env
+PRESTASHOP_COLISSIMO_BRIDGE_TOKEN=le-token-du-module
+```
+
+Avec ce token, OceanERP tente automatiquement :
+
+```text
+{shopUrl}/module/oceanerpbridge/colissimolabel?token=...&id_order={orderId}
+{shopUrl}/index.php?fc=module&module=oceanerpbridge&controller=colissimolabel&token=...&id_order={orderId}
+```
+
+Le pont lit uniquement les fichiers locaux de PrestaShop, cherche les PDF/ZIP/ZPL Colissimo rattaches a la commande et les renvoie a OceanERP. Aucun fichier binaire n'est stocke dans PostgreSQL.
 
 Si le module ne propose qu'un bouton dans le back-office, ouvrir les outils developpeur du navigateur, generer l'etiquette dans PrestaShop, copier l'URL exacte qui telecharge le PDF/ZIP, puis remplacer l'identifiant de commande par `{externalOrderId}` dans `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE`. L'URL de la page `AdminColissimoAffranchissement` seule ne suffit generalement pas : elle affiche l'ecran du module mais ne telecharge pas l'etiquette.
 

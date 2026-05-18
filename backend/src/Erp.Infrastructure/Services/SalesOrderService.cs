@@ -360,18 +360,12 @@ public sealed class SalesOrderService(
         string apiKey,
         CancellationToken cancellationToken)
     {
-        var template = configuration["Prestashop:ColissimoLabelEndpointTemplate"];
-        if (string.IsNullOrWhiteSpace(template))
-        {
-            template = configuration["Colissimo:LabelEndpointTemplate"];
-        }
-
-        if (string.IsNullOrWhiteSpace(template))
+        var templates = BuildColissimoLabelEndpointTemplates();
+        if (templates.Count == 0)
         {
             return Result<SalesOrderShipmentSlipFileDto>.Failure("Aucun endpoint Colissimo n'est configure.");
         }
 
-        var templates = SplitConfiguredTemplates(template);
         var lastError = "Endpoint Colissimo non exploitable.";
         try
         {
@@ -927,7 +921,7 @@ public sealed class SalesOrderService(
         return new string(value.Select(x => invalid.Contains(x) ? '-' : x).ToArray());
     }
 
-    private static string BuildColissimoLabelUrl(string template, string apiBaseUrl, string shopRootUrl, SalesOrder order, string externalOrderId)
+    private string BuildColissimoLabelUrl(string template, string apiBaseUrl, string shopRootUrl, SalesOrder order, string externalOrderId)
     {
         var resolved = template
             .Replace("{apiBaseUrl}", apiBaseUrl, StringComparison.OrdinalIgnoreCase)
@@ -935,7 +929,9 @@ public sealed class SalesOrderService(
             .Replace("{externalOrderId}", Uri.EscapeDataString(externalOrderId), StringComparison.OrdinalIgnoreCase)
             .Replace("{orderId}", Uri.EscapeDataString(externalOrderId), StringComparison.OrdinalIgnoreCase)
             .Replace("{orderReference}", Uri.EscapeDataString(order.Number), StringComparison.OrdinalIgnoreCase)
-            .Replace("{orderNumber}", Uri.EscapeDataString(order.Number), StringComparison.OrdinalIgnoreCase);
+            .Replace("{orderNumber}", Uri.EscapeDataString(order.Number), StringComparison.OrdinalIgnoreCase)
+            .Replace("{trackingNumber}", Uri.EscapeDataString(order.ShippingTrackingNumber ?? string.Empty), StringComparison.OrdinalIgnoreCase)
+            .Replace("{bridgeToken}", Uri.EscapeDataString(GetColissimoBridgeToken() ?? string.Empty), StringComparison.OrdinalIgnoreCase);
 
         if (Uri.TryCreate(resolved, UriKind.Absolute, out var absolute))
         {
@@ -944,6 +940,33 @@ public sealed class SalesOrderService(
 
         return $"{shopRootUrl.TrimEnd('/')}/{resolved.TrimStart('/')}";
     }
+
+    private IReadOnlyList<string> BuildColissimoLabelEndpointTemplates()
+    {
+        var templates = new List<string>();
+        var configured = configuration["Prestashop:ColissimoLabelEndpointTemplate"];
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            configured = configuration["Colissimo:LabelEndpointTemplate"];
+        }
+
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            templates.AddRange(SplitConfiguredTemplates(configured));
+        }
+
+        var bridgeToken = GetColissimoBridgeToken();
+        if (!string.IsNullOrWhiteSpace(bridgeToken))
+        {
+            templates.Add("{shopUrl}/module/oceanerpbridge/colissimolabel?token={bridgeToken}&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}");
+            templates.Add("{shopUrl}/index.php?fc=module&module=oceanerpbridge&controller=colissimolabel&token={bridgeToken}&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}");
+        }
+
+        return templates.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private string? GetColissimoBridgeToken()
+        => FirstNonEmpty(configuration["Prestashop:ColissimoBridgeToken"], configuration["Colissimo:BridgeToken"]);
 
     private static IReadOnlyList<string> SplitConfiguredTemplates(string value)
         => value
