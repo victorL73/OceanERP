@@ -66,6 +66,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
     public DbSet<EmailLink> EmailLinks => Set<EmailLink>();
     public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
+    public DbSet<EmailDistributionList> EmailDistributionLists => Set<EmailDistributionList>();
+    public DbSet<EmailDistributionListMember> EmailDistributionListMembers => Set<EmailDistributionListMember>();
     public DbSet<QuoteDocumentSettings> QuoteDocumentSettings => Set<QuoteDocumentSettings>();
     public DbSet<PrestashopConnection> PrestashopConnections => Set<PrestashopConnection>();
     public DbSet<PrestashopSyncLog> PrestashopSyncLogs => Set<PrestashopSyncLog>();
@@ -467,6 +469,21 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         {
             entity.Property(x => x.Name).HasMaxLength(160);
             entity.Property(x => x.Subject).HasMaxLength(300);
+        });
+
+        modelBuilder.Entity<EmailDistributionList>(entity =>
+        {
+            entity.HasIndex(x => x.Name).IsUnique();
+            entity.Property(x => x.Name).HasMaxLength(160);
+            entity.Property(x => x.Description).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<EmailDistributionListMember>(entity =>
+        {
+            entity.HasIndex(x => new { x.EmailDistributionListId, x.Email }).IsUnique();
+            entity.Property(x => x.Name).HasMaxLength(160);
+            entity.Property(x => x.Email).HasMaxLength(320);
+            entity.HasOne<EmailDistributionList>().WithMany(x => x.Members).HasForeignKey(x => x.EmailDistributionListId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<QuoteDocumentSettings>(entity =>

@@ -555,6 +555,21 @@ export type EmailTemplate = {
   createdAt: string;
 };
 
+export type EmailDistributionListMember = {
+  id: string;
+  name?: string;
+  email: string;
+};
+
+export type EmailDistributionList = {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  createdAt: string;
+  members: EmailDistributionListMember[];
+};
+
 export type PrestashopConnection = {
   id: string;
   shopUrl: string;

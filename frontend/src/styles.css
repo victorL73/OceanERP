@@ -566,6 +566,27 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.distribution-list-members-input {
+  min-height: 150px;
+}
+
+.distribution-list-members {
+  display: grid;
+  gap: 4px;
+  max-width: 560px;
+}
+
+.distribution-list-members span,
+.distribution-list-members small {
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.helper-text {
+  color: #64748b;
+  margin: 0;
+}
+
 .quote-settings-form textarea {
   min-height: 92px;
 }

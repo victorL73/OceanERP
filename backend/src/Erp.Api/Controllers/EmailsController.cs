@@ -163,6 +163,35 @@ public sealed class EmailsController(IEmailService emails, IRealtimeNotification
         return result.Succeeded ? NoContent() : BadRequest(new { error = result.Error });
     }
 
+    [HttpGet("distribution-lists")]
+    [Authorize(Policy = "emails.read")]
+    public async Task<ActionResult<IReadOnlyList<EmailDistributionListDto>>> DistributionLists(CancellationToken cancellationToken)
+        => Ok(await emails.GetDistributionListsAsync(cancellationToken));
+
+    [HttpPost("distribution-lists")]
+    [Authorize(Policy = "emails.write")]
+    public async Task<ActionResult<EmailDistributionListDto>> CreateDistributionList(CreateEmailDistributionListRequest request, CancellationToken cancellationToken)
+    {
+        var result = await emails.CreateDistributionListAsync(request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPut("distribution-lists/{id:guid}")]
+    [Authorize(Policy = "emails.write")]
+    public async Task<ActionResult<EmailDistributionListDto>> UpdateDistributionList(Guid id, UpdateEmailDistributionListRequest request, CancellationToken cancellationToken)
+    {
+        var result = await emails.UpdateDistributionListAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpDelete("distribution-lists/{id:guid}")]
+    [Authorize(Policy = "emails.write")]
+    public async Task<ActionResult> DeleteDistributionList(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await emails.DeleteDistributionListAsync(id, cancellationToken);
+        return result.Succeeded ? NoContent() : BadRequest(new { error = result.Error });
+    }
+
     private async Task PublishEmailNotificationsAsync(EmailSyncSummaryDto summary, CancellationToken cancellationToken)
     {
         foreach (var account in summary.Accounts.Where(x => x.Imported > 0))

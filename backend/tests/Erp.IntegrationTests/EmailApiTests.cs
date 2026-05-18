@@ -151,6 +151,41 @@ public sealed class EmailApiTests(ApiFactory factory) : IClassFixture<ApiFactory
         Assert.Equal("<p>Cordialement,<br>OceanERP</p>", account.SignatureHtml);
     }
 
+    [Fact]
+    public async Task EmailDistributionLists_CanBeManaged()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var createResponse = await client.PostAsJsonAsync("/api/emails/distribution-lists", new CreateEmailDistributionListRequest(
+            $"Clients VIP {Guid.NewGuid():N}"[..24],
+            "Liste commerciale",
+            true,
+            [
+                new EmailDistributionListMemberRequest("Victor", "victor@example.com"),
+                new EmailDistributionListMemberRequest(null, "contact@example.com")
+            ]));
+        createResponse.EnsureSuccessStatusCode();
+        var created = (await createResponse.Content.ReadFromJsonAsync<EmailDistributionListDto>())!;
+
+        Assert.True(created.IsActive);
+        Assert.Equal(2, created.Members.Count);
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/emails/distribution-lists/{created.Id}", new UpdateEmailDistributionListRequest(
+            "Clients VIP maj",
+            null,
+            false,
+            [new EmailDistributionListMemberRequest("Service", "service@example.com")]));
+        updateResponse.EnsureSuccessStatusCode();
+        var updated = (await updateResponse.Content.ReadFromJsonAsync<EmailDistributionListDto>())!;
+
+        Assert.Equal("Clients VIP maj", updated.Name);
+        Assert.False(updated.IsActive);
+        Assert.Single(updated.Members);
+        Assert.Equal("service@example.com", updated.Members[0].Email);
+
+        var lists = (await client.GetFromJsonAsync<IReadOnlyList<EmailDistributionListDto>>("/api/emails/distribution-lists"))!;
+        Assert.Contains(lists, list => list.Id == created.Id && list.Members.Single().Email == "service@example.com");
+    }
+
     private async Task<HttpClient> CreateAuthenticatedClientAsync(string email = "admin@oceanerp.local", string password = "ChangeMe!12345")
     {
         var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });

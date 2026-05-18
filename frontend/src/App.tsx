@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, Clock, Download, FileSignature, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, LifeBuoy, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'signatures' | 'flowcean';
 
@@ -148,6 +148,7 @@ export default function App() {
   const [mailServerSettings, setMailServerSettings] = useState<MailServerSettings | null>(null);
   const [emailMessages, setEmailMessages] = useState<PagedResult<EmailMessage> | null>(null);
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
+  const [emailDistributionLists, setEmailDistributionLists] = useState<EmailDistributionList[]>([]);
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
   const [serviceTickets, setServiceTickets] = useState<PagedResult<ServiceTicket> | null>(null);
@@ -263,15 +264,17 @@ export default function App() {
         setPurchaseOrders(nextPurchaseOrders);
       }
       if (target === 'emails') {
-        const [nextAccounts, nextMessages, nextTemplates, nextCustomers] = await Promise.all([
+        const [nextAccounts, nextMessages, nextTemplates, nextLists, nextCustomers] = await Promise.all([
           api.mailAccounts(),
           api.emailMessages(),
           api.emailTemplates(),
+          api.emailDistributionLists(),
           hasPermission(currentUser, 'customers.read') ? api.customers('', 1, 100) : Promise.resolve<PagedResult<Customer> | null>(null)
         ]);
         setMailAccounts(nextAccounts);
         setEmailMessages(nextMessages);
         setEmailTemplates(nextTemplates);
+        setEmailDistributionLists(nextLists);
         setCustomers(nextCustomers);
       }
       if (target === 'prestashop') {
@@ -551,7 +554,7 @@ export default function App() {
         {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
-        {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
+        {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
         {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('service')} />}
         {view === 'calendar' && <Calendar events={calendarEvents?.items ?? []} onChanged={() => load('calendar')} />}
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} onChanged={() => load('signatures')} />}
@@ -5773,6 +5776,11 @@ type CustomerEmailSuggestion = {
   searchText: string;
 };
 
+type EmailRecipientSuggestion = CustomerEmailSuggestion & {
+  isList?: boolean;
+  emails?: string[];
+};
+
 function buildCustomerEmailSuggestions(customers: Customer[]) {
   const seen = new Set<string>();
   const suggestions: CustomerEmailSuggestion[] = [];
@@ -5834,6 +5842,33 @@ function replaceActiveRecipient(value: string, email: string) {
   return parts.map((part) => part.trim()).filter(Boolean).join(', ');
 }
 
+function formatDistributionListMembers(list: EmailDistributionList) {
+  return list.members
+    .map((member) => (member.name ? `${member.name} <${member.email}>` : member.email))
+    .join('\n');
+}
+
+function parseDistributionListMembers(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const angleMatch = line.match(/^(.*?)<([^>]+)>$/);
+      if (angleMatch) {
+        return { name: angleMatch[1].trim() || null, email: angleMatch[2].trim() };
+      }
+
+      const separator = line.includes(';') ? ';' : line.includes(',') ? ',' : '';
+      if (separator) {
+        const [name, email] = line.split(separator, 2);
+        return { name: name.trim() || null, email: email.trim() };
+      }
+
+      return { name: null, email: line };
+    });
+}
+
 type EmailThread = {
   key: string;
   subject: string;
@@ -5859,8 +5894,8 @@ function emailSendFeedback(message: EmailMessage) {
   return `Email traite avec le statut ${message.status}.`;
 }
 
-function Emails({ accounts, messages, templates, customers, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; customers: Customer[]; onChanged: () => Promise<void> }) {
-  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>(() => readStoredChoice('oceanerp.emails.activeTab', 'messages', ['accounts', 'compose', 'messages', 'templates'] as const));
+function Emails({ accounts, messages, templates, distributionLists, customers, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; distributionLists: EmailDistributionList[]; customers: Customer[]; onChanged: () => Promise<void> }) {
+  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates' | 'lists'>(() => readStoredChoice('oceanerp.emails.activeTab', 'messages', ['accounts', 'compose', 'messages', 'templates', 'lists'] as const));
   const [editingAccountId, setEditingAccountId] = useState('');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -5894,6 +5929,11 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
   const [templateSubject, setTemplateSubject] = useState('');
   const [templateBody, setTemplateBody] = useState('');
   const [templateActive, setTemplateActive] = useState(true);
+  const [editingListId, setEditingListId] = useState('');
+  const [distributionListName, setDistributionListName] = useState('');
+  const [distributionListDescription, setDistributionListDescription] = useState('');
+  const [distributionListActive, setDistributionListActive] = useState(true);
+  const [distributionListMembersText, setDistributionListMembersText] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const onChangedRef = useRef(onChanged);
   const messageAccountFilterRef = useRef(messageAccountFilter);
@@ -5903,15 +5943,27 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
   const activeAccounts = accounts.filter((account) => account.isActive);
   const customerEmailSuggestions = useMemo(() => buildCustomerEmailSuggestions(customers), [customers]);
-  const recipientSuggestions = useMemo(() => {
+  const distributionListSuggestions = useMemo<EmailRecipientSuggestion[]>(() => distributionLists
+    .filter((list) => list.isActive && list.members.length > 0)
+    .map((list) => ({
+      key: `list:${list.id}`,
+      email: list.members.map((member) => member.email).join(', '),
+      emails: list.members.map((member) => member.email),
+      isList: true,
+      label: list.name,
+      meta: `${list.members.length} destinataire(s)`,
+      searchText: `${list.name} ${list.description ?? ''} ${list.members.map((member) => `${member.name ?? ''} ${member.email}`).join(' ')}`.toLowerCase()
+    })), [distributionLists]);
+  const recipientSuggestions = useMemo<EmailRecipientSuggestion[]>(() => {
     const term = activeRecipientTerm(to);
     const alreadySelected = new Set(recipientTokensBeforeActive(to));
+    const customerRecipientSuggestions: EmailRecipientSuggestion[] = customerEmailSuggestions;
 
-    return customerEmailSuggestions
-      .filter((suggestion) => !alreadySelected.has(suggestion.email.toLowerCase()))
+    return [...distributionListSuggestions, ...customerRecipientSuggestions]
+      .filter((suggestion) => suggestion.isList || !alreadySelected.has(suggestion.email.toLowerCase()))
       .filter((suggestion) => !term || suggestion.searchText.includes(term))
       .slice(0, 8);
-  }, [customerEmailSuggestions, to]);
+  }, [customerEmailSuggestions, distributionListSuggestions, to]);
   const feedbackIsError = Boolean(feedback && (feedback.includes('impossible') || feedback.includes('echoue') || feedback.includes('non envoye') || feedback.includes('desactive')));
   const visibleMessages = useMemo(() => {
     const term = messageSearch.trim().toLowerCase();
@@ -6144,9 +6196,68 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
     setBody(template.body);
   }
 
-  function selectCustomerRecipient(email: string) {
-    setTo((current) => replaceActiveRecipient(current, email));
+  function selectRecipientSuggestion(suggestion: EmailRecipientSuggestion) {
+    setTo((current) => replaceActiveRecipient(current, suggestion.isList ? suggestion.email : suggestion.email));
     setRecipientSuggestionsOpen(false);
+  }
+
+  function resetDistributionListForm() {
+    setEditingListId('');
+    setDistributionListName('');
+    setDistributionListDescription('');
+    setDistributionListActive(true);
+    setDistributionListMembersText('');
+  }
+
+  function startEditDistributionList(list: EmailDistributionList) {
+    setEditingListId(list.id);
+    setDistributionListName(list.name);
+    setDistributionListDescription(list.description ?? '');
+    setDistributionListActive(list.isActive);
+    setDistributionListMembersText(formatDistributionListMembers(list));
+    setTab('lists');
+  }
+
+  async function saveDistributionList(event: FormEvent) {
+    event.preventDefault();
+    const payload = {
+      name: distributionListName,
+      description: distributionListDescription || null,
+      isActive: distributionListActive,
+      members: parseDistributionListMembers(distributionListMembersText)
+    };
+
+    try {
+      if (editingListId) {
+        await api.updateEmailDistributionList(editingListId, payload);
+        setFeedback('Liste de diffusion mise a jour.');
+      } else {
+        await api.createEmailDistributionList(payload);
+        setFeedback('Liste de diffusion creee.');
+      }
+
+      resetDistributionListForm();
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Enregistrement de la liste impossible.');
+    }
+  }
+
+  async function deleteDistributionList(list: EmailDistributionList) {
+    if (!window.confirm(`Supprimer la liste "${list.name}" ?`)) {
+      return;
+    }
+
+    try {
+      await api.deleteEmailDistributionList(list.id);
+      if (editingListId === list.id) {
+        resetDistributionListForm();
+      }
+      setFeedback('Liste de diffusion supprimee.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Suppression de la liste impossible.');
+    }
   }
 
   function resetTemplateForm() {
@@ -6442,6 +6553,9 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
         <button className={tab === 'templates' ? 'active' : ''} type="button" onClick={() => setTab('templates')}>
           Modeles
         </button>
+        <button className={tab === 'lists' ? 'active' : ''} type="button" onClick={() => setTab('lists')}>
+          Listes de diffusion
+        </button>
       </div>
 
       {false && tab === 'accounts' && (
@@ -6586,9 +6700,9 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
                   }}
                 />
                 {recipientSuggestionsOpen && recipientSuggestions.length > 0 && (
-                  <div className="recipient-suggestions" role="listbox" aria-label="Suggestions clients">
+                  <div className="recipient-suggestions" role="listbox" aria-label="Suggestions destinataires">
                     {recipientSuggestions.map((suggestion) => (
-                      <button key={suggestion.key} type="button" role="option" onMouseDown={(event) => { event.preventDefault(); selectCustomerRecipient(suggestion.email); }}>
+                      <button key={suggestion.key} type="button" role="option" onMouseDown={(event) => { event.preventDefault(); selectRecipientSuggestion(suggestion); }}>
                         <span className="recipient-suggestion-label">{suggestion.label}</span>
                         <span className="recipient-suggestion-email">{suggestion.email}</span>
                         <span className="recipient-suggestion-meta">{suggestion.meta}</span>
@@ -6753,6 +6867,72 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
                   <Pencil size={16} />
                 </button>
                 <button className="danger icon-button" type="button" title="Supprimer" onClick={() => deleteTemplate(template)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ])}
+          />
+        </div>
+      )}
+
+      {tab === 'lists' && (
+        <div className="tab-page">
+          <Panel title={editingListId ? 'Modifier liste de diffusion' : 'Nouvelle liste de diffusion'}>
+            <form className="email-template-form" onSubmit={saveDistributionList}>
+              <div className="form-grid">
+                <label className="field">
+                  <span>Nom de la liste</span>
+                  <input required placeholder="Clients VIP, Fournisseurs, Newsletter..." value={distributionListName} onChange={(event) => setDistributionListName(event.target.value)} />
+                </label>
+                <label className="field">
+                  <span>Description</span>
+                  <input placeholder="Usage interne de la liste" value={distributionListDescription} onChange={(event) => setDistributionListDescription(event.target.value)} />
+                </label>
+                <label className="check-field">
+                  <input type="checkbox" checked={distributionListActive} onChange={(event) => setDistributionListActive(event.target.checked)} />
+                  Liste active
+                </label>
+              </div>
+              <label className="field full-field">
+                <span>Destinataires</span>
+                <textarea
+                  required
+                  className="mail-body-input distribution-list-members-input"
+                  placeholder={'Une adresse par ligne\nVictor Lerivray <victor@example.com>\nService achats;achats@example.com\ncontact@example.com'}
+                  value={distributionListMembersText}
+                  onChange={(event) => setDistributionListMembersText(event.target.value)}
+                />
+              </label>
+              <p className="helper-text">Ces listes apparaissent ensuite dans le champ Destinataire du nouveau mail.</p>
+              <div className="modal-footer">
+                {editingListId && (
+                  <button className="secondary" type="button" onClick={resetDistributionListForm}>
+                    Annuler
+                  </button>
+                )}
+                <button className="primary" type="submit">
+                  <Save size={16} />
+                  Enregistrer
+                </button>
+              </div>
+            </form>
+          </Panel>
+          <DataTable
+            columns={['Liste', 'Description', 'Destinataires', 'Statut', 'Actions']}
+            rows={distributionLists.map((list) => [
+              list.name,
+              list.description || '-',
+              <div className="distribution-list-members" key={`${list.id}-members`}>
+                <strong>{list.members.length} contact(s)</strong>
+                <span>{list.members.slice(0, 4).map((member) => member.name ? `${member.name} <${member.email}>` : member.email).join(', ')}</span>
+                {list.members.length > 4 && <small>+ {list.members.length - 4} autre(s)</small>}
+              </div>,
+              list.isActive ? 'Actif' : 'Inactif',
+              <div className="table-actions" key={list.id}>
+                <button className="secondary icon-button" type="button" title="Modifier" onClick={() => startEditDistributionList(list)}>
+                  <Pencil size={16} />
+                </button>
+                <button className="danger icon-button" type="button" title="Supprimer" onClick={() => deleteDistributionList(list)}>
                   <Trash2 size={16} />
                 </button>
               </div>

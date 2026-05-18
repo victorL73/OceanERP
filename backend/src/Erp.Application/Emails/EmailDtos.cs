@@ -6,6 +6,8 @@ public sealed record EmailAttachmentDto(Guid Id, string FileName, string MimeTyp
 public sealed record EmailLinkDto(Guid Id, string Module, Guid EntityId);
 public sealed record EmailMessageDto(Guid Id, Guid? MailAccountId, string Subject, string From, string To, string? Cc, string? Bcc, string Body, string Direction, string Status, bool IsRead, string? ErrorMessage, DateTimeOffset CreatedAt, DateTimeOffset? SentAt, DateTimeOffset? ReceivedAt, IReadOnlyList<EmailAttachmentDto> Attachments, IReadOnlyList<EmailLinkDto> Links);
 public sealed record EmailTemplateDto(Guid Id, string Name, string Subject, string Body, bool IsActive, DateTimeOffset CreatedAt);
+public sealed record EmailDistributionListMemberDto(Guid Id, string? Name, string Email);
+public sealed record EmailDistributionListDto(Guid Id, string Name, string? Description, bool IsActive, DateTimeOffset CreatedAt, IReadOnlyList<EmailDistributionListMemberDto> Members);
 public sealed record EmailSyncAccountResultDto(Guid MailAccountId, string Email, int Imported, string? Error, IReadOnlyList<Guid> NotificationUserIds);
 public sealed record EmailSyncSummaryDto(int Imported, IReadOnlyList<EmailSyncAccountResultDto> Accounts);
 public sealed record CreateMailAccountRequest(string Email, string? SmtpHost = null, string? ImapHost = null, int SmtpPort = 587, int ImapPort = 993, bool UseSsl = true, string? UserName = null, string? PasswordSecretName = null, string? Password = null, string? DisplayName = null, string? SignatureHtml = null, bool IsActive = true, IReadOnlyList<Guid>? AuthorizedUserIds = null);
@@ -14,5 +16,8 @@ public sealed record UpdateMailServerSettingsRequest(string SmtpHost, string Ima
 public sealed record SendEmailRequest(Guid MailAccountId, string To, string Subject, string Body, string? Cc = null, string? Bcc = null);
 public sealed record CreateEmailTemplateRequest(string Name, string Subject, string Body, bool IsActive = true);
 public sealed record UpdateEmailTemplateRequest(string Name, string Subject, string Body, bool IsActive = true);
+public sealed record EmailDistributionListMemberRequest(string? Name, string Email);
+public sealed record CreateEmailDistributionListRequest(string Name, string? Description, bool IsActive = true, IReadOnlyList<EmailDistributionListMemberRequest>? Members = null);
+public sealed record UpdateEmailDistributionListRequest(string Name, string? Description, bool IsActive = true, IReadOnlyList<EmailDistributionListMemberRequest>? Members = null);
 public sealed record StoredEmailAttachment(string FileName, string MimeType, string StoragePath, long Size = 0);
 public sealed record EmailLinkTarget(string Module, Guid EntityId);

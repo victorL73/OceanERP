@@ -7,6 +7,7 @@ import type {
   DocumentLink,
   DriveFolder,
   DriveItem,
+  EmailDistributionList,
   EmailMessage,
   EmailSyncSummary,
   EmailTemplate,
@@ -669,6 +670,22 @@ export class ApiClient {
 
   deleteEmailTemplate(templateId: string) {
     return this.request<void>(`/api/emails/templates/${templateId}`, { method: 'DELETE', auth: true });
+  }
+
+  emailDistributionLists() {
+    return this.request<EmailDistributionList[]>('/api/emails/distribution-lists', { auth: true });
+  }
+
+  createEmailDistributionList(payload: { name: string; description?: string | null; isActive?: boolean; members: Array<{ name?: string | null; email: string }> }) {
+    return this.request<EmailDistributionList>('/api/emails/distribution-lists', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateEmailDistributionList(listId: string, payload: { name: string; description?: string | null; isActive?: boolean; members: Array<{ name?: string | null; email: string }> }) {
+    return this.request<EmailDistributionList>(`/api/emails/distribution-lists/${listId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  deleteEmailDistributionList(listId: string) {
+    return this.request<void>(`/api/emails/distribution-lists/${listId}`, { method: 'DELETE', auth: true });
   }
 
   prestashopConnections() {

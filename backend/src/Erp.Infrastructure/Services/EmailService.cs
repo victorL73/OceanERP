@@ -19,6 +19,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
     private const string IncomingAttachmentFolder = "email-attachments";
 
     private sealed record MailServerValues(string SmtpHost, int SmtpPort, string ImapHost, int ImapPort, bool UseSsl);
+    private sealed record NormalizedDistributionListMember(string? Name, string Email);
 
     public async Task<MailServerSettingsDto> GetServerSettingsAsync(CancellationToken cancellationToken)
     {
@@ -530,6 +531,107 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         }
 
         db.EmailTemplates.Remove(template);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<IReadOnlyList<EmailDistributionListDto>> GetDistributionListsAsync(CancellationToken cancellationToken)
+    {
+        var lists = await db.EmailDistributionLists
+            .Include(x => x.Members)
+            .AsNoTracking()
+            .OrderByDescending(x => x.IsActive)
+            .ThenBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+        return lists.Select(Map).ToList();
+    }
+
+    public async Task<Result<EmailDistributionListDto>> CreateDistributionListAsync(CreateEmailDistributionListRequest request, CancellationToken cancellationToken)
+    {
+        var validation = NormalizeDistributionList(request.Name, request.Members);
+        if (!validation.Succeeded)
+        {
+            return Result<EmailDistributionListDto>.Failure(validation.Error!);
+        }
+
+        var name = request.Name.Trim();
+        if (await db.EmailDistributionLists.AnyAsync(x => x.Name == name, cancellationToken))
+        {
+            return Result<EmailDistributionListDto>.Failure("Une liste de diffusion porte deja ce nom.");
+        }
+
+        var list = new EmailDistributionList
+        {
+            Name = name,
+            Description = NormalizeLength(request.Description, 1000),
+            IsActive = request.IsActive,
+            Members = validation.Value!.Select(member => new EmailDistributionListMember
+            {
+                Name = member.Name,
+                Email = member.Email
+            }).ToList()
+        };
+
+        db.EmailDistributionLists.Add(list);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<EmailDistributionListDto>.Success(Map(list));
+    }
+
+    public async Task<Result<EmailDistributionListDto>> UpdateDistributionListAsync(Guid id, UpdateEmailDistributionListRequest request, CancellationToken cancellationToken)
+    {
+        var list = await db.EmailDistributionLists
+            .Include(x => x.Members)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (list is null)
+        {
+            return Result<EmailDistributionListDto>.Failure("Liste de diffusion introuvable.");
+        }
+
+        var validation = NormalizeDistributionList(request.Name, request.Members);
+        if (!validation.Succeeded)
+        {
+            return Result<EmailDistributionListDto>.Failure(validation.Error!);
+        }
+
+        var name = request.Name.Trim();
+        if (await db.EmailDistributionLists.AnyAsync(x => x.Id != id && x.Name == name, cancellationToken))
+        {
+            return Result<EmailDistributionListDto>.Failure("Une liste de diffusion porte deja ce nom.");
+        }
+
+        list.Name = name;
+        list.Description = NormalizeLength(request.Description, 1000);
+        list.IsActive = request.IsActive;
+
+        var existingMembers = await db.EmailDistributionListMembers
+            .Where(member => member.EmailDistributionListId == list.Id)
+            .ToListAsync(cancellationToken);
+        db.EmailDistributionListMembers.RemoveRange(existingMembers);
+        db.EmailDistributionListMembers.AddRange(validation.Value!.Select(member => new EmailDistributionListMember
+        {
+            EmailDistributionListId = list.Id,
+            Name = member.Name,
+            Email = member.Email
+        }));
+
+        await db.SaveChangesAsync(cancellationToken);
+        var updated = await db.EmailDistributionLists
+            .Include(x => x.Members)
+            .AsNoTracking()
+            .FirstAsync(x => x.Id == id, cancellationToken);
+        return Result<EmailDistributionListDto>.Success(Map(updated));
+    }
+
+    public async Task<Result> DeleteDistributionListAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var list = await db.EmailDistributionLists.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (list is null)
+        {
+            return Result.Failure("Liste de diffusion introuvable.");
+        }
+
+        db.EmailDistributionLists.Remove(list);
         await db.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -1175,6 +1277,44 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         return Result.Success();
     }
 
+    private static Result<IReadOnlyList<NormalizedDistributionListMember>> NormalizeDistributionList(string name, IReadOnlyList<EmailDistributionListMemberRequest>? members)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Result<IReadOnlyList<NormalizedDistributionListMember>>.Failure("Nom de liste obligatoire.");
+        }
+
+        var normalizedMembers = new List<NormalizedDistributionListMember>();
+        var seenEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var member in members ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(member.Email))
+            {
+                continue;
+            }
+
+            if (!MailboxAddress.TryParse(member.Email.Trim(), out var mailbox) || string.IsNullOrWhiteSpace(mailbox.Address))
+            {
+                return Result<IReadOnlyList<NormalizedDistributionListMember>>.Failure($"Adresse email invalide dans la liste: {member.Email}");
+            }
+
+            var email = NormalizeLength(mailbox.Address, 320) ?? string.Empty;
+            if (!seenEmails.Add(email))
+            {
+                return Result<IReadOnlyList<NormalizedDistributionListMember>>.Failure($"Adresse email en double dans la liste: {email}");
+            }
+
+            normalizedMembers.Add(new NormalizedDistributionListMember(NormalizeLength(member.Name ?? mailbox.Name, 160), email));
+        }
+
+        if (normalizedMembers.Count == 0)
+        {
+            return Result<IReadOnlyList<NormalizedDistributionListMember>>.Failure("Ajoutez au moins une adresse a la liste de diffusion.");
+        }
+
+        return Result<IReadOnlyList<NormalizedDistributionListMember>>.Success(normalizedMembers);
+    }
+
     private static Result<InternetAddressList> ParseAddresses(string value, string label)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1495,4 +1635,19 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private static EmailTemplateDto Map(EmailTemplate template)
         => new(template.Id, template.Name, template.Subject, template.Body, template.IsActive, template.CreatedAt);
+
+    private static EmailDistributionListDto Map(EmailDistributionList list)
+        => new(
+            list.Id,
+            list.Name,
+            list.Description,
+            list.IsActive,
+            list.CreatedAt,
+            list.Members
+                .OrderBy(x => x.Name ?? x.Email)
+                .Select(Map)
+                .ToList());
+
+    private static EmailDistributionListMemberDto Map(EmailDistributionListMember member)
+        => new(member.Id, member.Name, member.Email);
 }

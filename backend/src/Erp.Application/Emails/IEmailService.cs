@@ -25,4 +25,8 @@ public interface IEmailService
     Task<Result<EmailTemplateDto>> CreateTemplateAsync(CreateEmailTemplateRequest request, CancellationToken cancellationToken);
     Task<Result<EmailTemplateDto>> UpdateTemplateAsync(Guid id, UpdateEmailTemplateRequest request, CancellationToken cancellationToken);
     Task<Result> DeleteTemplateAsync(Guid id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<EmailDistributionListDto>> GetDistributionListsAsync(CancellationToken cancellationToken);
+    Task<Result<EmailDistributionListDto>> CreateDistributionListAsync(CreateEmailDistributionListRequest request, CancellationToken cancellationToken);
+    Task<Result<EmailDistributionListDto>> UpdateDistributionListAsync(Guid id, UpdateEmailDistributionListRequest request, CancellationToken cancellationToken);
+    Task<Result> DeleteDistributionListAsync(Guid id, CancellationToken cancellationToken);
 }
