@@ -485,7 +485,7 @@ export default function App() {
         {view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
         {view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} onChanged={() => load('quotes')} />}
-        {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
+        {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
         {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
@@ -2988,6 +2988,12 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
     setQuoteFeedback(null);
   }
 
+  function openOrderModal(quote: Quote) {
+    setOrderQuoteId(quote.id);
+    setOrderWarehouseId('');
+    setQuoteFeedback(null);
+  }
+
   async function sendEmail(event: FormEvent) {
     event.preventDefault();
     if (!emailQuoteId) {
@@ -3010,10 +3016,15 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
       return;
     }
 
-    await api.createOrderFromQuote(orderQuoteId, orderWarehouseId || null);
-    setOrderQuoteId(null);
-    setOrderWarehouseId('');
-    await onChanged();
+    try {
+      await api.createOrderFromQuote(orderQuoteId, orderWarehouseId || null);
+      setOrderQuoteId(null);
+      setOrderWarehouseId('');
+      setQuoteFeedback('Devis transforme en commande.');
+      await onChanged();
+    } catch (err) {
+      setQuoteFeedback(err instanceof Error ? err.message : 'Transformation en commande impossible.');
+    }
   }
 
   return (
@@ -3154,14 +3165,24 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
               <Mail size={15} />
               Email
             </button>
-            <button className="secondary" disabled={item.status !== 'Signed'} onClick={(event) => { event.stopPropagation(); setOrderQuoteId(item.id); }} type="button">
+            <button className="secondary" disabled={item.status !== 'Signed'} onClick={(event) => { event.stopPropagation(); openOrderModal(item); }} type="button">
               <ShoppingCart size={15} />
-              Commander
+              Transformer
             </button>
           </div>
         ])}
       />
-      {selectedQuote && <QuoteDetailsModal quote={selectedQuote} onClose={() => setSelectedQuoteId(null)} onDownloadPdf={downloadPdf} />}
+      {selectedQuote && (
+        <QuoteDetailsModal
+          quote={selectedQuote}
+          onClose={() => setSelectedQuoteId(null)}
+          onDownloadPdf={downloadPdf}
+          onConvertToOrder={(quote) => {
+            setSelectedQuoteId(null);
+            openOrderModal(quote);
+          }}
+        />
+      )}
       {emailQuote && (
         <div className="modal-backdrop" onClick={() => setEmailQuoteId(null)}>
           <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="quote-email-title" onClick={(event) => event.stopPropagation()}>
@@ -3234,6 +3255,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
                 <X size={18} />
               </button>
             </header>
+            {quoteFeedback && <div className={quoteFeedback.includes('impossible') || quoteFeedback.includes('Only') ? 'alert' : 'sync-note'}>{quoteFeedback}</div>}
             <form className="product-edit-form" onSubmit={convertToOrder}>
               <label className="field">
                 <span>Entrepot de reservation</span>
@@ -3283,7 +3305,7 @@ function quoteCustomerContact(customer: Quote['customer']) {
   return values.length > 0 ? values.join(' - ') : '-';
 }
 
-function QuoteDetailsModal({ quote, onClose, onDownloadPdf }: { quote: Quote; onClose: () => void; onDownloadPdf: (quote: Quote) => Promise<void> }) {
+function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder }: { quote: Quote; onClose: () => void; onDownloadPdf: (quote: Quote) => Promise<void>; onConvertToOrder: (quote: Quote) => void }) {
   const customer = quote.customer;
 
   return (
@@ -3299,6 +3321,18 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf }: { quote: Quote; on
             <X size={18} />
           </button>
         </header>
+        <div className="modal-actions">
+          {quote.status === 'Signed' && (
+            <button className="primary" type="button" onClick={() => onConvertToOrder(quote)}>
+              <ShoppingCart size={16} />
+              Transformer en commande
+            </button>
+          )}
+          <button className="secondary" disabled={quote.documents.length === 0} type="button" onClick={() => void onDownloadPdf(quote)}>
+            <Download size={15} />
+            PDF
+          </button>
+        </div>
         <div className="summary-grid">
           <DetailItem label="Statut" value={quoteStatusLabels[quote.status] ?? quote.status} />
           <DetailItem label="Emission" value={quote.issueDate} />
@@ -3367,17 +3401,10 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf }: { quote: Quote; on
   );
 }
 
-function Orders({ items, customers, products, warehouses, onChanged }: { items: SalesOrder[]; customers: Customer[]; products: Product[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
-  const [customerId, setCustomerId] = useState('');
-  const [warehouseId, setWarehouseId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [description, setDescription] = useState('');
-  const [quantity, setQuantity] = useState('1');
-  const [unitPrice, setUnitPrice] = useState('0');
+function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder[]; customers: Customer[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const selectedProduct = products.find((product) => product.id === productId);
   const selectedOrder = items.find((item) => item.id === selectedOrderId) ?? null;
   const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
@@ -3387,27 +3414,6 @@ function Orders({ items, customers, products, warehouses, onChanged }: { items: 
       setSelectedOrderId(null);
     }
   }, [items, selectedOrderId]);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setMessage(null);
-    const selectedCustomerId = customerId || customers[0]?.id;
-    const selectedWarehouseId = warehouseId || warehouses[0]?.id;
-    if (!selectedCustomerId) {
-      throw new Error('Creer un client avant de creer une commande.');
-    }
-
-    await api.createOrder({
-      customerId: selectedCustomerId,
-      warehouseId: selectedWarehouseId ?? null,
-      lines: [{ productId: productId || null, description: description || selectedProduct?.name || 'Ligne libre', quantity: Number(quantity), unitPrice: Number(unitPrice) }]
-    });
-    setProductId('');
-    setDescription('');
-    setQuantity('1');
-    setUnitPrice('0');
-    await onChanged();
-  }
 
   async function changeStatus(order: SalesOrder, status: string) {
     setMessage(null);
@@ -3426,51 +3432,7 @@ function Orders({ items, customers, products, warehouses, onChanged }: { items: 
 
   return (
     <>
-      <Panel title="Nouvelle commande">
-        <form className="form-grid" onSubmit={submit}>
-          <select value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
-            <option value="">Client</option>
-            {customers.map((customer) => (
-              <option key={customer.id} value={customer.id}>
-                {customer.companyName}
-              </option>
-            ))}
-          </select>
-          <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
-            <option value="">Entrepot</option>
-            {warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={productId}
-            onChange={(event) => {
-              const nextProduct = products.find((product) => product.id === event.target.value);
-              setProductId(event.target.value);
-              if (nextProduct) {
-                setDescription(`${nextProduct.reference} - ${nextProduct.name}`);
-                setUnitPrice(String(nextProduct.salePrice));
-              }
-            }}
-          >
-            <option value="">Ligne libre</option>
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.reference} - {product.name}
-              </option>
-            ))}
-          </select>
-          <input required placeholder="Ligne" value={description} onChange={(event) => setDescription(event.target.value)} />
-          <input required type="number" step="0.001" placeholder="Quantite" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-          <input required type="number" step="0.01" placeholder="Prix HT" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Creer
-          </button>
-        </form>
-      </Panel>
+      <div className="sync-note">Les commandes sont creees depuis un devis signe ou importees depuis PrestaShop.</div>
       {message && <div className="inline-message">{message}</div>}
       <DataTable
         columns={['Numero', 'Client', 'Entrepot', 'Transporteur', 'Statut', 'Total', 'Actions']}
