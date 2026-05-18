@@ -14,6 +14,8 @@
 - Boites mail creees par un administrateur : adresse, mot de passe ou secret sont geres par l'admin, puis les utilisateurs autorises peuvent utiliser la boite et maintenir une signature HTML.
 - Mots de passe de boites mail stockes sous forme protegee avec `Secrets:EncryptionKey` ou references par secret d'environnement.
 - Personnalisation des devis reservee aux administrateurs : logo stocke hors base de donnees, metadonnees uniquement en PostgreSQL.
+- Signature electronique interne tracee : lien unique, token hash en base, expiration, acceptation des conditions, hash SHA-256 du document, IP, user-agent, horodatage et preuve.
+- ONLYOFFICE integre via callback serveur, avec versioning Drive et stockage fichier hors PostgreSQL.
 - Audit logs de connexion.
 - Middleware centralisé d'erreurs.
 - CORS configurable.
@@ -28,6 +30,9 @@
 - Activer HTTPS via Nginx et Certbot ou un reverse proxy TLS managé.
 - Définir une politique de rotation des refresh tokens.
 - Ajouter verrouillage de compte et 2FA.
+- Activer l'OTP email obligatoire sur les signatures publiques.
+- Ajouter un jeton temporaire signe pour les URLs de document ONLYOFFICE et verifier le JWT de callback OnlyOffice.
+- Finaliser Factur-X conforme : profil EN16931, PDF/A-3 et XML embarque.
 - Etendre le coffre applicatif aux futurs secrets API externes qui ne sont pas encore couverts.
 - Compléter les permissions Drive par dossier/fichier.
 - Ajouter antivirus ou sandbox d'analyse documentaire si nécessaire.

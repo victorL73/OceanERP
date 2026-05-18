@@ -70,6 +70,20 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<PrestashopConnection> PrestashopConnections => Set<PrestashopConnection>();
     public DbSet<PrestashopSyncLog> PrestashopSyncLogs => Set<PrestashopSyncLog>();
     public DbSet<ExternalReference> ExternalReferences => Set<ExternalReference>();
+    public DbSet<ServiceTicket> ServiceTickets => Set<ServiceTicket>();
+    public DbSet<ServiceTicketMessage> ServiceTicketMessages => Set<ServiceTicketMessage>();
+    public DbSet<ServiceTicketStatusHistory> ServiceTicketStatusHistories => Set<ServiceTicketStatusHistory>();
+    public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+    public DbSet<CalendarReminder> CalendarReminders => Set<CalendarReminder>();
+    public DbSet<CalendarEventLink> CalendarEventLinks => Set<CalendarEventLink>();
+    public DbSet<SignatureRequest> SignatureRequests => Set<SignatureRequest>();
+    public DbSet<SignatureRecipient> SignatureRecipients => Set<SignatureRecipient>();
+    public DbSet<SignatureOtp> SignatureOtps => Set<SignatureOtp>();
+    public DbSet<SignatureEvidence> SignatureEvidences => Set<SignatureEvidence>();
+    public DbSet<SignedDocument> SignedDocuments => Set<SignedDocument>();
+    public DbSet<ApiClient> ApiClients => Set<ApiClient>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<ApiRequestLog> ApiRequestLogs => Set<ApiRequestLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -493,6 +507,125 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.Provider).HasMaxLength(80);
             entity.Property(x => x.ExternalId).HasMaxLength(160);
             entity.Property(x => x.Module).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<ServiceTicket>(entity =>
+        {
+            entity.HasIndex(x => x.Number).IsUnique();
+            entity.HasIndex(x => new { x.CustomerId, x.Status });
+            entity.Property(x => x.Number).HasMaxLength(80);
+            entity.Property(x => x.Subject).HasMaxLength(260);
+            entity.Property(x => x.Description).HasMaxLength(4000);
+            entity.Property(x => x.Priority).HasMaxLength(40);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<SalesOrder>().WithMany().HasForeignKey(x => x.SalesOrderId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ServiceTicketMessage>(entity =>
+        {
+            entity.HasIndex(x => x.ServiceTicketId);
+            entity.Property(x => x.Body).HasMaxLength(10000);
+            entity.HasOne<ServiceTicket>().WithMany().HasForeignKey(x => x.ServiceTicketId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.AuthorUserId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<DriveItem>().WithMany().HasForeignKey(x => x.AttachmentDriveItemId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ServiceTicketStatusHistory>(entity =>
+        {
+            entity.HasIndex(x => x.ServiceTicketId);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.Comment).HasMaxLength(1000);
+            entity.HasOne<ServiceTicket>().WithMany().HasForeignKey(x => x.ServiceTicketId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.ChangedByUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CalendarEvent>(entity =>
+        {
+            entity.HasIndex(x => x.StartsAt);
+            entity.Property(x => x.Title).HasMaxLength(260);
+            entity.Property(x => x.Description).HasMaxLength(4000);
+            entity.Property(x => x.Location).HasMaxLength(260);
+        });
+
+        modelBuilder.Entity<CalendarReminder>(entity =>
+        {
+            entity.HasIndex(x => new { x.CalendarEventId, x.IsSent });
+            entity.HasOne<CalendarEvent>().WithMany().HasForeignKey(x => x.CalendarEventId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CalendarEventLink>(entity =>
+        {
+            entity.HasIndex(x => new { x.Module, x.EntityId });
+            entity.Property(x => x.Module).HasMaxLength(80);
+            entity.HasOne<CalendarEvent>().WithMany().HasForeignKey(x => x.CalendarEventId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SignatureRequest>(entity =>
+        {
+            entity.HasIndex(x => x.Status);
+            entity.Property(x => x.Title).HasMaxLength(260);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.HasOne<DriveItem>().WithMany().HasForeignKey(x => x.DriveItemId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<SignatureRecipient>(entity =>
+        {
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.Property(x => x.Email).HasMaxLength(320);
+            entity.Property(x => x.Name).HasMaxLength(180);
+            entity.Property(x => x.TokenHash).HasMaxLength(128);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.HasOne<SignatureRequest>().WithMany().HasForeignKey(x => x.SignatureRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SignatureOtp>(entity =>
+        {
+            entity.Property(x => x.OtpHash).HasMaxLength(128);
+            entity.HasOne<SignatureRecipient>().WithMany().HasForeignKey(x => x.SignatureRecipientId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SignatureEvidence>(entity =>
+        {
+            entity.HasIndex(x => x.SignatureRequestId);
+            entity.Property(x => x.Action).HasMaxLength(80);
+            entity.Property(x => x.DocumentSha256).HasMaxLength(128);
+            entity.Property(x => x.SignatureMode).HasMaxLength(40);
+            entity.Property(x => x.IpAddress).HasMaxLength(80);
+            entity.Property(x => x.UserAgent).HasMaxLength(1000);
+            entity.HasOne<SignatureRequest>().WithMany().HasForeignKey(x => x.SignatureRequestId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<SignatureRecipient>().WithMany().HasForeignKey(x => x.SignatureRecipientId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SignedDocument>(entity =>
+        {
+            entity.HasIndex(x => x.SignatureRequestId);
+            entity.Property(x => x.FileName).HasMaxLength(260);
+            entity.Property(x => x.MimeType).HasMaxLength(120);
+            entity.Property(x => x.StoragePath).HasMaxLength(1024);
+            entity.Property(x => x.DocumentSha256).HasMaxLength(128);
+            entity.HasOne<SignatureRequest>().WithMany().HasForeignKey(x => x.SignatureRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ApiClient>(entity =>
+        {
+            entity.HasIndex(x => x.Name).IsUnique();
+            entity.Property(x => x.Name).HasMaxLength(180);
+        });
+
+        modelBuilder.Entity<ApiKey>(entity =>
+        {
+            entity.HasIndex(x => x.KeyHash).IsUnique();
+            entity.Property(x => x.KeyHash).HasMaxLength(128);
+            entity.HasOne<ApiClient>().WithMany().HasForeignKey(x => x.ApiClientId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ApiRequestLog>(entity =>
+        {
+            entity.HasIndex(x => x.CreatedAt);
+            entity.Property(x => x.Path).HasMaxLength(1000);
+            entity.HasOne<ApiClient>().WithMany().HasForeignKey(x => x.ApiClientId).OnDelete(DeleteBehavior.SetNull);
         });
     }
 

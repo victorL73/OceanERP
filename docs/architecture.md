@@ -38,7 +38,17 @@ La Phase 2 dispose maintenant d'un socle backend/API et frontend pour :
 - module email complet pour la Phase 2 : serveurs SMTP/IMAP globaux, boites affectees aux utilisateurs, signatures HTML, CC/CCI, pieces jointes, suppression logique, synchronisation IMAP manuelle/automatique et journal des messages ;
 - connecteur PrestaShop avec configuration protegee de cle API, import produits/clients/stocks/commandes, publication des modifications produits/clients/stocks et journal de synchronisation.
 
-Les sujets volontairement reportes en Phase 3 restent : SAV avance, agenda, signature electronique interne, ONLYOFFICE avance, generation conforme Factur-X PDF/A-3 + XML embarque, exports comptables complets et application Electron avancee.
+## Phase 3 socle
+
+La Phase 3 ajoute maintenant un socle exploitable et extensible pour :
+
+- SAV : tickets lies aux clients, produits et commandes, priorites, statuts, messages, historique et rattachement possible de piece Drive ;
+- agenda : evenements, rappels, liens vers les modules metier, evenements prives/publics et vue calendrier simple ;
+- signature interne : demandes de signature sur documents Drive, liens publics securises, expiration, acceptation des conditions, signature par clic ou dessinee, SHA-256 du document, IP, user-agent, horodatage, preuve et document signe stocke hors base ;
+- ONLYOFFICE : configuration d'edition pour DOCX/XLSX/PPTX et callback de sauvegarde vers une nouvelle version Drive ;
+- Factur-X : export XML preparatoire depuis les factures et les avoirs pour preparer l'etape PDF/A-3 + XML embarque.
+
+Les points volontairement conserves en evolution controlee sont : OTP email sur signature, relance automatique agenda, durcissement ONLYOFFICE par URL temporaire/JWT, export Factur-X pleinement conforme EN16931, module API keys externe avance et mise a jour automatique Electron.
 
 ## Règles importantes
 

@@ -30,7 +30,7 @@ Le contenu binaire est stocké dans le volume `oceanerp_documents`.
 
 ## Evolutions prevues
 
-La Phase 2 est cloturee sur les tables operationnelles de commandes, factures, stock, achats, emails et PrestaShop. Les phases suivantes ajouteront les tables completes pour SAV, agenda, signature interne, exports comptables avances, Factur-X et API keys externes.
+La Phase 2 est cloturee sur les tables operationnelles de commandes, factures, stock, achats, emails et PrestaShop. La Phase 3 ajoute le socle SAV, agenda, signature interne, ONLYOFFICE et preparation Factur-X. Les evolutions suivantes porteront sur les exports comptables avances, l'API keys externe avancee, l'OTP signature et la conformite Factur-X finale.
 
 ## Tables Phase 2
 
@@ -96,3 +96,16 @@ Les migrations Phase 2 suivantes completent les usages terrain :
 - `InvoiceCreditNotes` finalise le socle facturation Phase 2 avec avoirs, profil Factur-X et index qui autorise une seule facture principale par commande tout en permettant les avoirs rattaches.
 
 Les factures conservent l'historique dans `InvoiceStatusHistories`. Le statut `Overdue` est calcule par l'API a partir de `DueDate` et du solde restant, sans dupliquer cet etat derive en base.
+
+## Tables Phase 3
+
+La migration `Phase3Core` ajoute :
+
+- `ServiceTickets`, `ServiceTicketMessages`, `ServiceTicketStatusHistories`
+- `CalendarEvents`, `CalendarReminders`, `CalendarEventLinks`
+- `SignatureRequests`, `SignatureRecipients`, `SignatureOtps`, `SignatureEvidences`, `SignedDocuments`
+- `ApiClients`, `ApiKeys`, `ApiRequestLogs`
+
+Les tables de signature ne stockent pas le binaire signe en PostgreSQL. `SignedDocuments.StoragePath` pointe vers le stockage fichiers securise, et `SignedDocuments.DocumentSha256` conserve l'empreinte de preuve.
+
+Les tables `ApiClients`, `ApiKeys` et `ApiRequestLogs` sont posees pour le futur module API externe : le durcissement complet des cles, permissions par cle et limitation par client reste a finaliser dans une evolution dediee.

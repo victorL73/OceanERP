@@ -1,4 +1,5 @@
 using Erp.Application.Auth;
+using Erp.Application.Calendar;
 using Erp.Application.Customers;
 using Erp.Application.Dashboard;
 using Erp.Application.Documents;
@@ -10,6 +11,8 @@ using Erp.Application.Products;
 using Erp.Application.Purchases;
 using Erp.Application.Quotes;
 using Erp.Application.Sales;
+using Erp.Application.ServiceTickets;
+using Erp.Application.Signatures;
 using Erp.Application.Stock;
 using Erp.Domain.Auth;
 using Erp.Infrastructure.Files;
@@ -65,6 +68,10 @@ public static class DependencyInjection
         services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         services.AddScoped<IInvoiceService, InvoiceService>();
         services.AddScoped<IEmailService, EmailService>();
+        services.AddScoped<IServiceTicketService, ServiceTicketService>();
+        services.AddScoped<ICalendarService, CalendarService>();
+        services.AddScoped<ISignatureService, SignatureService>();
+        services.AddScoped<IOnlyOfficeService, OnlyOfficeService>();
         services.AddHostedService<LowStockAlertWorker>();
 
         return services;

@@ -12,4 +12,5 @@ public interface IInvoiceService
     Task<Result<InvoiceDto>> CancelAsync(Guid invoiceId, CancellationToken cancellationToken);
     Task<Result<InvoiceDocumentDto>> GeneratePdfAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<(Stream Content, string FileName, string MimeType)>> OpenDocumentAsync(Guid invoiceId, Guid documentId, CancellationToken cancellationToken);
+    Task<Result<InvoiceFacturXExportDto>> GenerateFacturXXmlAsync(Guid invoiceId, CancellationToken cancellationToken);
 }

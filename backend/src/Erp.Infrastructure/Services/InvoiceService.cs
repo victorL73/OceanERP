@@ -4,6 +4,7 @@ using Erp.Application.Invoices;
 using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Xml.Linq;
 
 namespace Erp.Infrastructure.Services;
 
@@ -257,6 +258,63 @@ public sealed class InvoiceService(
 
         var stream = await fileStorageService.OpenReadAsync(document.StoragePath, cancellationToken);
         return Result<(Stream, string, string)>.Success((stream, document.FileName, document.MimeType));
+    }
+
+    public async Task<Result<InvoiceFacturXExportDto>> GenerateFacturXXmlAsync(Guid invoiceId, CancellationToken cancellationToken)
+    {
+        var invoice = await db.Invoices.FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken);
+        if (invoice is null)
+        {
+            return Result<InvoiceFacturXExportDto>.Failure("Invoice not found.");
+        }
+
+        var dto = await MapAsync(invoice, cancellationToken);
+        var customer = await db.Customers.FirstOrDefaultAsync(x => x.Id == invoice.CustomerId, cancellationToken);
+        var billingAddress = await db.CustomerAddresses
+            .Where(x => x.CustomerId == invoice.CustomerId && x.IsBilling)
+            .OrderByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var document = new XDocument(
+            new XElement("FacturXPreparation",
+                new XAttribute("profile", invoice.FacturXProfile),
+                new XAttribute("generatedAt", DateTimeOffset.UtcNow.ToString("O")),
+                new XElement("Invoice",
+                    new XElement("Number", invoice.Number),
+                    new XElement("Kind", invoice.Kind),
+                    new XElement("Status", dto.Status),
+                    new XElement("IssueDate", invoice.IssueDate.ToString("yyyy-MM-dd")),
+                    new XElement("DueDate", invoice.DueDate.ToString("yyyy-MM-dd")),
+                    new XElement("Currency", "EUR"),
+                    new XElement("Total", dto.Total),
+                    new XElement("PaidTotal", dto.PaidTotal),
+                    new XElement("BalanceDue", dto.BalanceDue)),
+                new XElement("Customer",
+                    new XElement("Name", customer?.CompanyName ?? dto.CustomerName),
+                    new XElement("LegalName", customer?.LegalName),
+                    new XElement("Siren", customer?.SirenNumber),
+                    new XElement("Siret", customer?.SiretNumber),
+                    new XElement("VatNumber", customer?.VatNumber),
+                    new XElement("Email", customer?.Email),
+                    new XElement("Phone", customer?.Phone),
+                    new XElement("BillingAddress",
+                        new XElement("Line1", billingAddress?.Line1),
+                        new XElement("Line2", billingAddress?.Line2),
+                        new XElement("PostalCode", billingAddress?.PostalCode),
+                        new XElement("City", billingAddress?.City),
+                        new XElement("Country", billingAddress?.Country))),
+                new XElement("Lines",
+                    dto.Lines.Select(line =>
+                        new XElement("Line",
+                            new XElement("Description", line.Description),
+                            new XElement("Quantity", line.Quantity),
+                            new XElement("UnitPrice", line.UnitPrice),
+                            new XElement("LineTotal", line.LineTotal))))));
+
+        return Result<InvoiceFacturXExportDto>.Success(new InvoiceFacturXExportDto(
+            $"{invoice.Number}-factur-x-preparation.xml",
+            "application/xml",
+            document.ToString(SaveOptions.DisableFormatting)));
     }
 
     private async Task<string> NextNumberAsync(CancellationToken cancellationToken)

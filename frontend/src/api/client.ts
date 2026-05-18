@@ -1,6 +1,7 @@
 import type {
   AuthResponse,
   AuditLog,
+  CalendarEvent,
   Customer,
   DashboardSummary,
   DocumentLink,
@@ -14,18 +15,22 @@ import type {
   MailAccount,
   MailServerSettings,
   NotificationItem,
+  OnlyOfficeConfig,
   PagedResult,
   Permission,
   PrestashopConnection,
   PrestashopSyncLog,
   Product,
   ProductSupplier,
+  PublicSignature,
   PurchaseOrder,
   Quote,
   QuoteDocument,
   QuoteSettings,
   Role,
   SalesOrder,
+  ServiceTicket,
+  SignatureRequest,
   StockItem,
   StockMovement,
   User,
@@ -353,6 +358,10 @@ export class ApiClient {
     return this.request<void>(`/api/drive/links/${linkId}`, { method: 'DELETE', auth: true });
   }
 
+  onlyOfficeConfig(fileId: string) {
+    return this.request<OnlyOfficeConfig>(`/api/onlyoffice/files/${fileId}/config`, { auth: true });
+  }
+
   notifications() {
     return this.request<NotificationItem[]>('/api/notifications', { auth: true });
   }
@@ -523,6 +532,10 @@ export class ApiClient {
     await this.download(`/api/invoices/${invoiceId}/documents/${documentId}/download`, fileName);
   }
 
+  async downloadInvoiceFacturX(invoiceId: string, invoiceNumber: string) {
+    await this.download(`/api/invoices/${invoiceId}/factur-x/xml`, `${invoiceNumber}-factur-x-preparation.xml`);
+  }
+
   warehouses() {
     return this.request<Warehouse[]>('/api/stock/warehouses', { auth: true });
   }
@@ -658,6 +671,72 @@ export class ApiClient {
 
   runPrestashopSync(connectionId: string) {
     return this.request<PrestashopSyncLog>(`/api/prestashop/connections/${connectionId}/sync`, { method: 'POST', auth: true });
+  }
+
+  serviceTickets(search?: string, status?: string) {
+    const query = new URLSearchParams({ pageSize: '100' });
+    if (search?.trim()) {
+      query.set('search', search.trim());
+    }
+    if (status?.trim()) {
+      query.set('status', status.trim());
+    }
+    return this.request<PagedResult<ServiceTicket>>(`/api/service-tickets?${query.toString()}`, { auth: true });
+  }
+
+  createServiceTicket(payload: { customerId: string; subject: string; description?: string | null; productId?: string | null; salesOrderId?: string | null; priority: string }) {
+    return this.request<ServiceTicket>('/api/service-tickets', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateServiceTicket(ticketId: string, payload: { subject: string; description?: string | null; productId?: string | null; salesOrderId?: string | null; priority: string; status: string }) {
+    return this.request<ServiceTicket>(`/api/service-tickets/${ticketId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  changeServiceTicketStatus(ticketId: string, status: string, comment?: string | null) {
+    return this.request<ServiceTicket>(`/api/service-tickets/${ticketId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status, comment }) });
+  }
+
+  addServiceTicketMessage(ticketId: string, payload: { body: string; isInternal?: boolean; attachmentDriveItemId?: string | null }) {
+    return this.request(`/api/service-tickets/${ticketId}/messages`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  calendarEvents(from?: string, to?: string) {
+    const query = new URLSearchParams({ pageSize: '100' });
+    if (from) {
+      query.set('from', from);
+    }
+    if (to) {
+      query.set('to', to);
+    }
+    return this.request<PagedResult<CalendarEvent>>(`/api/calendar/events?${query.toString()}`, { auth: true });
+  }
+
+  createCalendarEvent(payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }> }) {
+    return this.request<CalendarEvent>('/api/calendar/events', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateCalendarEvent(eventId: string, payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }> }) {
+    return this.request<CalendarEvent>(`/api/calendar/events/${eventId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  deleteCalendarEvent(eventId: string) {
+    return this.request<void>(`/api/calendar/events/${eventId}`, { method: 'DELETE', auth: true });
+  }
+
+  signatureRequests() {
+    return this.request<PagedResult<SignatureRequest>>('/api/signatures?pageSize=100', { auth: true });
+  }
+
+  createSignatureRequest(payload: { driveItemId: string; title: string; expiresAt: string; recipients: Array<{ email: string; name?: string | null }> }) {
+    return this.request<SignatureRequest>('/api/signatures', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  publicSignature(token: string) {
+    return this.request<PublicSignature>(`/api/signatures/public/${encodeURIComponent(token)}`);
+  }
+
+  acceptPublicSignature(token: string, payload: { conditionsAccepted: boolean; signatureMode: string; drawnSignatureDataUrl?: string | null }) {
+    return this.request<SignatureRequest>(`/api/signatures/public/${encodeURIComponent(token)}/accept`, { method: 'POST', body: JSON.stringify(payload) });
   }
 
   private setAuth(auth: AuthResponse) {

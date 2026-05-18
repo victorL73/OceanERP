@@ -86,5 +86,6 @@ http://IP_DU_SERVEUR:8080
 - Ne pas supprimer `oceanerp_documents` sans sauvegarde valide.
 - Verifier les migrations EF Core lors des mises a jour majeures.
 - Pour la Phase 2, verifier que les menus `Commandes`, `Factures`, `Stock`, `Emails` et `PrestaShop` apparaissent apres reconstruction.
+- Pour la Phase 3, verifier que les menus `SAV`, `Agenda` et `Signatures` apparaissent, puis tester un ticket SAV, un evenement agenda et une demande de signature sur un document Drive.
 - Si le navigateur garde l'ancien menu, forcer le rechargement avec `Ctrl+F5` ou vider le cache/service worker de la PWA.
 - Tester les restaurations sur preproduction avant une operation sensible.

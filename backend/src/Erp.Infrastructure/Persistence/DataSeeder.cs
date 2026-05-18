@@ -35,7 +35,11 @@ public static class DataSeeder
             "purchases.read", "purchases.write",
             "invoices.read", "invoices.write",
             "emails.read", "emails.write",
-            "prestashop.read", "prestashop.write"
+            "prestashop.read", "prestashop.write",
+            "service.read", "service.write",
+            "calendar.read", "calendar.write",
+            "signatures.read", "signatures.write",
+            "onlyoffice.read", "onlyoffice.write"
         };
 
         foreach (var code in permissionCodes)

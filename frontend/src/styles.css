@@ -235,6 +235,15 @@ h1 {
   color: #991b1b;
 }
 
+.success {
+  margin-bottom: 16px;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  background: #f0fdf4;
+  color: #166534;
+  padding: 12px 14px;
+}
+
 .loading {
   border: 1px solid #bfdbfe;
   background: #eff6ff;
@@ -1971,6 +1980,54 @@ button.drive-main {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   padding: 0 12px;
+}
+
+.public-signature-screen {
+  align-items: start;
+  padding-top: 48px;
+}
+
+.public-signature-panel {
+  width: min(860px, 100%);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 0.12);
+}
+
+.signature-public-summary h1 {
+  margin: 0 0 18px;
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.checkbox-label {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+}
+
+.checkbox-label input {
+  min-height: auto;
+  margin-top: 3px;
+}
+
+.signature-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.signature-drawing {
+  display: grid;
+  gap: 10px;
+}
+
+.signature-drawing canvas {
+  width: 100%;
+  height: 180px;
+  touch-action: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
 }
 
 @media (max-width: 880px) {

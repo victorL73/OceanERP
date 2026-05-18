@@ -62,6 +62,20 @@ public sealed class InvoicesController(IInvoiceService invoices) : ControllerBas
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpGet("{id:guid}/factur-x/xml")]
+    [Authorize(Policy = "invoices.read")]
+    public async Task<IActionResult> FacturXXml(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await invoices.GenerateFacturXXmlAsync(id, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return NotFound(new { error = result.Error });
+        }
+
+        var export = result.Value!;
+        return File(System.Text.Encoding.UTF8.GetBytes(export.Xml), export.MimeType, export.FileName);
+    }
+
     [HttpGet("{invoiceId:guid}/documents/{documentId:guid}/download")]
     [Authorize(Policy = "invoices.read")]
     public async Task<IActionResult> DownloadDocument(Guid invoiceId, Guid documentId, CancellationToken cancellationToken)

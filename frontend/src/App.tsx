@@ -1,10 +1,10 @@
-import { type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, CalendarDays, Download, FileSignature, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, LifeBuoy, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
-type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop';
+type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'signatures';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
   { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
@@ -17,6 +17,9 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
   { key: 'stock', label: 'Stock', icon: WarehouseIcon, permission: 'stock.read' },
   { key: 'emails', label: 'Emails', icon: Mail, permission: 'emails.read' },
   { key: 'prestashop', label: 'PrestaShop', icon: Store, permission: 'prestashop.read' },
+  { key: 'service', label: 'SAV', icon: LifeBuoy, permission: 'service.read' },
+  { key: 'calendar', label: 'Agenda', icon: CalendarDays, permission: 'calendar.read' },
+  { key: 'signatures', label: 'Signatures', icon: FileSignature, permission: 'signatures.read' },
   { key: 'drive', label: 'Drive', icon: Folder, permission: 'drive.read' },
   { key: 'notifications', label: 'Notifications', icon: Bell, permission: 'notifications.read' }
 ];
@@ -33,11 +36,14 @@ const viewLabels: Record<ViewKey, string> = {
   stock: 'Stock',
   emails: 'Emails',
   prestashop: 'PrestaShop',
+  service: 'SAV',
+  calendar: 'Agenda',
+  signatures: 'Signatures',
   drive: 'Drive',
   notifications: 'Notifications'
 };
 
-const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'prestashop'];
+const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'prestashop', 'service', 'calendar', 'signatures'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
 
 function readStoredChoice<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
@@ -102,7 +108,17 @@ function hasPermission(user: User | null, permission?: string) {
   return !permission || Boolean(user && (user.roles.includes('Administrator') || user.permissions.includes(permission)));
 }
 
+function readPublicSignatureToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const match = window.location.pathname.match(/^\/signature\/([^/]+)$/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export default function App() {
+  const publicSignatureToken = useMemo(readPublicSignatureToken, []);
   const [isAuthenticated, setAuthenticated] = useState(Boolean(api.token));
   const [view, setView] = useState<ViewKey>(() => readStoredChoice('oceanerp.activeView', 'dashboard', appViewKeys));
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +149,9 @@ export default function App() {
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
+  const [serviceTickets, setServiceTickets] = useState<PagedResult<ServiceTicket> | null>(null);
+  const [calendarEvents, setCalendarEvents] = useState<PagedResult<CalendarEvent> | null>(null);
+  const [signatureRequests, setSignatureRequests] = useState<PagedResult<SignatureRequest> | null>(null);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
 
@@ -253,6 +272,21 @@ export default function App() {
       }
       if (target === 'prestashop') {
         await refreshPrestashopData();
+      }
+      if (target === 'service') {
+        const [nextTickets, nextCustomers, nextProducts, nextOrders] = await Promise.all([api.serviceTickets(), api.customers(), api.products(), api.orders()]);
+        setServiceTickets(nextTickets);
+        setCustomers(nextCustomers);
+        setProducts(nextProducts);
+        setOrders(nextOrders);
+      }
+      if (target === 'calendar') {
+        setCalendarEvents(await api.calendarEvents());
+      }
+      if (target === 'signatures') {
+        const [nextSignatures, nextFiles] = await Promise.all([api.signatureRequests(), api.files()]);
+        setSignatureRequests(nextSignatures);
+        setFiles(nextFiles);
       }
       if (target === 'notifications') {
         setNotifications(await api.notifications());
@@ -381,6 +415,10 @@ export default function App() {
     storeChoice('oceanerp.activeView', view);
   }, [view]);
 
+  if (publicSignatureToken) {
+    return <PublicSignaturePage token={publicSignatureToken} />;
+  }
+
   if (!isAuthenticated) {
     return (
       <Login
@@ -491,6 +529,9 @@ export default function App() {
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
         {view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
+        {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('service')} />}
+        {view === 'calendar' && <Calendar events={calendarEvents?.items ?? []} onChanged={() => load('calendar')} />}
+        {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} onChanged={() => load('signatures')} />}
         {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
@@ -539,6 +580,162 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             Connexion
           </button>
         </form>
+      </section>
+    </main>
+  );
+}
+
+function PublicSignaturePage({ token }: { token: string }) {
+  const [signature, setSignature] = useState<PublicSignature | null>(null);
+  const [conditionsAccepted, setConditionsAccepted] = useState(false);
+  const [signatureMode, setSignatureMode] = useState<'Click' | 'Drawn'>('Click');
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isDrawingRef = useRef(false);
+
+  useEffect(() => {
+    api.publicSignature(token)
+      .then(setSignature)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Lien de signature invalide'))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  function pointerPosition(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height)
+    };
+  }
+
+  function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    if (signatureMode !== 'Drawn') {
+      return;
+    }
+
+    const canvas = event.currentTarget;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return;
+    }
+
+    const point = pointerPosition(event);
+    isDrawingRef.current = true;
+    canvas.setPointerCapture(event.pointerId);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  }
+
+  function draw(event: PointerEvent<HTMLCanvasElement>) {
+    if (!isDrawingRef.current || signatureMode !== 'Drawn') {
+      return;
+    }
+
+    const context = event.currentTarget.getContext('2d');
+    if (!context) {
+      return;
+    }
+
+    const point = pointerPosition(event);
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.strokeStyle = '#0f172a';
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  }
+
+  function stopDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function clearDrawing() {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (canvas && context) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+
+  async function accept(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const drawnSignatureDataUrl = signatureMode === 'Drawn' ? canvasRef.current?.toDataURL('image/png') ?? null : null;
+      await api.acceptPublicSignature(token, { conditionsAccepted, signatureMode, drawnSignatureDataUrl });
+      setSuccess('Document signe. La preuve de signature a ete enregistree.');
+      setSignature((current) => current ? { ...current, status: 'Signed' } : current);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Signature impossible');
+    }
+  }
+
+  return (
+    <main className="login-screen public-signature-screen">
+      <section className="login-panel public-signature-panel">
+        <div className="brand large">
+          <div className="brand-mark">OE</div>
+          <div>
+            <strong>OceanERP</strong>
+            <span>Signature interne</span>
+          </div>
+        </div>
+
+        {loading && <EmptyState icon={FileSignature} title="Chargement de la demande de signature" />}
+        {!loading && signature && (
+          <form onSubmit={accept}>
+            <div className="signature-public-summary">
+              <p className="eyebrow">Document a signer</p>
+              <h1>{signature.title}</h1>
+              <div className="detail-grid">
+                <DetailItem label="Fichier" value={signature.fileName} />
+                <DetailItem label="Expiration" value={new Date(signature.expiresAt).toLocaleString('fr-FR')} />
+                <DetailItem label="Statut" value={signature.status} />
+              </div>
+            </div>
+
+            <label className="checkbox-label">
+              <input type="checkbox" checked={conditionsAccepted} onChange={(event) => setConditionsAccepted(event.target.checked)} />
+              <span>J'accepte les conditions de signature et confirme mon accord sur ce document.</span>
+            </label>
+
+            <div className="signature-mode">
+              <button className={signatureMode === 'Click' ? 'primary' : 'secondary'} type="button" onClick={() => setSignatureMode('Click')}>Signature par clic</button>
+              <button className={signatureMode === 'Drawn' ? 'primary' : 'secondary'} type="button" onClick={() => setSignatureMode('Drawn')}>Signature dessinee</button>
+            </div>
+
+            {signatureMode === 'Drawn' && (
+              <div className="signature-drawing">
+                <canvas
+                  ref={canvasRef}
+                  width={720}
+                  height={220}
+                  onPointerDown={startDrawing}
+                  onPointerMove={draw}
+                  onPointerUp={stopDrawing}
+                  onPointerLeave={stopDrawing}
+                />
+                <button className="secondary" type="button" onClick={clearDrawing}>Effacer</button>
+              </div>
+            )}
+
+            {error && <div className="alert">{error}</div>}
+            {success && <div className="success">{success}</div>}
+            <button className="primary" type="submit" disabled={signature.status === 'Signed' || signature.status === 'Completed'}>
+              <FileSignature size={18} />
+              Signer le document
+            </button>
+          </form>
+        )}
+        {!loading && !signature && !error && <EmptyState icon={FileSignature} title="Demande de signature introuvable" />}
+        {error && !signature && <div className="alert">{error}</div>}
       </section>
     </main>
   );
@@ -4485,6 +4682,9 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
               <Download size={15} />
               PDF
             </button>
+            <button className="secondary" onClick={(event) => { event.stopPropagation(); void api.downloadInvoiceFacturX(item.id, item.number); }} type="button">
+              XML
+            </button>
             <button className="secondary" disabled={item.kind === 'CreditNote' || item.status === 'Cancelled'} onClick={(event) => { event.stopPropagation(); void createCreditNote(item); }} type="button">
               Avoir
             </button>
@@ -4538,6 +4738,9 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
               <button className="secondary" disabled={selectedInvoice.documents.length === 0} type="button" onClick={() => void downloadPdf(selectedInvoice)}>
                 <Download size={15} />
                 Telecharger PDF
+              </button>
+              <button className="secondary" type="button" onClick={() => void api.downloadInvoiceFacturX(selectedInvoice.id, selectedInvoice.number)}>
+                XML Factur-X
               </button>
               <button className="secondary" disabled={selectedInvoice.kind === 'CreditNote' || selectedInvoice.status === 'Cancelled'} type="button" onClick={() => void createCreditNote(selectedInvoice)}>
                 Creer un avoir
@@ -6629,6 +6832,10 @@ function isTextDriveFile(file: DriveItem) {
   return file.mimeType.toLowerCase().startsWith('text/') || /\.(txt|csv|json|xml|md)$/i.test(file.name);
 }
 
+function isOfficeDriveFile(file: DriveItem) {
+  return /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv|txt)$/i.test(file.name);
+}
+
 function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
   const [folderName, setFolderName] = useState('');
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -6979,6 +7186,25 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
     );
   }
 
+  async function openOnlyOffice(file: DriveItem) {
+    setMessage(null);
+    try {
+      const config = await api.onlyOfficeConfig(file.id);
+      const editor = window.open('', '_blank', 'noopener,noreferrer,width=1280,height=900');
+      if (!editor) {
+        setMessage('Ouverture ONLYOFFICE impossible.');
+        return;
+      }
+
+      const serializedConfig = JSON.stringify(config).replace(/</g, '\\u003c');
+      const title = file.name.replace(/[<>&"]/g, '');
+      editor.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>html,body,#editor{width:100%;height:100%;margin:0}</style><script src="${config.documentServerUrl}/web-apps/apps/api/documents/api.js"></script></head><body><div id="editor"></div><script>new DocsAPI.DocEditor("editor", ${serializedConfig});</script></body></html>`);
+      editor.document.close();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Ouverture ONLYOFFICE impossible');
+    }
+  }
+
   return (
     <>
       <Panel title="Documents">
@@ -7096,6 +7322,12 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
                     <Download size={15} />
                     Ouvrir
                   </button>
+                  {isOfficeDriveFile(file) && (
+                    <button className="secondary" type="button" onClick={() => void openOnlyOffice(file)}>
+                      <FileText size={15} />
+                      Office
+                    </button>
+                  )}
                   <button className="secondary" type="button" disabled={busy} onClick={() => startRename({ kind: 'file', id: file.id, name: file.name })}>
                     <Pencil size={15} />
                     Renommer
@@ -7200,6 +7432,382 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
       )}
     </>
   );
+}
+
+function ServiceTickets({ items, customers, products, orders, onChanged }: { items: ServiceTicket[]; customers: Customer[]; products: Product[]; orders: SalesOrder[]; onChanged: () => Promise<void> }) {
+  const [selected, setSelected] = useState<ServiceTicket | null>(null);
+  const [message, setMessage] = useState('');
+  const [draft, setDraft] = useState({
+    customerId: '',
+    productId: '',
+    salesOrderId: '',
+    subject: '',
+    description: '',
+    priority: 'Normal'
+  });
+
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.customerId || !draft.subject.trim()) {
+      return;
+    }
+
+    await api.createServiceTicket({
+      customerId: draft.customerId,
+      subject: draft.subject,
+      description: draft.description || null,
+      productId: draft.productId || null,
+      salesOrderId: draft.salesOrderId || null,
+      priority: draft.priority
+    });
+    setDraft({ customerId: '', productId: '', salesOrderId: '', subject: '', description: '', priority: 'Normal' });
+    await onChanged();
+  }
+
+  async function changeStatus(ticket: ServiceTicket, status: string) {
+    const updated = await api.changeServiceTicketStatus(ticket.id, status);
+    setSelected(updated);
+    await onChanged();
+  }
+
+  async function addMessage(event: FormEvent) {
+    event.preventDefault();
+    if (!selected || !message.trim()) {
+      return;
+    }
+
+    await api.addServiceTicketMessage(selected.id, { body: message, isInternal: false });
+    const refreshed = (await api.serviceTickets()).items.find((ticket) => ticket.id === selected.id);
+    setSelected(refreshed ?? selected);
+    setMessage('');
+    await onChanged();
+  }
+
+  return (
+    <>
+      <Panel title="Nouveau ticket SAV">
+        <form className="form-grid" onSubmit={create}>
+          <label className="field">
+            Client
+            <select value={draft.customerId} onChange={(event) => setDraft({ ...draft, customerId: event.target.value })}>
+              <option value="">Client</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>{customer.companyName}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Produit
+            <select value={draft.productId} onChange={(event) => setDraft({ ...draft, productId: event.target.value })}>
+              <option value="">Sans produit</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>{product.reference} - {product.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Commande
+            <select value={draft.salesOrderId} onChange={(event) => setDraft({ ...draft, salesOrderId: event.target.value })}>
+              <option value="">Sans commande</option>
+              {orders.map((order) => (
+                <option key={order.id} value={order.id}>{order.number}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Priorite
+            <select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })}>
+              <option value="Low">Basse</option>
+              <option value="Normal">Normale</option>
+              <option value="High">Haute</option>
+              <option value="Urgent">Urgente</option>
+            </select>
+          </label>
+          <label className="field wide-field">
+            Sujet
+            <input value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} placeholder="Sujet du ticket" />
+          </label>
+          <label className="field wide-field">
+            Description
+            <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+          </label>
+          <button className="primary form-actions" type="submit">
+            <Plus size={16} />
+            Creer le ticket
+          </button>
+        </form>
+      </Panel>
+
+      <DataTable
+        columns={['Numero', 'Client', 'Sujet', 'Priorite', 'Statut', 'Cree le']}
+        rows={items.map((ticket) => [ticket.number, ticket.customerName, ticket.subject, ticket.priority, ticket.status, formatOrderDate(ticket.createdAt)])}
+        onRowClick={(index) => setSelected(items[index])}
+      />
+
+      {selected && (
+        <div className="modal-backdrop" onClick={() => setSelected(null)}>
+          <section className="modal-panel" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">SAV</p>
+                <h2>{selected.number}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setSelected(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className="detail-grid">
+              <DetailItem label="Client" value={selected.customerName} />
+              <DetailItem label="Produit" value={selected.productReference ? `${selected.productReference} - ${selected.productName}` : '-'} />
+              <DetailItem label="Commande" value={selected.salesOrderNumber ?? '-'} />
+              <DetailItem label="Priorite" value={selected.priority} />
+              <DetailItem label="Statut" value={selected.status} />
+              <DetailItem label="Description" value={selected.description ?? '-'} />
+            </div>
+            <div className="module-actions">
+              {['Open', 'InProgress', 'WaitingCustomer', 'Resolved', 'Closed'].map((status) => (
+                <button key={status} className="secondary" type="button" onClick={() => changeStatus(selected, status)}>{status}</button>
+              ))}
+            </div>
+            <Panel title="Messages">
+              <form className="form-grid" onSubmit={addMessage}>
+                <label className="field wide-field">
+                  Message
+                  <textarea value={message} onChange={(event) => setMessage(event.target.value)} />
+                </label>
+                <button className="primary form-actions" type="submit">
+                  <Mail size={15} />
+                  Ajouter
+                </button>
+              </form>
+              {selected.messages.map((item) => (
+                <article className="document-link-row" key={item.id}>
+                  <span>{formatOrderDate(item.createdAt)}</span>
+                  <strong>{item.authorName ?? 'OceanERP'}</strong>
+                  <span>{item.body}</span>
+                </article>
+              ))}
+              {selected.messages.length === 0 && <p className="panel-note">Aucun message.</p>}
+            </Panel>
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Calendar({ events, onChanged }: { events: CalendarEvent[]; onChanged: () => Promise<void> }) {
+  const now = new Date();
+  const [draft, setDraft] = useState({
+    title: '',
+    startsAt: toDateTimeLocalValue(now),
+    endsAt: toDateTimeLocalValue(new Date(now.getTime() + 60 * 60 * 1000)),
+    location: '',
+    description: '',
+    isPrivate: false,
+    reminderMinutes: '30'
+  });
+
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.title.trim()) {
+      return;
+    }
+
+    const startsAt = fromDateTimeLocalValue(draft.startsAt);
+    const reminderMinutes = Number(draft.reminderMinutes);
+    await api.createCalendarEvent({
+      title: draft.title,
+      startsAt,
+      endsAt: fromDateTimeLocalValue(draft.endsAt),
+      location: draft.location || null,
+      description: draft.description || null,
+      isPrivate: draft.isPrivate,
+      reminders: Number.isFinite(reminderMinutes) && reminderMinutes > 0 ? [{ remindAt: new Date(new Date(startsAt).getTime() - reminderMinutes * 60000).toISOString() }] : []
+    });
+    setDraft({ ...draft, title: '', location: '', description: '' });
+    await onChanged();
+  }
+
+  async function remove(eventId: string) {
+    await api.deleteCalendarEvent(eventId);
+    await onChanged();
+  }
+
+  return (
+    <>
+      <Panel title="Nouvel evenement">
+        <form className="form-grid" onSubmit={create}>
+          <label className="field">
+            Titre
+            <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+          </label>
+          <label className="field">
+            Debut
+            <input type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft({ ...draft, startsAt: event.target.value })} />
+          </label>
+          <label className="field">
+            Fin
+            <input type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft({ ...draft, endsAt: event.target.value })} />
+          </label>
+          <label className="field">
+            Rappel minutes
+            <input type="number" min="0" value={draft.reminderMinutes} onChange={(event) => setDraft({ ...draft, reminderMinutes: event.target.value })} />
+          </label>
+          <label className="field">
+            Lieu
+            <input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} />
+          </label>
+          <label className="checkbox-line">
+            <input type="checkbox" checked={draft.isPrivate} onChange={(event) => setDraft({ ...draft, isPrivate: event.target.checked })} />
+            Prive
+          </label>
+          <label className="field wide-field">
+            Description
+            <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+          </label>
+          <button className="primary form-actions" type="submit">
+            <Plus size={16} />
+            Ajouter
+          </button>
+        </form>
+      </Panel>
+      <DataTable
+        columns={['Titre', 'Debut', 'Fin', 'Lieu', 'Rappels', 'Actions']}
+        rows={events.map((event) => [
+          event.title,
+          formatOrderDate(event.startsAt),
+          formatOrderDate(event.endsAt),
+          event.location ?? '-',
+          event.reminders.length.toString(),
+          <button className="danger" type="button" onClick={() => remove(event.id)}><Trash2 size={15} /> Supprimer</button>
+        ])}
+      />
+    </>
+  );
+}
+
+function Signatures({ requests, files, onChanged }: { requests: SignatureRequest[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
+  const [selected, setSelected] = useState<SignatureRequest | null>(null);
+  const [draft, setDraft] = useState({
+    driveItemId: '',
+    title: '',
+    email: '',
+    name: '',
+    expiresAt: toDateTimeLocalValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
+  });
+
+  const signableFiles = files.filter((file) => file.mimeType === 'application/pdf' || /\.(pdf|docx|xlsx|pptx)$/i.test(file.name));
+
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.driveItemId || !draft.email.trim()) {
+      return;
+    }
+
+    await api.createSignatureRequest({
+      driveItemId: draft.driveItemId,
+      title: draft.title,
+      expiresAt: fromDateTimeLocalValue(draft.expiresAt),
+      recipients: [{ email: draft.email, name: draft.name || null }]
+    });
+    setDraft({ ...draft, driveItemId: '', title: '', email: '', name: '' });
+    await onChanged();
+  }
+
+  return (
+    <>
+      <Panel title="Nouvelle demande de signature">
+        <form className="form-grid" onSubmit={create}>
+          <label className="field">
+            Document Drive
+            <select value={draft.driveItemId} onChange={(event) => setDraft({ ...draft, driveItemId: event.target.value })}>
+              <option value="">Document</option>
+              {signableFiles.map((file) => (
+                <option key={file.id} value={file.id}>{file.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Titre
+            <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+          </label>
+          <label className="field">
+            Email signataire
+            <input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} />
+          </label>
+          <label className="field">
+            Nom
+            <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          </label>
+          <label className="field">
+            Expiration
+            <input type="datetime-local" value={draft.expiresAt} onChange={(event) => setDraft({ ...draft, expiresAt: event.target.value })} />
+          </label>
+          <button className="primary form-actions" type="submit">
+            <FileSignature size={16} />
+            Creer
+          </button>
+        </form>
+      </Panel>
+
+      <DataTable
+        columns={['Titre', 'Document', 'Statut', 'Expiration', 'Signataires']}
+        rows={requests.map((request) => [request.title, request.driveItemName ?? '-', request.status, formatOrderDate(request.expiresAt), request.recipients.map((recipient) => recipient.email).join(', ')])}
+        onRowClick={(index) => setSelected(requests[index])}
+      />
+
+      {selected && (
+        <div className="modal-backdrop" onClick={() => setSelected(null)}>
+          <section className="modal-panel" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Signature</p>
+                <h2>{selected.title}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setSelected(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className="detail-grid">
+              <DetailItem label="Document" value={selected.driveItemName ?? '-'} />
+              <DetailItem label="Statut" value={selected.status} />
+              <DetailItem label="Expiration" value={formatOrderDate(selected.expiresAt)} />
+              <DetailItem label="Terminee le" value={selected.completedAt ? formatOrderDate(selected.completedAt) : '-'} />
+            </div>
+            <Panel title="Signataires">
+              {selected.recipients.map((recipient) => (
+                <article className="document-link-row" key={recipient.id}>
+                  <strong>{recipient.name || recipient.email}</strong>
+                  <span>{recipient.status}</span>
+                  {recipient.signingUrl && <a href={recipient.signingUrl} target="_blank" rel="noreferrer">Lien signature</a>}
+                </article>
+              ))}
+            </Panel>
+            <Panel title="Preuves">
+              {selected.evidence.map((evidence) => (
+                <article className="document-link-row" key={evidence.id}>
+                  <span>{formatOrderDate(evidence.createdAt)}</span>
+                  <strong>{evidence.action}</strong>
+                  <span>{evidence.documentSha256}</span>
+                </article>
+              ))}
+              {selected.evidence.length === 0 && <p className="panel-note">Aucune preuve pour le moment.</p>}
+            </Panel>
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
+function toDateTimeLocalValue(date: Date) {
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalValue(value: string) {
+  return new Date(value).toISOString();
 }
 
 function Notifications({ items, onOpen }: { items: NotificationItem[]; onOpen: (item: NotificationItem) => void }) {

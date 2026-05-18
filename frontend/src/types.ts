@@ -558,3 +558,139 @@ export type PrestashopSyncLog = {
   startedAt?: string;
   completedAt?: string;
 };
+
+export type ServiceTicketMessage = {
+  id: string;
+  authorUserId?: string;
+  authorName?: string;
+  body: string;
+  isInternal: boolean;
+  attachmentDriveItemId?: string;
+  createdAt: string;
+};
+
+export type ServiceTicketStatusHistory = {
+  id: string;
+  status: string;
+  comment?: string;
+  changedByUserId?: string;
+  changedByName?: string;
+  changedAt: string;
+};
+
+export type ServiceTicket = {
+  id: string;
+  number: string;
+  customerId: string;
+  customerName: string;
+  productId?: string;
+  productReference?: string;
+  productName?: string;
+  salesOrderId?: string;
+  salesOrderNumber?: string;
+  subject: string;
+  description?: string;
+  priority: string;
+  status: string;
+  createdAt: string;
+  updatedAt?: string;
+  messages: ServiceTicketMessage[];
+  statusHistory: ServiceTicketStatusHistory[];
+};
+
+export type CalendarReminder = {
+  id: string;
+  remindAt: string;
+  isSent: boolean;
+};
+
+export type CalendarEventLink = {
+  id: string;
+  module: string;
+  entityId: string;
+};
+
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  description?: string;
+  location?: string;
+  startsAt: string;
+  endsAt: string;
+  isPrivate: boolean;
+  createdAt: string;
+  reminders: CalendarReminder[];
+  links: CalendarEventLink[];
+};
+
+export type SignatureRecipient = {
+  id: string;
+  email: string;
+  name?: string;
+  status: string;
+  signedAt?: string;
+  signingUrl?: string;
+};
+
+export type SignatureEvidence = {
+  id: string;
+  signatureRecipientId?: string;
+  action: string;
+  documentSha256: string;
+  conditionsAccepted: boolean;
+  signatureMode?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+};
+
+export type SignedDocument = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  documentSha256: string;
+  createdAt: string;
+};
+
+export type SignatureRequest = {
+  id: string;
+  driveItemId: string;
+  driveItemName?: string;
+  title: string;
+  status: string;
+  expiresAt: string;
+  completedAt?: string;
+  recipients: SignatureRecipient[];
+  evidence: SignatureEvidence[];
+  signedDocuments: SignedDocument[];
+};
+
+export type PublicSignature = {
+  requestId: string;
+  recipientId: string;
+  title: string;
+  fileName: string;
+  expiresAt: string;
+  status: string;
+};
+
+export type OnlyOfficeConfig = {
+  documentServerUrl: string;
+  documentType: string;
+  type: string;
+  document: {
+    fileType: string;
+    key: string;
+    title: string;
+    url: string;
+  };
+  editorConfig: {
+    mode: string;
+    callbackUrl: string;
+    user: {
+      id: string;
+      name: string;
+    };
+  };
+};
