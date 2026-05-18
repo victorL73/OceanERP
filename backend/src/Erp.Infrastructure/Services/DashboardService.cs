@@ -43,7 +43,7 @@ public sealed class DashboardService(ErpDbContext db) : IDashboardService
             .CountAsync(x => x.product.IsActive && x.item.QuantityOnHand - x.item.QuantityReserved <= 0, cancellationToken);
         var stockQuantityOnHand = await db.StockItems.SumAsync(x => x.QuantityOnHand, cancellationToken);
         var stockQuantityReserved = await db.StockItems.SumAsync(x => x.QuantityReserved, cancellationToken);
-        var openServiceTickets = 0;
+        var openServiceTickets = await db.ServiceTickets.CountAsync(x => x.Status != "Resolved" && x.Status != "Closed", cancellationToken);
         var newEmails = await db.EmailMessages.CountAsync(x => !x.IsDeleted && !x.IsRead, cancellationToken);
         var monthStart = new DateOnly(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
         var monthlyRevenue = await db.InvoicePayments.Where(x => x.PaidOn >= monthStart).SumAsync(x => x.Amount, cancellationToken);
