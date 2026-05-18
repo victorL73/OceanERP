@@ -1,5 +1,6 @@
 using Erp.Domain.Customers;
 using Erp.Domain.FutureModules;
+using Erp.Application.Prestashop;
 using Erp.Domain.Products;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +13,7 @@ using System.Text.RegularExpressions;
 
 namespace Erp.Infrastructure.Services;
 
-internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration configuration, HttpClient httpClient)
+internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration configuration, HttpClient httpClient, IPrestashopSyncNotifier notifier)
 {
     private const string Provider = "PrestaShop";
     private const string DefaultWarehouseName = "Entrepot principal";
@@ -78,6 +79,40 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         }
     }
 
+    public async Task<PrestashopSyncExecutionResult> ExecuteConnectionAsync(Guid connectionId, CancellationToken cancellationToken)
+    {
+        var connection = await db.PrestashopConnections.FirstOrDefaultAsync(x => x.Id == connectionId, cancellationToken);
+        if (connection is null)
+        {
+            return new PrestashopSyncExecutionResult("Failed", "PrestaShop connection not found.");
+        }
+
+        if (!connection.IsActive)
+        {
+            return new PrestashopSyncExecutionResult("Skipped", "PrestaShop connection is inactive.");
+        }
+
+        var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
+        if (!apiKeyResult.Succeeded)
+        {
+            return new PrestashopSyncExecutionResult("Failed", apiKeyResult.Error ?? "PrestaShop API key is not configured.");
+        }
+
+        try
+        {
+            var result = await ProbePrestashopAsync(connection, apiKeyResult.Value!, cancellationToken);
+            return new PrestashopSyncExecutionResult(result.Status, result.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new PrestashopSyncExecutionResult("Failed", TrimMessage(ex.Message));
+        }
+    }
+
     private async Task<PrestashopProbeResult> ProbePrestashopAsync(PrestashopConnection connection, string apiKey, CancellationToken cancellationToken)
     {
         var apiBaseUrl = GetApiBaseUrl(connection.ShopUrl);
@@ -90,7 +125,12 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         summaries.Add(await RunImportAsync("products", () => ImportProductsAsync(apiBaseUrl, cancellationToken), cancellationToken));
         summaries.Add(await RunImportAsync("customers", () => ImportCustomersAsync(apiBaseUrl, cancellationToken), cancellationToken));
         summaries.Add(await RunImportAsync("stock_availables", () => ImportStockAsync(apiBaseUrl, connection, cancellationToken), cancellationToken));
-        summaries.Add(await RunImportAsync("orders", () => ImportOrdersAsync(apiBaseUrl, cancellationToken), cancellationToken));
+        var ordersSummary = await RunImportAsync("orders", () => ImportOrdersAsync(apiBaseUrl, cancellationToken), cancellationToken);
+        summaries.Add(ordersSummary);
+        if (ordersSummary.CreatedOrders.Count > 0)
+        {
+            await notifier.NotifyNewOrdersAsync(connection.Id, connection.ShopUrl, ordersSummary.CreatedOrders, cancellationToken);
+        }
 
         var successCount = summaries.Count(x => x.IsSuccess);
         if (successCount == 0)
@@ -317,6 +357,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         using var document = await GetJsonAsync($"{apiBaseUrl}/orders?display=full&limit=50&output_format=JSON", "orders", cancellationToken);
         var created = 0;
         var updated = 0;
+        var createdOrders = new List<PrestashopImportedOrderNotification>();
 
         foreach (var item in EnumerateItems(document, "orders"))
         {
@@ -344,6 +385,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("orders", externalId), Module = "orders", EntityId = order.Id });
                 AddOrderLines(order, item);
                 db.SalesOrderStatusHistories.Add(new SalesOrderStatusHistory { SalesOrderId = order.Id, Status = status });
+                createdOrders.Add(new PrestashopImportedOrderNotification(order.Id, order.Number));
                 created += 1;
             }
             else
@@ -357,7 +399,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             }
         }
 
-        return ImportSummary.Ok("orders", created, updated);
+        return ImportSummary.Ok("orders", created, updated, createdOrders);
     }
 
     private async Task<Product?> FindProductByExternalIdAsync(string externalId, CancellationToken cancellationToken)
@@ -1200,10 +1242,12 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         };
 
     private sealed record PrestashopProbeResult(string Status, string Message);
-    private sealed record ImportSummary(string Resource, bool IsSuccess, int Created, int Updated, string? Error)
+    private sealed record ImportSummary(string Resource, bool IsSuccess, int Created, int Updated, string? Error, IReadOnlyList<PrestashopImportedOrderNotification> CreatedOrders)
     {
-        public static ImportSummary Ok(string resource, int created, int updated) => new(resource, true, created, updated, null);
-        public static ImportSummary Failed(string resource, string error) => new(resource, false, 0, 0, error);
+        public static ImportSummary Ok(string resource, int created, int updated, IReadOnlyList<PrestashopImportedOrderNotification>? createdOrders = null) => new(resource, true, created, updated, null, createdOrders ?? []);
+        public static ImportSummary Failed(string resource, string error) => new(resource, false, 0, 0, error, []);
         public string ToMessage() => IsSuccess ? $"{Resource}: {Created} cree(s), {Updated} maj" : $"{Resource}: echec {Error}";
     }
 }
+
+internal sealed record PrestashopSyncExecutionResult(string Status, string Message);

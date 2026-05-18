@@ -276,6 +276,8 @@ export default function App() {
         setView('stock');
       } else if (link.pathname === '/emails') {
         setView('emails');
+      } else if (link.pathname === '/orders') {
+        setView('orders');
       }
     }
 
@@ -321,6 +323,13 @@ export default function App() {
       if (notification.type === 'emails.new') {
         api.emailMessages()
           .then(setEmailMessages)
+          .catch(() => undefined);
+        api.summary()
+          .then(setSummary)
+          .catch(() => undefined);
+      } else if (notification.type === 'prestashop.orders.new') {
+        api.orders()
+          .then(setOrders)
           .catch(() => undefined);
         api.summary()
           .then(setSummary)

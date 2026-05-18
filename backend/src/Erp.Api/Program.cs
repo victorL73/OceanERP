@@ -5,6 +5,7 @@ using Erp.Api.Middleware;
 using Erp.Api.Security;
 using Erp.Api.Services;
 using Erp.Application.Common;
+using Erp.Application.Prestashop;
 using Erp.Infrastructure;
 using Erp.Infrastructure.Persistence;
 using Erp.Infrastructure.Security;
@@ -44,6 +45,7 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotificationPublisher, RealtimeNotificationPublisher>();
+builder.Services.AddScoped<IPrestashopSyncNotifier, PrestashopRealtimeSyncNotifier>();
 builder.Services.AddHostedService<EmailAutoSyncWorker>();
 
 var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();

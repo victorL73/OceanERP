@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Erp.Infrastructure;
 
@@ -40,8 +41,10 @@ public static class DependencyInjection
 
         services.AddSingleton<IPrestashopSyncQueue, PrestashopSyncQueue>();
         services.AddScoped<IPrestashopService, PrestashopService>();
+        services.TryAddScoped<IPrestashopSyncNotifier, NoopPrestashopSyncNotifier>();
         services.AddHttpClient<PrestashopSyncExecutor>();
         services.AddHostedService<PrestashopSyncWorker>();
+        services.AddHostedService<PrestashopAutoSyncWorker>();
         services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IAuthService, AuthService>();
