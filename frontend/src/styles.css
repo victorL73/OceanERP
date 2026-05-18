@@ -316,10 +316,11 @@ h1 {
 .browser-tabs {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 2px;
   border-bottom: 1px solid #d1d5db;
   margin-bottom: 16px;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .browser-tabs button {
