@@ -3415,10 +3415,17 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
     }
   }, [items, selectedOrderId]);
 
-  async function changeStatus(order: SalesOrder, status: string) {
+  async function changeStatus(order: SalesOrder, status: string): Promise<string | null> {
     setMessage(null);
-    await api.changeOrderStatus(order.id, status);
-    await onChanged();
+    try {
+      await api.changeOrderStatus(order.id, status);
+      await onChanged();
+      return null;
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Mise a jour du statut impossible.';
+      setMessage(error);
+      return error;
+    }
   }
 
   async function openShipmentSlip(order: SalesOrder): Promise<string | null> {
@@ -3555,17 +3562,23 @@ function SalesOrderDetailModal({
   onClose: () => void;
   onPrintShipmentSlip: () => Promise<string | null>;
   onPrintColissimoLabel: () => Promise<string | null>;
-  onChangeStatus: (status: string) => Promise<void>;
+  onChangeStatus: (status: string) => Promise<string | null>;
 }) {
   const address = order.shippingAddress;
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
+  const [changingStatus, setChangingStatus] = useState<string | null>(null);
   const nextActions = [
     order.status === 'Draft' ? { label: 'Confirmer', status: 'Confirmed' } : null,
     order.status === 'Confirmed' || order.status === 'Preparing' ? { label: 'Expedier', status: 'Shipped' } : null,
     order.status === 'Shipped' ? { label: 'Terminer', status: 'Completed' } : null
   ].filter((item): item is { label: string; status: string } => Boolean(item));
+  const statusSuccessMessages: Record<string, string> = {
+    Confirmed: 'Commande confirmee.',
+    Shipped: 'Commande expediee.',
+    Completed: 'Commande terminee.'
+  };
 
   async function handlePrintShipmentSlip() {
     setActionMessage("Preparation du bon d'expedition...");
@@ -3581,6 +3594,14 @@ function SalesOrderDetailModal({
     const error = await onPrintColissimoLabel();
     setPrintingLabel(false);
     setActionMessage(error ?? "Ouverture de l'etiquette Colissimo lancee.");
+  }
+
+  async function handleChangeStatus(status: string) {
+    setActionMessage('Mise a jour du statut...');
+    setChangingStatus(status);
+    const error = await onChangeStatus(status);
+    setChangingStatus(null);
+    setActionMessage(error ?? statusSuccessMessages[status] ?? 'Statut mis a jour.');
   }
 
   return (
@@ -3609,8 +3630,8 @@ function SalesOrderDetailModal({
             </button>
           )}
           {nextActions.map((action) => (
-            <button className="secondary" type="button" key={action.status} onClick={() => void onChangeStatus(action.status)}>
-              {action.label}
+            <button className="secondary" type="button" key={action.status} disabled={Boolean(changingStatus)} onClick={() => void handleChangeStatus(action.status)}>
+              {changingStatus === action.status ? 'Traitement...' : action.label}
             </button>
           ))}
         </div>

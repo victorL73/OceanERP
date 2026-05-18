@@ -578,7 +578,7 @@ public sealed class SalesOrderService(
 
         if (!order.WarehouseId.HasValue)
         {
-            return Result.Failure("A warehouse is required before reserving or shipping product lines.");
+            return Result.Failure("Un entrepot est obligatoire avant de reserver ou expedier les lignes produit.");
         }
 
         if (nextStatus == "Confirmed")
@@ -612,7 +612,9 @@ public sealed class SalesOrderService(
             var item = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == line.ProductId && x.WarehouseId == order.WarehouseId!.Value, cancellationToken);
             if (item is null || item.QuantityOnHand - item.QuantityReserved < line.Quantity)
             {
-                return Result.Failure("Insufficient available stock for reservation.");
+                var productLabel = await StockProductLabelAsync(line.ProductId, cancellationToken);
+                var availableQuantity = item is null ? 0 : item.QuantityOnHand - item.QuantityReserved;
+                return Result.Failure($"Stock insuffisant pour confirmer la commande : {productLabel} demande {FormatQuantity(line.Quantity)}, disponible {FormatQuantity(availableQuantity)} dans l'entrepot selectionne.");
             }
         }
 
@@ -644,10 +646,12 @@ public sealed class SalesOrderService(
 
         foreach (var line in lines)
         {
-            var item = await db.StockItems.FirstAsync(x => x.ProductId == line.ProductId && x.WarehouseId == order.WarehouseId!.Value, cancellationToken);
-            if (item.QuantityReserved < line.Quantity || item.QuantityOnHand < line.Quantity)
+            var item = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == line.ProductId && x.WarehouseId == order.WarehouseId!.Value, cancellationToken);
+            if (item is null || item.QuantityReserved < line.Quantity || item.QuantityOnHand < line.Quantity)
             {
-                return Result.Failure("Insufficient reserved stock for shipment.");
+                var productLabel = await StockProductLabelAsync(line.ProductId, cancellationToken);
+                var reservedQuantity = item?.QuantityReserved ?? 0;
+                return Result.Failure($"Stock reserve insuffisant pour expedier la commande : {productLabel} demande {FormatQuantity(line.Quantity)}, reserve {FormatQuantity(reservedQuantity)} dans l'entrepot selectionne.");
             }
         }
 
@@ -670,6 +674,19 @@ public sealed class SalesOrderService(
 
         return Result.Success();
     }
+
+    private async Task<string> StockProductLabelAsync(Guid productId, CancellationToken cancellationToken)
+    {
+        var product = await db.Products
+            .Where(x => x.Id == productId)
+            .Select(x => new { x.Reference, x.Name })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return product is null ? productId.ToString() : $"{product.Reference} - {product.Name}";
+    }
+
+    private static string FormatQuantity(decimal quantity)
+        => quantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
 
     private async Task<Result> ReleaseReservationAsync(SalesOrder order, IReadOnlyList<StockOrderLine> lines, CancellationToken cancellationToken)
     {

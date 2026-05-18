@@ -74,6 +74,30 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task SalesOrderConfirm_WithInsufficientStock_ReturnsActionableError()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+        var product = await CreateProductAsync(client);
+        var warehouses = await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses");
+        var warehouse = warehouses!.First();
+
+        var orderResponse = await client.PostAsJsonAsync("/api/orders", new CreateSalesOrderRequest(
+            customer.Id,
+            warehouse.Id,
+            [new CreateSalesOrderLineRequest(product.Id, "Integration line", 2, 50)]));
+        Assert.Equal(HttpStatusCode.Created, orderResponse.StatusCode);
+        var order = await orderResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+
+        var confirmResponse = await client.PostAsJsonAsync($"/api/orders/{order!.Id}/status", new UpdateSalesOrderStatusRequest("Confirmed"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, confirmResponse.StatusCode);
+        var error = await confirmResponse.Content.ReadAsStringAsync();
+        Assert.Contains("Stock insuffisant pour confirmer la commande", error);
+        Assert.Contains(product.Reference, error);
+    }
+
+    [Fact]
     public async Task ColissimoLabel_WhenOfficialLabelIsUnavailable_ReturnsPreparationPdf()
     {
         using var client = await CreateAuthenticatedClientAsync();
