@@ -15,6 +15,7 @@ public sealed class QuoteService(
     IQuotePdfService quotePdfService,
     IFileStorageService fileStorageService,
     IEmailService emailService,
+    QuoteDocumentDriveLinker quoteDocumentDriveLinker,
     ICurrentUserService currentUser) : IQuoteService
 {
     private static readonly IReadOnlyDictionary<QuoteStatus, QuoteStatus[]> AllowedTransitions = new Dictionary<QuoteStatus, QuoteStatus[]>
@@ -326,6 +327,10 @@ public sealed class QuoteService(
             .Where(x => x.QuoteId == id)
             .Select(x => x.StoragePath)
             .ToListAsync(cancellationToken);
+        var storagePathsKeptByDrive = await db.DriveItems
+            .Where(x => documentStoragePaths.Contains(x.StoragePath))
+            .Select(x => x.StoragePath)
+            .ToListAsync(cancellationToken);
         var quoteLines = await db.QuoteLines.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
         var quoteDocuments = await db.QuoteDocuments.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
         var emailLinks = await db.EmailLinks.Where(x => x.Module == "quotes" && x.EntityId == id).ToListAsync(cancellationToken);
@@ -340,7 +345,9 @@ public sealed class QuoteService(
 
         await db.SaveChangesAsync(cancellationToken);
 
-        foreach (var storagePath in documentStoragePaths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct())
+        foreach (var storagePath in documentStoragePaths
+            .Where(path => !string.IsNullOrWhiteSpace(path) && !storagePathsKeptByDrive.Contains(path))
+            .Distinct())
         {
             await fileStorageService.DeleteAsync(storagePath, cancellationToken);
         }
@@ -454,6 +461,7 @@ public sealed class QuoteService(
         };
 
         db.QuoteDocuments.Add(document);
+        await quoteDocumentDriveLinker.LinkAsync(document, stored.Sha256, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return Result<QuoteDocument>.Success(document);
     }
@@ -655,7 +663,7 @@ public sealed class QuoteService(
     }
 
     private static QuoteDocumentDto Map(QuoteDocument document)
-        => new(document.Id, document.FileName, document.MimeType, document.Size, document.Version, document.CreatedAt);
+        => new(document.Id, document.DriveItemId, document.FileName, document.MimeType, document.Size, document.Version, document.CreatedAt);
 
     private static QuoteStatusHistoryDto Map(QuoteStatusHistory history, IReadOnlyDictionary<Guid, UserSummary> users)
     {

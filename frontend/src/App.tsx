@@ -218,7 +218,8 @@ export default function App() {
         setWarehouses(nextWarehouses);
       }
       if (target === 'drive') {
-        const [nextFolders, nextFiles] = await Promise.all([api.folders(), api.files()]);
+        const nextFiles = await api.files();
+        const nextFolders = await api.folders();
         setFolders(nextFolders);
         setFiles(nextFiles);
       }
@@ -284,7 +285,7 @@ export default function App() {
         setCalendarEvents(await api.calendarEvents());
       }
       if (target === 'signatures') {
-        const [nextSignatures, nextFiles] = await Promise.all([api.signatureRequests(), api.files()]);
+        const [nextSignatures, nextFiles] = await Promise.all([api.signatureRequests(), api.files(null, 'pdf')]);
         setSignatureRequests(nextSignatures);
         setFiles(nextFiles);
       }

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class DriveService(ErpDbContext db, IFileStorageService fileStorageService) : IDriveService
+public sealed class DriveService(ErpDbContext db, IFileStorageService fileStorageService, QuoteDocumentDriveLinker quoteDocumentDriveLinker) : IDriveService
 {
     public async Task<IReadOnlyList<DriveFolderDto>> GetFoldersAsync(Guid? parentFolderId, string? search, bool includeTrashed, CancellationToken cancellationToken)
     {
@@ -34,6 +34,8 @@ public sealed class DriveService(ErpDbContext db, IFileStorageService fileStorag
 
     public async Task<IReadOnlyList<DriveItemDto>> GetFilesAsync(Guid? folderId, string? search, bool includeTrashed, CancellationToken cancellationToken)
     {
+        await quoteDocumentDriveLinker.BackfillAsync(cancellationToken);
+
         var query = db.DriveItems.AsQueryable();
         if (!includeTrashed)
         {

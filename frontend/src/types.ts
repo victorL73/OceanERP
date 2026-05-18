@@ -173,6 +173,7 @@ export type QuoteLine = {
 
 export type QuoteDocument = {
   id: string;
+  driveItemId?: string;
   fileName: string;
   mimeType: string;
   size: number;

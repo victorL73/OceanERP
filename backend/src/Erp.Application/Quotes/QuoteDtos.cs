@@ -43,7 +43,7 @@ public sealed record QuoteCustomerDto(
     string? Country);
 
 public sealed record QuoteLineDto(Guid Id, Guid? ProductId, string? ProductReference, string? ProductName, string Description, decimal Quantity, decimal UnitPrice, decimal DiscountRate, decimal VatRate, decimal LineNetTotal, decimal LineVatTotal, decimal LineTotal);
-public sealed record QuoteDocumentDto(Guid Id, string FileName, string MimeType, long Size, int Version, DateTimeOffset CreatedAt);
+public sealed record QuoteDocumentDto(Guid Id, Guid? DriveItemId, string FileName, string MimeType, long Size, int Version, DateTimeOffset CreatedAt);
 public sealed record QuoteStatusHistoryDto(Guid Id, string Status, string? Comment, Guid? ChangedByUserId, string? ChangedByDisplayName, string? ChangedByEmail, DateTimeOffset ChangedAt);
 public sealed record CreateQuoteRequest(Guid CustomerId, DateOnly ValidUntil, IReadOnlyList<UpsertQuoteLineRequest> Lines);
 public sealed record UpdateQuoteRequest(Guid CustomerId, DateOnly ValidUntil, IReadOnlyList<UpsertQuoteLineRequest> Lines);
