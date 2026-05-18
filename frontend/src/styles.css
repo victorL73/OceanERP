@@ -1649,6 +1649,19 @@ th {
   color: #64748b;
 }
 
+.drop-chip {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.drop-chip.drop-target,
+.drive-row.drop-target {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  box-shadow: 0 0 0 3px rgb(15 118 110 / 0.12);
+}
+
 .drive-main {
   display: inline-flex;
   align-items: center;
@@ -1667,8 +1680,30 @@ button.drive-main {
   cursor: pointer;
 }
 
+.drive-row[draggable='true'] {
+  cursor: grab;
+}
+
+.drive-row[draggable='true']:active {
+  cursor: grabbing;
+}
+
 .drive-row.trashed {
   background: #fff7ed;
+}
+
+.drive-dialog {
+  width: min(560px, calc(100vw - 34px));
+}
+
+.drive-dialog select,
+.drive-dialog input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0 12px;
 }
 
 .drive-row .secondary + small,

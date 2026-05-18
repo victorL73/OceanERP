@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
@@ -6035,6 +6035,9 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
   );
 }
 
+type DriveEntryRef = { kind: 'folder' | 'file'; id: string; name: string };
+type DriveFolderOption = { id: string; name: string; depth: number };
+
 function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
   const [folderName, setFolderName] = useState('');
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -6045,6 +6048,13 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
   const [showTrash, setShowTrash] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<DriveEntryRef | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [moveTarget, setMoveTarget] = useState<DriveEntryRef | null>(null);
+  const [moveDestinationId, setMoveDestinationId] = useState('');
+  const [moveFolders, setMoveFolders] = useState<DriveFolderOption[]>([]);
+  const [draggedEntry, setDraggedEntry] = useState<DriveEntryRef | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   async function refreshDrive() {
     const [nextFolders, nextFiles] = await Promise.all([api.folders(currentFolderId, search, showTrash), api.files(currentFolderId, search, showTrash)]);
@@ -6119,60 +6129,125 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
     }
   }
 
-  async function resolveDestinationFolder() {
-    const value = window.prompt('Dossier destination : vide pour la racine, ou nom exact/identifiant du dossier.');
-    if (value === null) {
-      return undefined;
+  async function loadFolderOptions(parentFolderId: string | null = null, depth = 0): Promise<DriveFolderOption[]> {
+    const childFolders = await api.folders(parentFolderId, '', false);
+    const options: DriveFolderOption[] = [];
+    for (const folder of childFolders) {
+      options.push({ id: folder.id, name: folder.name, depth });
+      options.push(...await loadFolderOptions(folder.id, depth + 1));
     }
 
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
-      return trimmed;
-    }
-
-    const matches = await api.folders(null, trimmed, true);
-    const match = matches.find((folder) => folder.name.toLowerCase() === trimmed.toLowerCase());
-    if (!match) {
-      throw new Error(`Dossier "${trimmed}" introuvable.`);
-    }
-
-    return match.id;
+    return options;
   }
 
-  async function renameFolder(folder: DriveFolder) {
-    const name = window.prompt('Nouveau nom du dossier', folder.name);
-    if (name?.trim()) {
-      await runDriveAction(() => api.renameFolder(folder.id, name.trim()).then(() => undefined));
-    }
+  function startRename(target: DriveEntryRef) {
+    setRenameTarget(target);
+    setRenameValue(target.name);
   }
 
-  async function moveFolder(folder: DriveFolder) {
+  async function submitRename(event: FormEvent) {
+    event.preventDefault();
+    if (!renameTarget || !renameValue.trim()) {
+      return;
+    }
+
+    const target = renameTarget;
+    const name = renameValue.trim();
     await runDriveAction(async () => {
-      const destination = await resolveDestinationFolder();
-      if (destination !== undefined) {
-        await api.moveFolder(folder.id, destination);
+      if (target.kind === 'folder') {
+        await api.renameFolder(target.id, name);
+      } else {
+        await api.renameDriveFile(target.id, name);
+      }
+    });
+    setRenameTarget(null);
+    setRenameValue('');
+  }
+
+  async function startMove(target: DriveEntryRef) {
+    setMoveTarget(target);
+    setMoveDestinationId(currentFolderId ?? '');
+    setMessage(null);
+    try {
+      setMoveFolders(await loadFolderOptions());
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Chargement des dossiers impossible');
+      setMoveFolders([]);
+    }
+  }
+
+  async function submitMove(event: FormEvent) {
+    event.preventDefault();
+    if (!moveTarget) {
+      return;
+    }
+
+    const target = moveTarget;
+    const destination = moveDestinationId || null;
+    await moveEntry(target, destination);
+    setMoveTarget(null);
+    setMoveDestinationId('');
+  }
+
+  async function moveEntry(target: DriveEntryRef, destinationFolderId: string | null) {
+    if (target.kind === 'folder' && target.id === destinationFolderId) {
+      setMessage('Un dossier ne peut pas etre deplace dans lui-meme.');
+      return;
+    }
+
+    await runDriveAction(async () => {
+      if (target.kind === 'folder') {
+        await api.moveFolder(target.id, destinationFolderId);
+      } else {
+        await api.moveDriveFile(target.id, destinationFolderId);
       }
     });
   }
 
-  async function renameFile(file: DriveItem) {
-    const name = window.prompt('Nouveau nom du fichier', file.name);
-    if (name?.trim()) {
-      await runDriveAction(() => api.renameDriveFile(file.id, name.trim()).then(() => undefined));
-    }
+  function startDrag(entry: DriveEntryRef, event: DragEvent<HTMLElement>) {
+    setDraggedEntry(entry);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/oceanerp-drive-entry', JSON.stringify(entry));
   }
 
-  async function moveFile(file: DriveItem) {
-    await runDriveAction(async () => {
-      const destination = await resolveDestinationFolder();
-      if (destination !== undefined) {
-        await api.moveDriveFile(file.id, destination);
+  function getDraggedEntry(event: DragEvent<HTMLElement>) {
+    const raw = event.dataTransfer.getData('application/oceanerp-drive-entry');
+    if (raw) {
+      try {
+        return JSON.parse(raw) as DriveEntryRef;
+      } catch {
+        return draggedEntry;
       }
-    });
+    }
+
+    return draggedEntry;
+  }
+
+  function allowDrop(destinationFolderId: string | null, event: DragEvent<HTMLElement>) {
+    if (!draggedEntry) {
+      return;
+    }
+
+    if (draggedEntry.kind === 'folder' && draggedEntry.id === destinationFolderId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTargetId(destinationFolderId ?? 'root');
+  }
+
+  async function dropEntry(destinationFolderId: string | null, event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const entry = getDraggedEntry(event);
+    setDropTargetId(null);
+    setDraggedEntry(null);
+    if (!entry) {
+      return;
+    }
+
+    await moveEntry(entry, destinationFolderId);
   }
 
   return (
@@ -6195,7 +6270,15 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
         <div className="drive-toolbar">
           <div className="drive-path">
             {path.map((item, index) => (
-              <button key={`${item.id ?? 'root'}-${index}`} className="link-button" type="button" onClick={() => goTo(index)}>
+              <button
+                key={`${item.id ?? 'root'}-${index}`}
+                className={`link-button drop-chip ${dropTargetId === (item.id ?? 'root') ? 'drop-target' : ''}`}
+                type="button"
+                onClick={() => goTo(index)}
+                onDragOver={(event) => allowDrop(item.id, event)}
+                onDragLeave={() => setDropTargetId(null)}
+                onDrop={(event) => dropEntry(item.id, event)}
+              >
                 {item.name}
               </button>
             ))}
@@ -6212,7 +6295,16 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
       </Panel>
       <section className="drive-list">
         {visibleFolders.map((folder) => (
-          <article key={folder.id} className={folder.isTrashed ? 'drive-row trashed' : 'drive-row'}>
+          <article
+            key={folder.id}
+            className={`${folder.isTrashed ? 'drive-row trashed' : 'drive-row'}${dropTargetId === folder.id ? ' drop-target' : ''}`}
+            draggable={!folder.isTrashed}
+            onDragStart={(event) => startDrag({ kind: 'folder', id: folder.id, name: folder.name }, event)}
+            onDragEnd={() => { setDraggedEntry(null); setDropTargetId(null); }}
+            onDragOver={(event) => allowDrop(folder.id, event)}
+            onDragLeave={() => setDropTargetId(null)}
+            onDrop={(event) => dropEntry(folder.id, event)}
+          >
             <button className="drive-main" type="button" onClick={() => openFolder(folder)} disabled={folder.isTrashed}>
               <Folder size={18} />
               <span>{folder.name}</span>
@@ -6225,11 +6317,11 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
                 </button>
               ) : (
                 <>
-                  <button className="secondary" type="button" disabled={busy} onClick={() => renameFolder(folder)}>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => startRename({ kind: 'folder', id: folder.id, name: folder.name })}>
                     <Pencil size={15} />
                     Renommer
                   </button>
-                  <button className="secondary" type="button" disabled={busy} onClick={() => moveFolder(folder)}>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => startMove({ kind: 'folder', id: folder.id, name: folder.name })}>
                     Deplacer
                   </button>
                   <button className="danger" type="button" disabled={busy} onClick={() => window.confirm(`Mettre "${folder.name}" a la corbeille ?`) && runDriveAction(() => api.trashFolder(folder.id))}>
@@ -6241,7 +6333,13 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
           </article>
         ))}
         {visibleFiles.map((file) => (
-          <article key={file.id} className={file.isTrashed ? 'drive-row trashed' : 'drive-row'}>
+          <article
+            key={file.id}
+            className={file.isTrashed ? 'drive-row trashed' : 'drive-row'}
+            draggable={!file.isTrashed}
+            onDragStart={(event) => startDrag({ kind: 'file', id: file.id, name: file.name }, event)}
+            onDragEnd={() => { setDraggedEntry(null); setDropTargetId(null); }}
+          >
             <div className="drive-main">
               <FileText size={18} />
               <span>{file.name}</span>
@@ -6258,11 +6356,11 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
                     <Download size={15} />
                     Ouvrir
                   </button>
-                  <button className="secondary" type="button" disabled={busy} onClick={() => renameFile(file)}>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => startRename({ kind: 'file', id: file.id, name: file.name })}>
                     <Pencil size={15} />
                     Renommer
                   </button>
-                  <button className="secondary" type="button" disabled={busy} onClick={() => moveFile(file)}>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => startMove({ kind: 'file', id: file.id, name: file.name })}>
                     Deplacer
                   </button>
                   <button className="danger" type="button" disabled={busy} onClick={() => window.confirm(`Mettre "${file.name}" a la corbeille ?`) && runDriveAction(() => api.trashDriveFile(file.id))}>
@@ -6275,6 +6373,67 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
         ))}
         {visibleFolders.length + visibleFiles.length === 0 && <EmptyState icon={Folder} title="Aucun document" />}
       </section>
+      {renameTarget && (
+        <div className="modal-backdrop" onClick={() => setRenameTarget(null)}>
+          <form className="modal-panel drive-dialog" role="dialog" aria-modal="true" onSubmit={submitRename} onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Drive</p>
+                <h2>Renommer</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setRenameTarget(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <label className="field">
+              <span>Nouveau nom</span>
+              <input autoFocus required value={renameValue} onChange={(event) => setRenameValue(event.target.value)} />
+            </label>
+            <div className="modal-footer">
+              <button className="secondary" type="button" onClick={() => setRenameTarget(null)}>Annuler</button>
+              <button className="primary" type="submit" disabled={busy}>
+                <Save size={16} />
+                Enregistrer
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {moveTarget && (
+        <div className="modal-backdrop" onClick={() => setMoveTarget(null)}>
+          <form className="modal-panel drive-dialog" role="dialog" aria-modal="true" onSubmit={submitMove} onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Drive</p>
+                <h2>Deplacer {moveTarget.name}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setMoveTarget(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <label className="field">
+              <span>Dossier destination</span>
+              <select value={moveDestinationId} onChange={(event) => setMoveDestinationId(event.target.value)}>
+                <option value="">Racine</option>
+                {moveFolders
+                  .filter((folder) => !(moveTarget.kind === 'folder' && folder.id === moveTarget.id))
+                  .map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {'-'.repeat(folder.depth)} {folder.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="panel-note">Astuce : vous pouvez aussi glisser un fichier ou un dossier directement sur un dossier, ou sur "Racine".</p>
+            <div className="modal-footer">
+              <button className="secondary" type="button" onClick={() => setMoveTarget(null)}>Annuler</button>
+              <button className="primary" type="submit" disabled={busy}>
+                Deplacer
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   );
 }
