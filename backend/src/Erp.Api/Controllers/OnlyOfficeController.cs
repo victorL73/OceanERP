@@ -17,11 +17,24 @@ public sealed class OnlyOfficeController(IOnlyOfficeService onlyOffice) : Contro
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpGet("files/{driveItemId:guid}/download")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Download(Guid driveItemId, [FromQuery] string? token, CancellationToken cancellationToken)
+    {
+        var result = await onlyOffice.OpenDocumentAsync(driveItemId, token, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return Unauthorized(new { error = result.Error });
+        }
+
+        return File(result.Value!.Content, result.Value.MimeType, result.Value.FileName);
+    }
+
     [HttpPost("files/{driveItemId:guid}/callback")]
     [AllowAnonymous]
-    public async Task<ActionResult> Callback(Guid driveItemId, OnlyOfficeCallbackRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult> Callback(Guid driveItemId, [FromQuery] string? token, OnlyOfficeCallbackRequest request, CancellationToken cancellationToken)
     {
-        var result = await onlyOffice.HandleCallbackAsync(driveItemId, request, cancellationToken);
+        var result = await onlyOffice.HandleCallbackAsync(driveItemId, token, request, cancellationToken);
         return result.Succeeded ? Ok(new { error = 0 }) : BadRequest(new { error = 1, message = result.Error });
     }
 }

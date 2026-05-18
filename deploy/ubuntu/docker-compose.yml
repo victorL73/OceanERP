@@ -16,6 +16,7 @@ services:
       Seed__AdminPassword: ${ERP_ADMIN_PASSWORD:-ChangeMe!12345}
       Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost}
       Email__EnableSmtpSending: ${EMAIL_ENABLE_SMTP_SENDING:-false}
+      OnlyOffice__CallbackSecret: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
       Prestashop__ColissimoLabelEndpointTemplate: ${PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE:-}
       Secrets__EncryptionKey: ${SECRETS_ENCRYPTION_KEY:-CHANGE_ME_WITH_64_RANDOM_CHARACTERS_FOR_SECRET_ENCRYPTION}
       Secrets__SMTP_MAIN_PASSWORD: ${SMTP_MAIN_PASSWORD:-}

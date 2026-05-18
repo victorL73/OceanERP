@@ -17,5 +17,6 @@ public sealed record OnlyOfficeCallbackRequest(int Status, string? Url, string? 
 public interface IOnlyOfficeService
 {
     Task<Result<OnlyOfficeConfigDto>> GetConfigAsync(Guid driveItemId, Uri requestBaseUri, CancellationToken cancellationToken);
-    Task<Result> HandleCallbackAsync(Guid driveItemId, OnlyOfficeCallbackRequest request, CancellationToken cancellationToken);
+    Task<Result<(Stream Content, string FileName, string MimeType)>> OpenDocumentAsync(Guid driveItemId, string? token, CancellationToken cancellationToken);
+    Task<Result> HandleCallbackAsync(Guid driveItemId, string? token, OnlyOfficeCallbackRequest request, CancellationToken cancellationToken);
 }

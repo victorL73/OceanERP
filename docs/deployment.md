@@ -93,7 +93,7 @@ Dans `Parametres > Boites mail`, la frequence IMAP automatique est exprimee en m
 
 Le logo des devis configure dans `Parametres > Devis` est stocke dans le volume `oceanerp_documents`; il est donc inclus dans les sauvegardes documents.
 
-Pour l'edition Office, ONLYOFFICE utilise `PUBLIC_URL` pour construire les URLs de callback et de document. En production, `PUBLIC_URL` doit etre l'URL HTTPS publique de l'ERP. Le socle Phase 3 ouvre l'editeur et versionne les sauvegardes dans Drive; le durcissement final doit ajouter des URLs temporaires signees et verifier le JWT OnlyOffice.
+Pour l'edition Office, ONLYOFFICE utilise `PUBLIC_URL` pour construire les URLs de callback et de document. En production, `PUBLIC_URL` doit etre l'URL HTTPS publique de l'ERP. Les URLs de document et de callback portent un token temporaire signe par `ONLYOFFICE_JWT_SECRET`, puis les sauvegardes sont versionnees dans Drive.
 
 Pour imprimer les etiquettes Colissimo officielles depuis l'ERP, le module Colissimo PrestaShop doit exposer un endpoint telechargeable. Quand l'URL est connue, renseigner par exemple :
 

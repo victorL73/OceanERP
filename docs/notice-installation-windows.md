@@ -76,4 +76,8 @@ Verifier :
 
 ## Limite actuelle
 
-Le shell Electron ne gere pas encore les mises a jour automatiques. L'icone finale `.ico` peut remplacer `desktop/assets/icon.svg` avant diffusion officielle.
+Le shell Electron integre `electron-updater` et verifie les mises a jour dans l'application installee. Pour une diffusion reelle, publier les artefacts `electron-builder` sur un endpoint de mise a jour et configurer la section `publish` avant distribution officielle.
+
+La configuration NSIS desactive l'edition/signature automatique de l'executable pendant le build local afin d'eviter les erreurs de privileges Windows liees a l'outil `winCodeSign`. Pour une version commerciale signee, ajouter un certificat de signature code Windows et reactiver `win.signAndEditExecutable`.
+
+L'icone finale `.ico` peut remplacer `desktop/assets/icon.svg` avant diffusion officielle.

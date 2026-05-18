@@ -38,17 +38,18 @@ La Phase 2 dispose maintenant d'un socle backend/API et frontend pour :
 - module email complet pour la Phase 2 : serveurs SMTP/IMAP globaux, boites affectees aux utilisateurs, signatures HTML, CC/CCI, pieces jointes, suppression logique, synchronisation IMAP manuelle/automatique et journal des messages ;
 - connecteur PrestaShop avec configuration protegee de cle API, import produits/clients/stocks/commandes, publication des modifications produits/clients/stocks et journal de synchronisation.
 
-## Phase 3 socle
+## Phase 3 cloturee
 
 La Phase 3 ajoute maintenant un socle exploitable et extensible pour :
 
 - SAV : tickets lies aux clients, produits et commandes, priorites, statuts, messages, historique et rattachement possible de piece Drive ;
-- agenda : evenements, rappels, liens vers les modules metier, evenements prives/publics et vue calendrier simple ;
-- signature interne : demandes de signature sur documents Drive, liens publics securises, expiration, acceptation des conditions, signature par clic ou dessinee, SHA-256 du document, IP, user-agent, horodatage, preuve et document signe stocke hors base ;
-- ONLYOFFICE : configuration d'edition pour DOCX/XLSX/PPTX et callback de sauvegarde vers une nouvelle version Drive ;
-- Factur-X : export XML preparatoire depuis les factures et les avoirs pour preparer l'etape PDF/A-3 + XML embarque.
+- agenda : evenements, rappels, liens vers les modules metier, evenements prives/publics, vue calendrier simple et notifications automatiques de rappel ;
+- signature interne : demandes de signature sur documents Drive, liens publics securises, OTP email, expiration, acceptation des conditions, signature par clic ou dessinee, SHA-256 du document, IP, user-agent, horodatage, preuve et document signe stocke hors base ;
+- ONLYOFFICE : configuration d'edition pour DOCX/XLSX/PPTX, URL document temporaire signee et callback de sauvegarde vers une nouvelle version Drive ;
+- Factur-X : export XML preparatoire depuis les factures et les avoirs pour preparer l'etape PDF/A-3 + XML embarque ;
+- Electron avance : choix serveur sans rebuild, notifications natives Windows et support `electron-updater`.
 
-Les points volontairement conserves en evolution controlee sont : OTP email sur signature, relance automatique agenda, durcissement ONLYOFFICE par URL temporaire/JWT, export Factur-X pleinement conforme EN16931, module API keys externe avance et mise a jour automatique Electron.
+Les points volontairement conserves en evolution controlee sont : export Factur-X pleinement conforme EN16931 avec PDF/A-3 et XML embarque, et module API keys externe avance.
 
 ## Règles importantes
 

@@ -30,7 +30,7 @@ Le contenu binaire est stocké dans le volume `oceanerp_documents`.
 
 ## Evolutions prevues
 
-La Phase 2 est cloturee sur les tables operationnelles de commandes, factures, stock, achats, emails et PrestaShop. La Phase 3 ajoute le socle SAV, agenda, signature interne, ONLYOFFICE et preparation Factur-X. Les evolutions suivantes porteront sur les exports comptables avances, l'API keys externe avancee, l'OTP signature et la conformite Factur-X finale.
+La Phase 2 est cloturee sur les tables operationnelles de commandes, factures, stock, achats, emails et PrestaShop. La Phase 3 ajoute le socle SAV, agenda, signature interne avec OTP, ONLYOFFICE avec URLs signees et preparation Factur-X. Les evolutions suivantes porteront sur les exports comptables avances, l'API keys externe avancee et la conformite Factur-X finale.
 
 ## Tables Phase 2
 

@@ -312,6 +312,8 @@ export default function App() {
         setView('emails');
       } else if (link.pathname === '/orders') {
         setView('orders');
+      } else if (link.pathname === '/calendar') {
+        setView('calendar');
       }
     }
 
@@ -367,6 +369,10 @@ export default function App() {
           .catch(() => undefined);
         api.summary()
           .then(setSummary)
+          .catch(() => undefined);
+      } else if (notification.type === 'calendar.reminder') {
+        api.calendarEvents()
+          .then(setCalendarEvents)
           .catch(() => undefined);
       }
     });
@@ -589,6 +595,7 @@ function PublicSignaturePage({ token }: { token: string }) {
   const [signature, setSignature] = useState<PublicSignature | null>(null);
   const [conditionsAccepted, setConditionsAccepted] = useState(false);
   const [signatureMode, setSignatureMode] = useState<'Click' | 'Drawn'>('Click');
+  const [otpCode, setOtpCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -669,7 +676,7 @@ function PublicSignaturePage({ token }: { token: string }) {
 
     try {
       const drawnSignatureDataUrl = signatureMode === 'Drawn' ? canvasRef.current?.toDataURL('image/png') ?? null : null;
-      await api.acceptPublicSignature(token, { conditionsAccepted, signatureMode, drawnSignatureDataUrl });
+      await api.acceptPublicSignature(token, { conditionsAccepted, signatureMode, drawnSignatureDataUrl, otpCode: signature?.requiresOtp ? otpCode.trim() : null });
       setSuccess('Document signe. La preuve de signature a ete enregistree.');
       setSignature((current) => current ? { ...current, status: 'Signed' } : current);
     } catch (err) {
@@ -710,6 +717,13 @@ function PublicSignaturePage({ token }: { token: string }) {
               <button className={signatureMode === 'Click' ? 'primary' : 'secondary'} type="button" onClick={() => setSignatureMode('Click')}>Signature par clic</button>
               <button className={signatureMode === 'Drawn' ? 'primary' : 'secondary'} type="button" onClick={() => setSignatureMode('Drawn')}>Signature dessinee</button>
             </div>
+
+            {signature.requiresOtp && (
+              <label>
+                Code OTP recu par email
+                <input inputMode="numeric" maxLength={6} placeholder="123456" value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
+              </label>
+            )}
 
             {signatureMode === 'Drawn' && (
               <div className="signature-drawing">

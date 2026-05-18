@@ -735,7 +735,7 @@ export class ApiClient {
     return this.request<PublicSignature>(`/api/signatures/public/${encodeURIComponent(token)}`);
   }
 
-  acceptPublicSignature(token: string, payload: { conditionsAccepted: boolean; signatureMode: string; drawnSignatureDataUrl?: string | null }) {
+  acceptPublicSignature(token: string, payload: { conditionsAccepted: boolean; signatureMode: string; drawnSignatureDataUrl?: string | null; otpCode?: string | null }) {
     return this.request<SignatureRequest>(`/api/signatures/public/${encodeURIComponent(token)}/accept`, { method: 'POST', body: JSON.stringify(payload) });
   }
 

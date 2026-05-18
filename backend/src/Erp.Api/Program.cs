@@ -47,6 +47,7 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotificationPublisher, RealtimeNotificationPublisher>();
 builder.Services.AddScoped<IPrestashopSyncNotifier, PrestashopRealtimeSyncNotifier>();
 builder.Services.AddHostedService<EmailAutoSyncWorker>();
+builder.Services.AddHostedService<CalendarReminderWorker>();
 
 var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
 builder.Services

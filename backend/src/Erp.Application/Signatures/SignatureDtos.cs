@@ -17,11 +17,11 @@ public sealed record SignatureRequestDto(
 public sealed record SignatureRecipientDto(Guid Id, string Email, string? Name, string Status, DateTimeOffset? SignedAt, string? SigningUrl = null);
 public sealed record SignatureEvidenceDto(Guid Id, Guid? SignatureRecipientId, string Action, string DocumentSha256, bool ConditionsAccepted, string? SignatureMode, string? IpAddress, string? UserAgent, DateTimeOffset CreatedAt);
 public sealed record SignedDocumentDto(Guid Id, string FileName, string MimeType, long Size, string DocumentSha256, DateTimeOffset CreatedAt);
-public sealed record PublicSignatureDto(Guid RequestId, Guid RecipientId, string Title, string FileName, DateTimeOffset ExpiresAt, string Status);
+public sealed record PublicSignatureDto(Guid RequestId, Guid RecipientId, string Title, string FileName, DateTimeOffset ExpiresAt, string Status, bool RequiresOtp);
 
 public sealed record CreateSignatureRequestRequest(Guid DriveItemId, string Title, DateTimeOffset ExpiresAt, IReadOnlyList<CreateSignatureRecipientRequest> Recipients);
 public sealed record CreateSignatureRecipientRequest(string Email, string? Name = null);
-public sealed record AcceptSignatureRequest(bool ConditionsAccepted, string SignatureMode = "Click", string? DrawnSignatureDataUrl = null);
+public sealed record AcceptSignatureRequest(bool ConditionsAccepted, string SignatureMode = "Click", string? DrawnSignatureDataUrl = null, string? OtpCode = null);
 
 public interface ISignatureService
 {

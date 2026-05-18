@@ -102,17 +102,18 @@ La Phase 2 est maintenant cloturee sur son socle metier :
 - personnalisation admin des devis depuis `Parametres > Devis` : identite entreprise, logo, mentions et pied de page PDF ;
 - PrestaShop avec connexions, cle API configurable par admin dans `Parametres`, import produits/clients/stocks/commandes et journal de synchronisation traite par worker (`Queued`, `Running`, `Completed`, `CompletedWithWarnings`, `Failed`).
 
-## Phase 3 socle
+## Phase 3 cloturee
 
 La Phase 3 ajoute :
 
 - SAV avec tickets, priorites, statuts, messages, historique et liens clients/produits/commandes ;
 - agenda avec evenements, rappels et liens vers les modules ERP ;
-- signature interne avec lien public securise, expiration, preuve SHA-256, IP, user-agent, signature par clic ou dessinee ;
-- integration ONLYOFFICE initiale pour ouvrir DOCX/XLSX/PPTX et versionner les callbacks dans Drive ;
-- export XML preparatoire Factur-X depuis les factures.
+- signature interne avec lien public securise, OTP email, expiration, preuve SHA-256, IP, user-agent, signature par clic ou dessinee ;
+- integration ONLYOFFICE pour ouvrir DOCX/XLSX/PPTX via URL temporaire signee et versionner les callbacks dans Drive ;
+- export XML preparatoire Factur-X depuis les factures ;
+- shell Electron avance avec configuration serveur locale, notifications natives et support `electron-updater`.
 
-Restent en evolution controlee : OTP email signature, durcissement JWT/URLs temporaires ONLYOFFICE, Factur-X PDF/A-3 conforme et mise a jour automatique Electron.
+Restent en evolution controlee : Factur-X PDF/A-3 conforme et API externe avancee par cles.
 
 Apres `git pull`, redeployer sur Ubuntu :
 

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Erp.Application.Common;
 using Erp.Application.Documents;
+using Erp.Application.Emails;
 using Erp.Application.Signatures;
 using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
@@ -9,8 +10,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class SignatureService(ErpDbContext db, IFileStorageService fileStorageService) : ISignatureService
+public sealed class SignatureService(ErpDbContext db, IFileStorageService fileStorageService, IEmailService emails) : ISignatureService
 {
+    private sealed record RecipientSecret(Guid RecipientId, string Email, string? Name, string SigningToken, string OtpCode);
+
     public async Task<PagedResult<SignatureRequestDto>> SearchAsync(int page, int pageSize, CancellationToken cancellationToken)
     {
         page = Math.Max(1, page);
@@ -51,6 +54,16 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             return Result<SignatureRequestDto>.Failure("La date d'expiration doit etre future.");
         }
 
+        var mailAccountId = await db.MailAccounts
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Email)
+            .Select(x => (Guid?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (mailAccountId is null)
+        {
+            return Result<SignatureRequestDto>.Failure("Configurez une boite mail active avant de creer une demande de signature OTP.");
+        }
+
         var signatureRequest = new SignatureRequest
         {
             DriveItemId = request.DriveItemId,
@@ -60,7 +73,7 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         };
         db.SignatureRequests.Add(signatureRequest);
 
-        var tokenByRecipientId = new Dictionary<Guid, string>();
+        var recipientSecrets = new List<RecipientSecret>();
         foreach (var recipientRequest in request.Recipients)
         {
             if (string.IsNullOrWhiteSpace(recipientRequest.Email))
@@ -69,6 +82,7 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             }
 
             var token = GenerateToken();
+            var otpCode = GenerateOtpCode();
             var recipient = new SignatureRecipient
             {
                 SignatureRequestId = signatureRequest.Id,
@@ -78,12 +92,36 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
                 Status = "Pending"
             };
             db.SignatureRecipients.Add(recipient);
-            tokenByRecipientId[recipient.Id] = token;
+            db.SignatureOtps.Add(new SignatureOtp
+            {
+                SignatureRecipientId = recipient.Id,
+                OtpHash = Hash(otpCode),
+                ExpiresAt = request.ExpiresAt < DateTimeOffset.UtcNow.AddMinutes(30)
+                    ? request.ExpiresAt
+                    : DateTimeOffset.UtcNow.AddMinutes(30)
+            });
+            recipientSecrets.Add(new RecipientSecret(recipient.Id, recipient.Email, recipient.Name, token, otpCode));
         }
 
         await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var secret in recipientSecrets)
+        {
+            var sendResult = await emails.SendAsync(
+                new SendEmailRequest(
+                    mailAccountId.Value,
+                    secret.Email,
+                    $"Code OTP OceanERP - {signatureRequest.Title}",
+                    BuildOtpEmailBody(secret.Name, signatureRequest.Title, BuildSigningUrl(publicBaseUrl, secret.SigningToken), secret.OtpCode)),
+                cancellationToken);
+            if (!sendResult.Succeeded)
+            {
+                return Result<SignatureRequestDto>.Failure($"Demande creee mais email OTP impossible pour {secret.Email}: {sendResult.Error}");
+            }
+        }
+
         var saved = await db.SignatureRequests.AsNoTracking().FirstAsync(x => x.Id == signatureRequest.Id, cancellationToken);
-        return Result<SignatureRequestDto>.Success(await MapAsync(saved, (recipient) => BuildSigningUrl(publicBaseUrl, tokenByRecipientId.GetValueOrDefault(recipient.Id)), cancellationToken));
+        return Result<SignatureRequestDto>.Success(await MapAsync(saved, (recipient) => BuildSigningUrl(publicBaseUrl, recipientSecrets.FirstOrDefault(secret => secret.RecipientId == recipient.Id)?.SigningToken), cancellationToken));
     }
 
     public async Task<Result<PublicSignatureDto>> GetPublicAsync(string token, CancellationToken cancellationToken)
@@ -96,7 +134,8 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
 
         var request = await db.SignatureRequests.FirstAsync(x => x.Id == recipient.SignatureRequestId, cancellationToken);
         var driveItem = await db.DriveItems.FirstOrDefaultAsync(x => x.Id == request.DriveItemId, cancellationToken);
-        return Result<PublicSignatureDto>.Success(new PublicSignatureDto(request.Id, recipient.Id, request.Title, driveItem?.Name ?? request.DriveItemId.ToString(), request.ExpiresAt, recipient.Status));
+        var requiresOtp = await db.SignatureOtps.AnyAsync(x => x.SignatureRecipientId == recipient.Id && x.UsedAt == null && x.ExpiresAt > DateTimeOffset.UtcNow, cancellationToken);
+        return Result<PublicSignatureDto>.Success(new PublicSignatureDto(request.Id, recipient.Id, request.Title, driveItem?.Name ?? request.DriveItemId.ToString(), request.ExpiresAt, recipient.Status, requiresOtp));
     }
 
     public async Task<Result<SignatureRequestDto>> AcceptAsync(string token, AcceptSignatureRequest request, string? ipAddress, string? userAgent, CancellationToken cancellationToken)
@@ -118,6 +157,12 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             signatureRequest.Status = "Expired";
             await db.SaveChangesAsync(cancellationToken);
             return Result<SignatureRequestDto>.Failure("Lien de signature expire.");
+        }
+
+        var otpResult = await ValidateOtpAsync(recipient.Id, request.OtpCode, cancellationToken);
+        if (!otpResult.Succeeded)
+        {
+            return Result<SignatureRequestDto>.Failure(otpResult.Error!);
         }
 
         var driveItem = await db.DriveItems.FirstOrDefaultAsync(x => x.Id == signatureRequest.DriveItemId && !x.IsTrashed, cancellationToken);
@@ -177,6 +222,31 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         return await db.SignatureRecipients.FirstOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
     }
 
+    private async Task<Result> ValidateOtpAsync(Guid recipientId, string? code, CancellationToken cancellationToken)
+    {
+        var otp = await db.SignatureOtps
+            .Where(x => x.SignatureRecipientId == recipientId && x.UsedAt == null)
+            .OrderByDescending(x => x.ExpiresAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (otp is null)
+        {
+            return Result.Failure("Aucun code OTP valide pour ce destinataire.");
+        }
+
+        if (otp.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            return Result.Failure("Code OTP expire. Demandez une nouvelle signature.");
+        }
+
+        if (string.IsNullOrWhiteSpace(code) || !string.Equals(Hash(code.Trim()), otp.OtpHash, StringComparison.OrdinalIgnoreCase))
+        {
+            return Result.Failure("Code OTP invalide.");
+        }
+
+        otp.UsedAt = DateTimeOffset.UtcNow;
+        return Result.Success();
+    }
+
     private async Task<string> ComputeSha256Async(string storagePath, CancellationToken cancellationToken)
     {
         await using var stream = await fileStorageService.OpenReadAsync(storagePath, cancellationToken);
@@ -221,6 +291,9 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
+    private static string GenerateOtpCode()
+        => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+
     private static string Hash(string value)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
@@ -236,6 +309,18 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
 
         var baseUrl = string.IsNullOrWhiteSpace(publicBaseUrl) ? "/" : publicBaseUrl.TrimEnd('/') + "/";
         return new Uri(new Uri(baseUrl, UriKind.Absolute), $"signature/{Uri.EscapeDataString(token)}").ToString();
+    }
+
+    private static string BuildOtpEmailBody(string? recipientName, string title, string? signingUrl, string otpCode)
+    {
+        var greeting = string.IsNullOrWhiteSpace(recipientName) ? "Bonjour," : $"Bonjour {recipientName},";
+        return $"""
+            <p>{greeting}</p>
+            <p>Une demande de signature OceanERP vous attend pour le document <strong>{System.Net.WebUtility.HtmlEncode(title)}</strong>.</p>
+            <p>Code OTP: <strong style="font-size:18px">{otpCode}</strong></p>
+            <p>Ce code expire dans 30 minutes ou a l'expiration du lien.</p>
+            <p><a href="{System.Net.WebUtility.HtmlEncode(signingUrl ?? string.Empty)}">Ouvrir la signature</a></p>
+            """;
     }
 
     private static string? NormalizeOptional(string? value)

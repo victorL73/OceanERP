@@ -673,6 +673,7 @@ export type PublicSignature = {
   fileName: string;
   expiresAt: string;
   status: string;
+  requiresOtp: boolean;
 };
 
 export type OnlyOfficeConfig = {

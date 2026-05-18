@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const log = require('electron-log');
+const { autoUpdater } = require('electron-updater');
 
 const defaultSettings = {
   serverUrl: process.env.OCEANERP_WEB_URL || readPackagedServerUrl() || ''
@@ -8,6 +10,7 @@ const defaultSettings = {
 
 let mainWindow;
 let tray;
+let updateCheckInProgress = false;
 
 function readPackagedServerUrl() {
   const candidates = [
@@ -259,6 +262,7 @@ function createMenu() {
       label: 'OceanERP',
       submenu: [
         { label: 'Changer de serveur', click: () => loadLauncher() },
+        { label: 'Verifier les mises a jour', click: () => checkForUpdates(true) },
         { type: 'separator' },
         { role: 'reload', label: 'Recharger' },
         { role: 'quit', label: 'Quitter' }
@@ -284,9 +288,54 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Ouvrir OceanERP', click: () => mainWindow?.show() },
     { label: 'Changer de serveur', click: () => loadLauncher() },
+    { label: 'Verifier les mises a jour', click: () => checkForUpdates(true) },
     { type: 'separator' },
     { label: 'Quitter', click: () => app.quit() }
   ]));
+}
+
+function notify(title, body) {
+  if (Notification.isSupported()) {
+    new Notification({ title, body }).show();
+  }
+}
+
+function configureAutoUpdater() {
+  autoUpdater.logger = log;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', () => notify('OceanERP', 'Une mise a jour Windows est disponible. Telechargement en cours.'));
+  autoUpdater.on('update-downloaded', () => notify('OceanERP', "Mise a jour telechargee. Elle sera installee a la fermeture de l'application."));
+  autoUpdater.on('error', (error) => {
+    log.warn('OceanERP update check failed', error);
+    updateCheckInProgress = false;
+  });
+  autoUpdater.on('update-not-available', () => {
+    updateCheckInProgress = false;
+  });
+}
+
+function checkForUpdates(manual = false) {
+  if (!app.isPackaged) {
+    if (manual) {
+      notify('OceanERP', "La recherche de mises a jour est disponible dans l'application installee.");
+    }
+    return;
+  }
+
+  if (updateCheckInProgress) {
+    return;
+  }
+
+  updateCheckInProgress = true;
+  autoUpdater.checkForUpdates().catch((error) => {
+    updateCheckInProgress = false;
+    log.warn('OceanERP update check failed', error);
+    if (manual) {
+      notify('OceanERP', 'Mise a jour indisponible. Verifiez la configuration de publication Electron.');
+    }
+  });
 }
 
 ipcMain.handle('settings:get', () => readSettings());
@@ -322,13 +371,13 @@ ipcMain.on('notify', (_, payload) => {
 });
 
 app.whenReady().then(() => {
+  configureAutoUpdater();
   createMenu();
   createWindow();
   createTray();
 
-  if (Notification.isSupported()) {
-    new Notification({ title: 'OceanERP', body: 'Application Windows prete.' }).show();
-  }
+  notify('OceanERP', 'Application Windows prete.');
+  setTimeout(() => checkForUpdates(false), 10_000);
 });
 
 app.on('web-contents-created', (_, contents) => {

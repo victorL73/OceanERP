@@ -145,14 +145,15 @@ La Phase 3 ajoute les permissions `service.*`, `calendar.*`, `signatures.*` et `
 - `GET /api/signatures/public/{token}`
 - `POST /api/signatures/public/{token}/accept`
 - `GET /api/onlyoffice/files/{driveItemId}/config`
+- `GET /api/onlyoffice/files/{driveItemId}/download?token=...`
 - `POST /api/onlyoffice/files/{driveItemId}/callback`
 - `GET /api/invoices/{id}/factur-x/xml`
 
 ## Notes Phase 3
 
-- La signature interne ne pretend pas etre une signature qualifiee eIDAS. Elle trace l'accord avec lien unique, expiration, hash SHA-256, IP, user-agent, mode de signature et horodatage.
-- Les liens publics de signature utilisent `/signature/{token}` cote frontend et `/api/signatures/public/{token}` cote API. L'OTP email est prevu dans le modele mais pas encore active automatiquement.
-- ONLYOFFICE cree la configuration d'editeur et accepte les callbacks de sauvegarde. Avant production, proteger les URLs de document et callbacks avec un jeton temporaire/JWT OnlyOffice.
+- La signature interne ne pretend pas etre une signature qualifiee eIDAS. Elle trace l'accord avec lien unique, OTP email, expiration, hash SHA-256, IP, user-agent, mode de signature et horodatage.
+- Les liens publics de signature utilisent `/signature/{token}` cote frontend et `/api/signatures/public/{token}` cote API. Le code OTP est envoye par la boite mail ERP active.
+- ONLYOFFICE cree la configuration d'editeur et accepte les callbacks de sauvegarde. Les URLs de document et callback utilisent un token temporaire signe cote ERP.
 - `GET /api/invoices/{id}/factur-x/xml` exporte un XML de preparation. La conformite finale Factur-X necessite encore le profil EN16931, le PDF/A-3 et l'embarquement XML dans le PDF.
 
 ## Notes Phase 2

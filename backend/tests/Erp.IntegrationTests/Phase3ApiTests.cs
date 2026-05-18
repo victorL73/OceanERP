@@ -2,14 +2,19 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.RegularExpressions;
 using Erp.Application.Auth;
 using Erp.Application.Calendar;
 using Erp.Application.Common;
 using Erp.Application.Customers;
 using Erp.Application.Documents;
+using Erp.Application.Emails;
 using Erp.Application.Products;
 using Erp.Application.ServiceTickets;
 using Erp.Application.Signatures;
+using Erp.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.IntegrationTests;
 
@@ -88,6 +93,7 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     public async Task Signature_PublicLinkCanBeAcceptedAndProducesEvidence()
     {
         using var client = await CreateAuthenticatedClientAsync();
+        await CreateMailAccountAsync(client);
         var file = await UploadDriveFileAsync(client);
 
         var createResponse = await client.PostAsJsonAsync("/api/signatures", new CreateSignatureRequestRequest(
@@ -105,16 +111,43 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         var publicSignature = await publicClient.GetFromJsonAsync<PublicSignatureDto>($"/api/signatures/public/{token}");
         Assert.Equal("Bon pour accord", publicSignature!.Title);
         Assert.Equal("Pending", publicSignature.Status);
+        Assert.True(publicSignature.RequiresOtp);
 
         var refusedResponse = await publicClient.PostAsJsonAsync($"/api/signatures/public/{token}/accept", new AcceptSignatureRequest(false));
         Assert.Equal(HttpStatusCode.BadRequest, refusedResponse.StatusCode);
 
-        var signedResponse = await publicClient.PostAsJsonAsync($"/api/signatures/public/{token}/accept", new AcceptSignatureRequest(true, "Click"));
+        var invalidOtpResponse = await publicClient.PostAsJsonAsync($"/api/signatures/public/{token}/accept", new AcceptSignatureRequest(true, "Click", null, "000000"));
+        Assert.Equal(HttpStatusCode.BadRequest, invalidOtpResponse.StatusCode);
+
+        var otpCode = await ReadOtpCodeAsync("client@example.com");
+        var signedResponse = await publicClient.PostAsJsonAsync($"/api/signatures/public/{token}/accept", new AcceptSignatureRequest(true, "Click", null, otpCode));
         Assert.Equal(HttpStatusCode.OK, signedResponse.StatusCode);
         var signed = await signedResponse.Content.ReadFromJsonAsync<SignatureRequestDto>();
         Assert.Equal("Completed", signed!.Status);
         Assert.Single(signed.Evidence);
         Assert.Single(signed.SignedDocuments);
+    }
+
+    [Fact]
+    public async Task OnlyOfficeConfig_UsesSignedDocumentUrl()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var file = await UploadDriveFileAsync(client);
+
+        var config = await client.GetFromJsonAsync<OnlyOfficeConfigDto>($"/api/onlyoffice/files/{file.Id}/config");
+        Assert.NotNull(config);
+        Assert.Contains("/api/onlyoffice/files/", config!.Document.Url);
+        Assert.Contains("token=", config.Document.Url);
+        Assert.Contains("token=", config.EditorConfig.CallbackUrl);
+
+        using var publicClient = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
+        var documentUri = new Uri(config.Document.Url);
+        var downloadResponse = await publicClient.GetAsync(documentUri.PathAndQuery);
+        Assert.Equal(HttpStatusCode.OK, downloadResponse.StatusCode);
+        Assert.Equal("Document a signer", await downloadResponse.Content.ReadAsStringAsync());
+
+        var unauthorizedResponse = await publicClient.GetAsync($"/api/onlyoffice/files/{file.Id}/download");
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthorizedResponse.StatusCode);
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
@@ -180,5 +213,29 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         uploadResponse.EnsureSuccessStatusCode();
         var upload = await uploadResponse.Content.ReadFromJsonAsync<DriveUploadResult>();
         return upload!.Item;
+    }
+
+    private static async Task<MailAccountDto> CreateMailAccountAsync(HttpClient client)
+    {
+        var response = await client.PostAsJsonAsync("/api/emails/accounts", new CreateMailAccountRequest(
+            "signature@example.com",
+            "smtp.example.com",
+            "imap.example.com"));
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<MailAccountDto>())!;
+    }
+
+    private async Task<string> ReadOtpCodeAsync(string recipient)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
+        var body = await db.EmailMessages
+            .Where(x => x.To.Contains(recipient) && x.Subject.Contains("Code OTP"))
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => x.Body)
+            .FirstAsync();
+        var match = Regex.Match(body, @"\b\d{6}\b");
+        Assert.True(match.Success, $"Aucun OTP trouve dans le mail: {body}");
+        return match.Value;
     }
 }

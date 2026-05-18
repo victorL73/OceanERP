@@ -9,6 +9,7 @@ files:
   - "package.json"
 asar: true
 win:
+  signAndEditExecutable: false
   target:
     - target: nsis
       arch:

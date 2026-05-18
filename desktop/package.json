@@ -6,10 +6,13 @@
   "main": "src/main.cjs",
   "scripts": {
     "dev": "electron .",
-    "build": "electron-builder --config ../deploy/windows/electron-builder.yml",
-    "dist:win": "electron-builder --win nsis --config ../deploy/windows/electron-builder.yml"
+    "build": "set PATH=C:\\Program Files\\nodejs;%PATH%&& electron-builder --config ../deploy/windows/electron-builder.yml",
+    "dist:win": "set PATH=C:\\Program Files\\nodejs;%PATH%&& electron-builder --win nsis --config ../deploy/windows/electron-builder.yml"
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.3"
+  },
   "devDependencies": {
     "electron": "^39.2.4",
     "electron-builder": "^26.0.12"
