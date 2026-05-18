@@ -118,6 +118,14 @@ function readPublicSignatureToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+type PrestashopSyncCompletedEvent = {
+  connectionId: string;
+  shopUrl: string;
+  status: string;
+  message: string;
+  resources: Array<{ resource: string; created: number; updated: number }>;
+};
+
 export default function App() {
   const publicSignatureToken = useMemo(readPublicSignatureToken, []);
   const [isAuthenticated, setAuthenticated] = useState(Boolean(api.token));
@@ -161,6 +169,39 @@ export default function App() {
     const [nextConnections, nextLogs] = await Promise.all([api.prestashopConnections(), api.prestashopLogs()]);
     setPrestashopConnections(nextConnections);
     setPrestashopLogs(nextLogs);
+  }
+
+  async function refreshAfterPrestashopRealtimeSync(syncEvent: PrestashopSyncCompletedEvent) {
+    const resources = new Set(syncEvent.resources.map((item) => item.resource));
+    const tasks: Promise<unknown>[] = [
+      refreshPrestashopData().catch(() => undefined),
+      api.summary().then(setSummary).catch(() => undefined)
+    ];
+
+    if (resources.has('products')) {
+      tasks.push(api.products().then(setProducts).catch(() => undefined));
+    }
+
+    if (resources.has('customers')) {
+      tasks.push(api.customers().then(setCustomers).catch(() => undefined));
+    }
+
+    if (resources.has('stock_availables')) {
+      tasks.push(api.stockItems().then(setStockItems).catch(() => undefined));
+      tasks.push(api.stockMovements().then(setStockMovements).catch(() => undefined));
+      tasks.push(api.products().then(setProducts).catch(() => undefined));
+    }
+
+    if (resources.has('orders')) {
+      tasks.push(api.orders().then(setOrders).catch(() => undefined));
+      tasks.push(api.stockItems().then(setStockItems).catch(() => undefined));
+    }
+
+    if (resources.has('customer_threads')) {
+      tasks.push(api.serviceTickets().then(setServiceTickets).catch(() => undefined));
+    }
+
+    await Promise.all(tasks);
   }
 
   useEffect(() => {
@@ -394,6 +435,10 @@ export default function App() {
           .then(setCalendarEvents)
           .catch(() => undefined);
       }
+    });
+
+    connection.on('prestashopSyncCompleted', (syncEvent: PrestashopSyncCompletedEvent) => {
+      void refreshAfterPrestashopRealtimeSync(syncEvent);
     });
 
     connection.start().catch(() => undefined);

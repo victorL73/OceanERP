@@ -1,5 +1,6 @@
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -8,14 +9,22 @@ namespace Erp.Infrastructure.Services;
 
 internal sealed class PrestashopAutoSyncWorker(
     IServiceProvider serviceProvider,
+    IConfiguration configuration,
     ILogger<PrestashopAutoSyncWorker> logger) : BackgroundService
 {
-    private static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan SyncInterval = TimeSpan.FromSeconds(30);
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await DelaySafelyAsync(InitialDelay, stoppingToken);
+        if (!configuration.GetValue("Prestashop:AutoSyncEnabled", true))
+        {
+            logger.LogInformation("Automatic PrestaShop synchronization is disabled.");
+            return;
+        }
+
+        var initialDelay = TimeSpan.FromSeconds(ClampSeconds(configuration.GetValue("Prestashop:AutoSyncInitialDelaySeconds", 5), 0, 300));
+        var syncInterval = TimeSpan.FromSeconds(ClampSeconds(configuration.GetValue("Prestashop:AutoSyncIntervalSeconds", 10), 5, 3600));
+
+        logger.LogInformation("Automatic PrestaShop synchronization enabled every {IntervalSeconds} seconds.", syncInterval.TotalSeconds);
+        await DelaySafelyAsync(initialDelay, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -32,7 +41,7 @@ internal sealed class PrestashopAutoSyncWorker(
                 logger.LogWarning(ex, "Automatic PrestaShop synchronization failed.");
             }
 
-            await DelaySafelyAsync(SyncInterval, stoppingToken);
+            await DelaySafelyAsync(syncInterval, stoppingToken);
         }
     }
 
@@ -78,4 +87,7 @@ internal sealed class PrestashopAutoSyncWorker(
         {
         }
     }
+
+    private static int ClampSeconds(int value, int min, int max)
+        => Math.Min(Math.Max(value, min), max);
 }

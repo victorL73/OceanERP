@@ -147,7 +147,17 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
         }
 
         var status = successCount == summaries.Count ? "Completed" : "CompletedWithWarnings";
-        return new PrestashopProbeResult(status, $"Synchronisation PrestaShop: {string.Join("; ", summaries.Select(x => x.ToMessage()))}.");
+        var message = $"Synchronisation PrestaShop: {string.Join("; ", summaries.Select(x => x.ToMessage()))}.";
+        var resourceChanges = summaries
+            .Where(x => x.IsSuccess && (x.Created > 0 || x.Updated > 0))
+            .Select(x => new PrestashopSyncResourceChange(x.Resource, x.Created, x.Updated))
+            .ToList();
+        if (resourceChanges.Count > 0)
+        {
+            await notifier.NotifySyncCompletedAsync(new PrestashopSyncCompletedEvent(connection.Id, connection.ShopUrl, status, message, resourceChanges), cancellationToken);
+        }
+
+        return new PrestashopProbeResult(status, message);
     }
 
     private static string GetApiBaseUrl(string shopUrl)
@@ -209,6 +219,7 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             }
 
             var product = await FindProductByExternalIdAsync(externalId, cancellationToken);
+            var isCreated = product is null;
             if (product is null)
             {
                 var reference = await BuildUniqueProductReferenceAsync(FirstNonEmpty(GetString(item, "reference"), $"PS-{externalId}"), externalId, cancellationToken);
@@ -216,10 +227,6 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 db.Products.Add(product);
                 db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("products", externalId), Module = "products", EntityId = product.Id });
                 created += 1;
-            }
-            else
-            {
-                updated += 1;
             }
 
             product.Name = Truncate(FirstNonEmpty(GetLocalizedString(item, "name"), product.Reference), 240);
@@ -234,6 +241,10 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             product.BrandId = product.Brand?.Id;
             product.MainSupplier = await ResolveProductSupplierAsync(apiBaseUrl, item, externalId, cancellationToken);
             product.MainSupplierId = product.MainSupplier?.Id;
+            if (!isCreated && HasTrackedChanges(product))
+            {
+                updated += 1;
+            }
         }
 
         return ImportSummary.Ok("products", created, updated);
@@ -255,16 +266,13 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
             var code = Truncate($"PS-C-{externalId}", 60);
             var customer = await FindCustomerAsync(externalId, code, cancellationToken);
+            var isCreated = customer is null;
             if (customer is null)
             {
                 customer = new Customer { Code = code };
                 db.Customers.Add(customer);
                 db.ExternalReferences.Add(new ExternalReference { Provider = Provider, ExternalId = ExternalKey("customers", externalId), Module = "customers", EntityId = customer.Id });
                 created += 1;
-            }
-            else
-            {
-                updated += 1;
             }
 
             var firstName = GetString(item, "firstname");
@@ -298,6 +306,11 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
                 contact.Email = email;
                 contact.JobTitle = Provider;
                 contact.IsPrimary = true;
+            }
+
+            if (!isCreated && (HasTrackedChanges(customer) || customer.Contacts.Any(HasTrackedChanges)))
+            {
+                updated += 1;
             }
         }
 
@@ -341,9 +354,9 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             {
                 var delta = quantity - stockItem.QuantityOnHand;
                 stockItem.QuantityOnHand = quantity;
-                updated += 1;
                 if (delta != 0)
                 {
+                    updated += 1;
                     db.StockMovements.Add(new StockMovement
                     {
                         ProductId = productRef.EntityId,
@@ -417,7 +430,10 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
                 ApplyOrderDetails(order, item, externalStatusName);
                 ApplyOrderShippingDetails(order, item, carrierName, shippingAddress);
-                updated += 1;
+                if (HasTrackedChanges(order))
+                {
+                    updated += 1;
+                }
             }
         }
 
@@ -1710,6 +1726,13 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
     private async Task<bool> ProductReferenceExistsAsync(string reference, CancellationToken cancellationToken)
         => db.Products.Local.Any(x => x.Reference == reference)
            || await db.Products.AnyAsync(x => x.Reference == reference, cancellationToken);
+
+    private bool HasTrackedChanges(object entity)
+    {
+        db.ChangeTracker.DetectChanges();
+        var state = db.Entry(entity).State;
+        return state is EntityState.Added or EntityState.Modified or EntityState.Deleted;
+    }
 
     private static bool IsOrderRow(JsonElement item)
         => item.ValueKind == JsonValueKind.Object

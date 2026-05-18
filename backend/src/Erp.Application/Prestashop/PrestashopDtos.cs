@@ -6,9 +6,12 @@ public sealed record CreatePrestashopConnectionRequest(string ShopUrl, string? A
 public sealed record UpdatePrestashopConnectionRequest(string ShopUrl, string? ApiKey, bool IsActive, bool ClearApiKey, Guid? WarehouseId);
 public sealed record PrestashopImportedOrderNotification(Guid SalesOrderId, string Number);
 public sealed record PrestashopImportedServiceTicketNotification(Guid ServiceTicketId, string Number, string Subject, int NewMessages);
+public sealed record PrestashopSyncResourceChange(string Resource, int Created, int Updated);
+public sealed record PrestashopSyncCompletedEvent(Guid ConnectionId, string ShopUrl, string Status, string Message, IReadOnlyList<PrestashopSyncResourceChange> Resources);
 
 public interface IPrestashopSyncNotifier
 {
     Task NotifyNewOrdersAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedOrderNotification> orders, CancellationToken cancellationToken);
     Task NotifyNewServiceMessagesAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedServiceTicketNotification> tickets, CancellationToken cancellationToken);
+    Task NotifySyncCompletedAsync(PrestashopSyncCompletedEvent syncEvent, CancellationToken cancellationToken);
 }

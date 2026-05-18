@@ -21,6 +21,8 @@ services:
       OnlyOffice__CallbackSecret: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
       Prestashop__ColissimoLabelEndpointTemplate: ${PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE:-}
       Prestashop__ColissimoBridgeToken: ${PRESTASHOP_COLISSIMO_BRIDGE_TOKEN:-}
+      Prestashop__AutoSyncEnabled: ${PRESTASHOP_AUTO_SYNC_ENABLED:-true}
+      Prestashop__AutoSyncIntervalSeconds: ${PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS:-10}
       Secrets__EncryptionKey: ${SECRETS_ENCRYPTION_KEY:-CHANGE_ME_WITH_64_RANDOM_CHARACTERS_FOR_SECRET_ENCRYPTION}
       Secrets__SMTP_MAIN_PASSWORD: ${SMTP_MAIN_PASSWORD:-}
     volumes:

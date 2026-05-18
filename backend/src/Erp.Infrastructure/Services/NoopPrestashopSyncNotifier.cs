@@ -9,4 +9,7 @@ internal sealed class NoopPrestashopSyncNotifier : IPrestashopSyncNotifier
 
     public Task NotifyNewServiceMessagesAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedServiceTicketNotification> tickets, CancellationToken cancellationToken)
         => Task.CompletedTask;
+
+    public Task NotifySyncCompletedAsync(PrestashopSyncCompletedEvent syncEvent, CancellationToken cancellationToken)
+        => Task.CompletedTask;
 }

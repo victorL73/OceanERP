@@ -66,6 +66,8 @@ Variables importantes :
 - `EMAIL_ENABLE_SMTP_SENDING`
 - `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE` optionnel, si le module Colissimo expose une URL de recuperation d'etiquette. Variables disponibles : `{shopUrl}`, `{apiBaseUrl}`, `{orderId}`, `{externalOrderId}`, `{orderReference}`, `{orderNumber}`, `{trackingNumber}`. Plusieurs URL peuvent etre separees par `;`.
 - `PRESTASHOP_COLISSIMO_BRIDGE_TOKEN` optionnel, recommande lorsque le Webservice PrestaShop ne publie pas les etiquettes Colissimo. Il doit correspondre au token du module PrestaShop `deploy/prestashop/oceanerpbridge`.
+- `PRESTASHOP_AUTO_SYNC_ENABLED` active la synchronisation PrestaShop automatique serveur.
+- `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS` definit la cadence invisible de synchronisation des produits, clients, commandes, stocks et messages SAV. Valeur par defaut : `10`.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
 - `BACKUP_RETENTION_DAYS`
 

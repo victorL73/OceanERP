@@ -1,9 +1,11 @@
 using Erp.Application.Notifications;
 using Erp.Application.Prestashop;
+using Erp.Api.Hubs;
+using Microsoft.AspNetCore.SignalR;
 
 namespace Erp.Api.Services;
 
-public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublisher publisher) : IPrestashopSyncNotifier
+public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublisher publisher, IHubContext<NotificationHub> hubContext) : IPrestashopSyncNotifier
 {
     public async Task NotifyNewOrdersAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedOrderNotification> orders, CancellationToken cancellationToken)
     {
@@ -38,5 +40,15 @@ public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublishe
             : $"{messageCount} message(s) recu(s) sur {tickets.Count} tickets depuis {shopUrl}: {ticketNumbers}{suffix}.";
 
         await publisher.PublishAsync(new CreateNotificationRequest(null, "service.prestashop.new", title, message, "/service"), cancellationToken);
+    }
+
+    public async Task NotifySyncCompletedAsync(PrestashopSyncCompletedEvent syncEvent, CancellationToken cancellationToken)
+    {
+        if (syncEvent.Resources.Count == 0)
+        {
+            return;
+        }
+
+        await hubContext.Clients.All.SendAsync("prestashopSyncCompleted", syncEvent, cancellationToken);
     }
 }

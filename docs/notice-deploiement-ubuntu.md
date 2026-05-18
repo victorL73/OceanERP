@@ -95,6 +95,7 @@ Variables minimales a changer avant production :
 - `ONLYOFFICE_JWT_SECRET`
 - `PUBLIC_URL`
 - `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
+- `PRESTASHOP_AUTO_SYNC_ENABLED=true` et `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS=10` activent la synchronisation PrestaShop automatique en quasi temps reel.
 
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
