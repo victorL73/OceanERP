@@ -323,7 +323,7 @@ export type SalesOrder = {
     email?: string;
   };
   canPrintShippingSlip: boolean;
-  canPrintColissimoLabel: boolean;
+  canPrintColissimoLabel?: boolean;
   createdAt: string;
   confirmedAt?: string;
   shippedAt?: string;

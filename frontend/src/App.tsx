@@ -3459,7 +3459,7 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
                 Bon
               </button>
             )}
-            {item.canPrintColissimoLabel && (
+            {canPrintOrderColissimoLabel(item) && (
               <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void openColissimoLabel(item); }}>
                 <Printer size={15} />
                 Etiquette
@@ -3525,6 +3525,15 @@ function orderShippingLabel(order: SalesOrder) {
   return order.shippingServiceName ?? order.shippingCarrierName ?? '-';
 }
 
+function canPrintOrderColissimoLabel(order: SalesOrder) {
+  return Boolean(
+    order.canPrintColissimoLabel
+    || order.canPrintShippingSlip
+    || order.shippingServiceName?.toLowerCase().includes('colissimo')
+    || order.shippingCarrierName?.toLowerCase().includes('colissimo')
+  );
+}
+
 function SalesOrderDetailModal({
   order,
   customer,
@@ -3568,7 +3577,7 @@ function SalesOrderDetailModal({
               Imprimer le bon d'expedition
             </button>
           )}
-          {order.canPrintColissimoLabel && (
+          {canPrintOrderColissimoLabel(order) && (
             <button className="secondary" type="button" onClick={() => void onPrintColissimoLabel()}>
               <Printer size={16} />
               Imprimer l'etiquette Colissimo
