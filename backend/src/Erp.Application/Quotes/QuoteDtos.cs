@@ -7,6 +7,7 @@ public sealed record QuoteDto(
     string Number,
     Guid CustomerId,
     string? CustomerName,
+    QuoteCustomerDto? Customer,
     string Status,
     DateOnly IssueDate,
     DateOnly ValidUntil,
@@ -17,6 +18,29 @@ public sealed record QuoteDto(
     IReadOnlyList<QuoteLineDto> Lines,
     IReadOnlyList<QuoteDocumentDto> Documents,
     IReadOnlyList<QuoteStatusHistoryDto> StatusHistory);
+
+public sealed record QuoteCustomerDto(
+    Guid Id,
+    string Code,
+    string CompanyName,
+    string? LegalName,
+    string? TradeName,
+    string? SirenNumber,
+    string? SiretNumber,
+    string? VatNumber,
+    string? Email,
+    string? Phone,
+    string? MobilePhone,
+    string? Website,
+    string? ContactName,
+    string? ContactEmail,
+    string? ContactPhone,
+    string? AddressLabel,
+    string? AddressLine1,
+    string? AddressLine2,
+    string? PostalCode,
+    string? City,
+    string? Country);
 
 public sealed record QuoteLineDto(Guid Id, Guid? ProductId, string? ProductReference, string? ProductName, string Description, decimal Quantity, decimal UnitPrice, decimal DiscountRate, decimal VatRate, decimal LineNetTotal, decimal LineVatTotal, decimal LineTotal);
 public sealed record QuoteDocumentDto(Guid Id, string FileName, string MimeType, long Size, int Version, DateTimeOffset CreatedAt);

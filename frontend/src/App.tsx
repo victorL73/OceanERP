@@ -2954,7 +2954,28 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
   );
 }
 
+function quoteCustomerAddress(customer: Quote['customer']) {
+  if (!customer) {
+    return '-';
+  }
+
+  const cityLine = [customer.postalCode, customer.city].filter(Boolean).join(' ');
+  const lines = [customer.addressLine1, customer.addressLine2, cityLine, customer.country].filter(Boolean);
+  return lines.length > 0 ? lines.join(', ') : '-';
+}
+
+function quoteCustomerContact(customer: Quote['customer']) {
+  if (!customer) {
+    return '-';
+  }
+
+  const values = [customer.contactName, customer.contactEmail, customer.contactPhone].filter(Boolean);
+  return values.length > 0 ? values.join(' - ') : '-';
+}
+
 function QuoteDetailsModal({ quote, onClose, onDownloadPdf }: { quote: Quote; onClose: () => void; onDownloadPdf: (quote: Quote) => Promise<void> }) {
+  const customer = quote.customer;
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <section className="modal-panel quote-modal" role="dialog" aria-modal="true" aria-labelledby="quote-detail-title" onClick={(event) => event.stopPropagation()}>
@@ -2962,7 +2983,7 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf }: { quote: Quote; on
           <div>
             <span className="eyebrow">DEVIS</span>
             <h2 id="quote-detail-title">{quote.number}</h2>
-            <p>{quote.customerName ?? quote.customerId}</p>
+            <p>{customer?.companyName ?? quote.customerName ?? quote.customerId}</p>
           </div>
           <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
             <X size={18} />
@@ -2976,6 +2997,24 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf }: { quote: Quote; on
           <DetailItem label="TVA" value={purchaseAmount(quote.vatTotal)} />
           <DetailItem label="Total TTC" value={purchaseAmount(quote.total)} />
         </div>
+        <section className="customer-detail-section">
+          <h3>Client</h3>
+          <div className="detail-grid customer-summary-grid">
+            <DetailItem label="Code client" value={customer?.code ?? '-'} />
+            <DetailItem label="Entreprise" value={customer?.companyName ?? quote.customerName ?? '-'} />
+            <DetailItem label="Raison sociale" value={customer?.legalName || '-'} />
+            <DetailItem label="Nom commercial" value={customer?.tradeName || '-'} />
+            <DetailItem label="Contact principal" value={quoteCustomerContact(customer)} />
+            <DetailItem label="Email general" value={customer?.email || '-'} />
+            <DetailItem label="Telephone" value={customer?.phone || '-'} />
+            <DetailItem label="Mobile" value={customer?.mobilePhone || '-'} />
+            <DetailItem label="Adresse" value={quoteCustomerAddress(customer)} />
+            <DetailItem label="SIREN" value={customer?.sirenNumber || '-'} />
+            <DetailItem label="SIRET" value={customer?.siretNumber || '-'} />
+            <DetailItem label="TVA intracommunautaire" value={customer?.vatNumber || '-'} />
+            <DetailItem label="Site web" value={customer?.website ? <a href={customer.website} target="_blank" rel="noreferrer">{customer.website}</a> : '-'} />
+          </div>
+        </section>
         <h3>Lignes</h3>
         <DataTable
           columns={['Produit', 'Description', 'Qte', 'PU HT', 'Remise', 'TVA', 'Total TTC']}

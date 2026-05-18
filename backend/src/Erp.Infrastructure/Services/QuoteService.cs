@@ -2,6 +2,7 @@ using Erp.Application.Common;
 using Erp.Application.Documents;
 using Erp.Application.Emails;
 using Erp.Application.Quotes;
+using Erp.Domain.Customers;
 using Erp.Domain.Quotes;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -416,6 +417,9 @@ public sealed class QuoteService(
     private IQueryable<Quote> LoadQuote()
         => db.Quotes
             .Include(x => x.Customer)
+                .ThenInclude(x => x!.Contacts)
+            .Include(x => x.Customer)
+                .ThenInclude(x => x!.Addresses)
             .Include(x => x.Lines)
             .Include(x => x.Documents)
             .Include(x => x.StatusHistory);
@@ -506,6 +510,7 @@ public sealed class QuoteService(
             quote.Number,
             quote.CustomerId,
             quote.Customer?.CompanyName,
+            MapCustomer(quote.Customer),
             quote.Status.ToString(),
             quote.IssueDate,
             quote.ValidUntil,
@@ -517,6 +522,55 @@ public sealed class QuoteService(
             quote.Documents.OrderByDescending(x => x.Version).Select(Map).ToList(),
             quote.StatusHistory.OrderByDescending(x => x.ChangedAt).Select(x => Map(x, users)).ToList());
     }
+
+    private static QuoteCustomerDto? MapCustomer(Customer? customer)
+    {
+        if (customer is null)
+        {
+            return null;
+        }
+
+        var contact = SelectPrimaryContact(customer);
+        var address = SelectPrimaryAddress(customer);
+        var contactName = string.Join(" ", new[] { contact?.FirstName, contact?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+        return new QuoteCustomerDto(
+            customer.Id,
+            customer.Code,
+            customer.CompanyName,
+            customer.LegalName,
+            customer.TradeName,
+            customer.SirenNumber,
+            customer.SiretNumber,
+            customer.VatNumber,
+            customer.Email,
+            customer.Phone,
+            customer.MobilePhone,
+            customer.Website,
+            string.IsNullOrWhiteSpace(contactName) ? null : contactName,
+            contact?.Email,
+            contact?.Phone,
+            address?.Label,
+            address?.Line1,
+            address?.Line2,
+            address?.PostalCode,
+            address?.City,
+            address?.Country);
+    }
+
+    private static CustomerContact? SelectPrimaryContact(Customer customer)
+        => customer.Contacts
+            .OrderByDescending(x => x.IsPrimary)
+            .ThenBy(x => x.LastName)
+            .ThenBy(x => x.FirstName)
+            .FirstOrDefault();
+
+    private static CustomerAddress? SelectPrimaryAddress(Customer customer)
+        => customer.Addresses
+            .OrderByDescending(x => x.IsBilling)
+            .ThenByDescending(x => x.IsShipping)
+            .ThenBy(x => x.Label)
+            .FirstOrDefault();
 
     private static QuoteLineDto Map(QuoteLine line, IReadOnlyDictionary<Guid, ProductSummary> products)
     {

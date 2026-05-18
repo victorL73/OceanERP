@@ -1,4 +1,5 @@
 using Erp.Application.Quotes;
+using Erp.Domain.Customers;
 using Erp.Domain.Quotes;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -49,7 +50,11 @@ public sealed class QuotePdfService : IQuotePdfService
                     content.Item().PaddingBottom(18).Border(1).BorderColor(Colors.Grey.Lighten2).Padding(12).Column(column =>
                     {
                         column.Item().Text("Client").FontSize(9).FontColor(Colors.Grey.Darken2).Bold();
-                        column.Item().Text(quote.Customer?.CompanyName ?? quote.CustomerId.ToString()).FontSize(13).Bold();
+                        column.Item().Text(ClientName(quote.Customer, quote.CustomerId)).FontSize(13).Bold();
+                        foreach (var line in CustomerLines(quote.Customer))
+                        {
+                            column.Item().Text(line).FontSize(9).FontColor(Colors.Grey.Darken2);
+                        }
                     });
 
                     content.Item().Table(table =>
@@ -143,6 +148,74 @@ public sealed class QuotePdfService : IQuotePdfService
             .ToList();
         return values.Count == 0 ? null : string.Join(" | ", values);
     }
+
+    private static string ClientName(Customer? customer, Guid customerId)
+        => customer?.CompanyName ?? customerId.ToString();
+
+    private static IReadOnlyList<string> CustomerLines(Customer? customer)
+    {
+        var lines = new List<string>();
+        if (customer is null)
+        {
+            return lines;
+        }
+
+        Add(DistinctValue(customer.LegalName, customer.CompanyName) is { } legalName ? $"Raison sociale: {legalName}" : null);
+        Add(DistinctValue(customer.TradeName, customer.CompanyName) is { } tradeName ? $"Nom commercial: {tradeName}" : null);
+
+        var address = SelectCustomerAddress(customer);
+        Add(address?.Line1);
+        Add(address?.Line2);
+        var cityLine = string.Join(" ", new[] { address?.PostalCode, address?.City }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        Add(cityLine);
+        Add(address?.Country);
+
+        var contact = SelectCustomerContact(customer);
+        var contactName = string.Join(" ", new[] { contact?.FirstName, contact?.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        Add(string.IsNullOrWhiteSpace(contactName) ? null : $"Contact: {contactName}");
+        Add(CustomerContactLine(customer, contact));
+        Add(customer.SirenNumber is null ? null : $"SIREN: {customer.SirenNumber}");
+        Add(customer.SiretNumber is null ? null : $"SIRET: {customer.SiretNumber}");
+        Add(customer.VatNumber is null ? null : $"TVA intracommunautaire: {customer.VatNumber}");
+        return lines;
+
+        void Add(string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                lines.Add(value.Trim());
+            }
+        }
+    }
+
+    private static CustomerContact? SelectCustomerContact(Customer customer)
+        => customer.Contacts
+            .OrderByDescending(x => x.IsPrimary)
+            .ThenBy(x => x.LastName)
+            .ThenBy(x => x.FirstName)
+            .FirstOrDefault();
+
+    private static CustomerAddress? SelectCustomerAddress(Customer customer)
+        => customer.Addresses
+            .OrderByDescending(x => x.IsBilling)
+            .ThenByDescending(x => x.IsShipping)
+            .ThenBy(x => x.Label)
+            .FirstOrDefault();
+
+    private static string? CustomerContactLine(Customer customer, CustomerContact? contact)
+    {
+        var values = new[] { customer.Email, customer.Phone, customer.MobilePhone, contact?.Email, contact?.Phone, customer.Website }
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return values.Count == 0 ? null : string.Join(" | ", values);
+    }
+
+    private static string? DistinctValue(string? value, string reference)
+        => string.IsNullOrWhiteSpace(value) || string.Equals(value.Trim(), reference.Trim(), StringComparison.OrdinalIgnoreCase)
+            ? null
+            : value.Trim();
 
     private static void TotalLine(ColumnDescriptor column, string label, decimal amount, string currency, bool important)
     {

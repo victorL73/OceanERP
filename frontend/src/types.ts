@@ -105,6 +105,7 @@ export type Quote = {
   number: string;
   customerId: string;
   customerName?: string;
+  customer?: QuoteCustomer;
   status: string;
   issueDate: string;
   validUntil: string;
@@ -115,6 +116,30 @@ export type Quote = {
   lines: QuoteLine[];
   documents: QuoteDocument[];
   statusHistory: QuoteStatusHistory[];
+};
+
+export type QuoteCustomer = {
+  id: string;
+  code: string;
+  companyName: string;
+  legalName?: string;
+  tradeName?: string;
+  sirenNumber?: string;
+  siretNumber?: string;
+  vatNumber?: string;
+  email?: string;
+  phone?: string;
+  mobilePhone?: string;
+  website?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  addressLabel?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  postalCode?: string;
+  city?: string;
+  country?: string;
 };
 
 export type QuoteLine = {

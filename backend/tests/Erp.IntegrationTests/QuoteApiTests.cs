@@ -90,6 +90,51 @@ public sealed class QuoteApiTests(ApiFactory factory) : IClassFixture<ApiFactory
         Assert.Equal(HttpStatusCode.BadRequest, orderResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task Quote_IncludesAvailableCustomerDetails()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customerResponse = await client.PostAsJsonAsync("/api/customers", new CreateCustomerRequest(
+            Code: $"C-{Guid.NewGuid():N}"[..10],
+            CompanyName: "Client enrichi",
+            LegalName: "Client enrichi SAS",
+            TradeName: "Client enrichi commerce",
+            SirenNumber: "123456789",
+            SiretNumber: "12345678900012",
+            VatNumber: "FR12123456789",
+            Email: "contact.client@example.com",
+            Phone: "0102030405",
+            MobilePhone: "0607080910",
+            Website: "https://client.example.com",
+            Industry: null,
+            CustomerType: null,
+            Source: null,
+            AccountingCode: null,
+            PaymentTerms: null,
+            DefaultDiscountRate: null,
+            Notes: null,
+            Contacts: [new UpsertCustomerContactRequest("Alice", "Martin", "alice@example.com", "0100000000", "Achats", true)],
+            Addresses: [new UpsertCustomerAddressRequest("Facturation", "12 rue du Port", "Batiment A", "14000", "Caen", "France", true, false)]));
+        customerResponse.EnsureSuccessStatusCode();
+        var customer = (await customerResponse.Content.ReadFromJsonAsync<CustomerDto>())!;
+        var product = await CreateProductAsync(client);
+
+        var createResponse = await client.PostAsJsonAsync("/api/quotes", new CreateQuoteRequest(
+            customer.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)),
+            [new UpsertQuoteLineRequest(product.Id, string.Empty, 1, product.SalePrice, 0, product.VatRate)]));
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var quote = await createResponse.Content.ReadFromJsonAsync<QuoteDto>();
+        Assert.NotNull(quote!.Customer);
+        Assert.Equal("Client enrichi SAS", quote.Customer!.LegalName);
+        Assert.Equal("123456789", quote.Customer.SirenNumber);
+        Assert.Equal("FR12123456789", quote.Customer.VatNumber);
+        Assert.Equal("Alice Martin", quote.Customer.ContactName);
+        Assert.Equal("12 rue du Port", quote.Customer.AddressLine1);
+        Assert.Equal("Caen", quote.Customer.City);
+    }
+
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
     {
         var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
