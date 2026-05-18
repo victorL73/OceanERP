@@ -31,19 +31,25 @@ public sealed class LowStockAlertService(ErpDbContext db) : ILowStockAlertServic
             .Distinct()
             .ToListAsync(cancellationToken);
 
-        var start = DateTimeOffset.UtcNow.Date;
-        var end = start.AddDays(1);
-
-        var notification = await db.Notifications
-            .FirstOrDefaultAsync(x => x.Type == NotificationType && x.UserId == null && x.CreatedAt >= start && x.CreatedAt < end, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var today = now.UtcDateTime.Date;
+        var existingNotifications = await db.Notifications
+            .Where(x => x.Type == NotificationType && x.UserId == null)
+            .OrderByDescending(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var notification = existingNotifications.FirstOrDefault();
 
         var productIds = lowStockProductIds.Where(x => !coveredSet.Contains(x)).ToList();
         if (productIds.Count == 0)
         {
-            if (notification is not null && !notification.IsRead)
+            foreach (var existing in existingNotifications.Where(x => !x.IsRead))
             {
-                notification.IsRead = true;
-                notification.Message = "Tous les produits sous seuil sont couverts ou resolus.";
+                existing.IsRead = true;
+                existing.Message = "Tous les produits sous seuil sont couverts ou resolus.";
+            }
+
+            if (existingNotifications.Count > 0)
+            {
                 await db.SaveChangesAsync(cancellationToken);
             }
 
@@ -69,15 +75,29 @@ public sealed class LowStockAlertService(ErpDbContext db) : ILowStockAlertServic
                 Type = NotificationType,
                 Title = "Stock bas a traiter",
                 Message = message,
-                LinkUrl = link
+                LinkUrl = link,
+                CreatedAt = now
             });
         }
         else
         {
+            var contentChanged = notification.Title != "Stock bas a traiter"
+                || notification.Message != message
+                || notification.LinkUrl != link;
+            var shouldRemindToday = notification.CreatedAt.UtcDateTime.Date < today;
             notification.Title = "Stock bas a traiter";
             notification.Message = message;
             notification.LinkUrl = link;
-            notification.IsRead = false;
+            if (contentChanged || shouldRemindToday)
+            {
+                notification.IsRead = false;
+                notification.CreatedAt = now;
+            }
+        }
+
+        foreach (var duplicate in existingNotifications.Skip(1).Where(x => !x.IsRead))
+        {
+            duplicate.IsRead = true;
         }
 
         await db.SaveChangesAsync(cancellationToken);

@@ -279,6 +279,17 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.DoesNotContain(inactiveProduct.Reference, alert.Message);
         Assert.Contains(product.Id.ToString(), alert.LinkUrl);
 
+        var markReadResponse = await client.PostAsync($"/api/notifications/{alert.Id}/read", null);
+        Assert.Equal(HttpStatusCode.NoContent, markReadResponse.StatusCode);
+
+        var repeatStockResponse = await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 0, "Repeat alert same day", 5));
+        Assert.Equal(HttpStatusCode.OK, repeatStockResponse.StatusCode);
+
+        var repeatedNotifications = await client.GetFromJsonAsync<IReadOnlyList<NotificationDto>>("/api/notifications");
+        var repeatedAlert = Assert.Single(repeatedNotifications!, x => x.Type == "stock.low.summary");
+        Assert.Equal(alert.Id, repeatedAlert.Id);
+        Assert.True(repeatedAlert.IsRead);
+
         var purchaseResponse = await client.PostAsJsonAsync("/api/purchases/orders", new CreatePurchaseOrderRequest(
             supplier.Id,
             DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),

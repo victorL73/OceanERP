@@ -317,7 +317,7 @@ export default function App() {
       .build();
 
     connection.on('notificationCreated', (notification: NotificationItem) => {
-      setNotifications((items) => [notification, ...items]);
+      setNotifications((items) => [notification, ...items.filter((item) => item.id !== notification.id)]);
       if (notification.type === 'emails.new') {
         api.emailMessages()
           .then(setEmailMessages)
@@ -352,11 +352,12 @@ export default function App() {
     const seen = new Set((localStorage.getItem(storageKey) ?? '').split(',').filter(Boolean));
     const nextSeen = new Set(seen);
     notifications
-      .filter((item) => !item.isRead && !seen.has(item.id))
+      .map((item) => ({ item, seenKey: `${item.id}:${item.createdAt}` }))
+      .filter(({ item, seenKey }) => !item.isRead && !seen.has(seenKey))
       .slice(0, 5)
-      .forEach((item) => {
-        new Notification(item.title, { body: item.message, tag: item.id });
-        nextSeen.add(item.id);
+      .forEach(({ item, seenKey }) => {
+        new Notification(item.title, { body: item.message, tag: seenKey });
+        nextSeen.add(seenKey);
       });
     localStorage.setItem(storageKey, Array.from(nextSeen).slice(-200).join(','));
   }, [isAuthenticated, notifications]);
