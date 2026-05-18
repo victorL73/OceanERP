@@ -302,6 +302,46 @@ public sealed class QuoteService(
         return Result<(Stream, string, string)>.Success((stream, document.FileName, document.MimeType));
     }
 
+    public async Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var quote = await db.Quotes.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (quote is null)
+        {
+            return Result.Failure("Devis introuvable.");
+        }
+
+        if (quote.Status == QuoteStatus.ConvertedToOrder)
+        {
+            return Result.Failure("Un devis transforme en commande ne peut pas etre supprime.");
+        }
+
+        var documentStoragePaths = await db.QuoteDocuments
+            .Where(x => x.QuoteId == id)
+            .Select(x => x.StoragePath)
+            .ToListAsync(cancellationToken);
+        var quoteLines = await db.QuoteLines.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
+        var quoteDocuments = await db.QuoteDocuments.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
+        var quoteHistory = await db.QuoteStatusHistories.Where(x => x.QuoteId == id).ToListAsync(cancellationToken);
+        var emailLinks = await db.EmailLinks.Where(x => x.Module == "quotes" && x.EntityId == id).ToListAsync(cancellationToken);
+        var documentLinks = await db.DocumentLinks.Where(x => x.Module == "quotes" && x.EntityId == id).ToListAsync(cancellationToken);
+
+        db.QuoteLines.RemoveRange(quoteLines);
+        db.QuoteDocuments.RemoveRange(quoteDocuments);
+        db.QuoteStatusHistories.RemoveRange(quoteHistory);
+        db.EmailLinks.RemoveRange(emailLinks);
+        db.DocumentLinks.RemoveRange(documentLinks);
+        db.Quotes.Remove(quote);
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var storagePath in documentStoragePaths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct())
+        {
+            await fileStorageService.DeleteAsync(storagePath, cancellationToken);
+        }
+
+        return Result.Success();
+    }
+
     private async Task<Result<QuoteLine>> BuildLineAsync(Guid quoteId, UpsertQuoteLineRequest request, CancellationToken cancellationToken)
     {
         if (request.Quantity <= 0)

@@ -202,6 +202,10 @@ export class ApiClient {
     return this.request<Quote>(`/api/quotes/${quoteId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status, comment }) });
   }
 
+  deleteQuote(quoteId: string) {
+    return this.request<void>(`/api/quotes/${quoteId}`, { method: 'DELETE', auth: true });
+  }
+
   generateQuotePdf(quoteId: string) {
     return this.request<QuoteDocument>(`/api/quotes/${quoteId}/pdf`, { method: 'POST', auth: true });
   }
@@ -403,6 +407,10 @@ export class ApiClient {
 
   changeOrderStatus(orderId: string, status: string) {
     return this.request<SalesOrder>(`/api/orders/${orderId}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status }) });
+  }
+
+  deleteOrder(orderId: string) {
+    return this.request<void>(`/api/orders/${orderId}`, { method: 'DELETE', auth: true });
   }
 
   async openOrderShipmentSlip(orderId: string, orderNumber: string) {

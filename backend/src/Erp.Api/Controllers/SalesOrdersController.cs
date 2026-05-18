@@ -46,6 +46,14 @@ public sealed class SalesOrdersController(ISalesOrderService orders) : Controlle
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await orders.DeleteAsync(id, cancellationToken);
+        return result.Succeeded ? NoContent() : BadRequest(new { error = result.Error });
+    }
+
     [HttpGet("{id:guid}/shipment-slip")]
     [Authorize(Policy = "orders.read")]
     public async Task<ActionResult> ShipmentSlip(Guid id, CancellationToken cancellationToken)

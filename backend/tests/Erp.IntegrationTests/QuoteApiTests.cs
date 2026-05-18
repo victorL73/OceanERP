@@ -91,6 +91,27 @@ public sealed class QuoteApiTests(ApiFactory factory) : IClassFixture<ApiFactory
     }
 
     [Fact]
+    public async Task Quote_AdminCanDeleteDraftQuote()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+        var product = await CreateProductAsync(client);
+
+        var createResponse = await client.PostAsJsonAsync("/api/quotes", new CreateQuoteRequest(
+            customer.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)),
+            [new UpsertQuoteLineRequest(product.Id, string.Empty, 1, product.SalePrice, 0, product.VatRate)]));
+        createResponse.EnsureSuccessStatusCode();
+        var quote = await createResponse.Content.ReadFromJsonAsync<QuoteDto>();
+
+        var deleteResponse = await client.DeleteAsync($"/api/quotes/{quote!.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+        var getResponse = await client.GetAsync($"/api/quotes/{quote.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task Quote_IncludesAvailableCustomerDetails()
     {
         using var client = await CreateAuthenticatedClientAsync();

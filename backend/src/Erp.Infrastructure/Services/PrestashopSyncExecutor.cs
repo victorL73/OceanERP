@@ -370,6 +370,11 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             var reference = FirstNonEmpty(GetString(item, "reference"), externalId);
             var orderNumber = Truncate($"PS-{reference}", 80);
             var externalReference = await FindReferenceAsync("orders", externalId, cancellationToken);
+            if (externalReference is not null && string.Equals(externalReference.Module, "orders.deleted", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             SalesOrder? order = null;
             if (externalReference is not null)
             {

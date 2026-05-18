@@ -484,8 +484,8 @@ export default function App() {
         )}
         {view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
         {view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
-        {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} onChanged={() => load('quotes')} />}
-        {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
+        {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('quotes')} />}
+        {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('orders')} />}
         {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
@@ -2778,7 +2778,7 @@ function nextQuoteStatuses(status: string) {
   return map[status] ?? [];
 }
 
-function Quotes({ items, customers, products, mailAccounts, warehouses, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; mailAccounts: MailAccount[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
+function Quotes({ items, customers, products, mailAccounts, warehouses, isAdministrator, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; mailAccounts: MailAccount[]; warehouses: Warehouse[]; isAdministrator: boolean; onChanged: () => Promise<void> }) {
   const [customerId, setCustomerId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [validUntil, setValidUntil] = useState(defaultQuoteValidUntil());
@@ -2977,6 +2977,28 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
     await onChanged();
   }
 
+  async function deleteQuote(quote: Quote) {
+    if (!window.confirm(`Supprimer le devis ${quote.number} ?`)) {
+      return;
+    }
+
+    try {
+      await api.deleteQuote(quote.id);
+      if (selectedQuoteId === quote.id) {
+        setSelectedQuoteId(null);
+      }
+
+      if (editingQuoteId === quote.id) {
+        resetForm();
+      }
+
+      setQuoteFeedback(`Devis ${quote.number} supprime.`);
+      await onChanged();
+    } catch (err) {
+      setQuoteFeedback(err instanceof Error ? err.message : 'Suppression du devis impossible.');
+    }
+  }
+
   function openEmailModal(quote: Quote) {
     setEmailQuoteId(quote.id);
     setMailAccountId(activeMailAccounts[0]?.id ?? '');
@@ -3169,6 +3191,12 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
               <ShoppingCart size={15} />
               Transformer
             </button>
+            {isAdministrator && (
+              <button className="danger" disabled={item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); void deleteQuote(item); }} type="button">
+                <Trash2 size={15} />
+                Supprimer
+              </button>
+            )}
           </div>
         ])}
       />
@@ -3181,6 +3209,7 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, onChange
             setSelectedQuoteId(null);
             openOrderModal(quote);
           }}
+          onDeleteQuote={isAdministrator ? deleteQuote : undefined}
         />
       )}
       {emailQuote && (
@@ -3305,7 +3334,7 @@ function quoteCustomerContact(customer: Quote['customer']) {
   return values.length > 0 ? values.join(' - ') : '-';
 }
 
-function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder }: { quote: Quote; onClose: () => void; onDownloadPdf: (quote: Quote) => Promise<void>; onConvertToOrder: (quote: Quote) => void }) {
+function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder, onDeleteQuote }: { quote: Quote; onClose: () => void; onDownloadPdf: (quote: Quote) => Promise<void>; onConvertToOrder: (quote: Quote) => void; onDeleteQuote?: (quote: Quote) => Promise<void> }) {
   const customer = quote.customer;
 
   return (
@@ -3332,6 +3361,12 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder }: 
             <Download size={15} />
             PDF
           </button>
+          {onDeleteQuote && (
+            <button className="danger" disabled={quote.status === 'ConvertedToOrder'} type="button" onClick={() => void onDeleteQuote(quote)}>
+              <Trash2 size={15} />
+              Supprimer
+            </button>
+          )}
         </div>
         <div className="summary-grid">
           <DetailItem label="Statut" value={quoteStatusLabels[quote.status] ?? quote.status} />
@@ -3401,7 +3436,7 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder }: 
   );
 }
 
-function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder[]; customers: Customer[]; warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
+function Orders({ items, customers, warehouses, isAdministrator, onChanged }: { items: SalesOrder[]; customers: Customer[]; warehouses: Warehouse[]; isAdministrator: boolean; onChanged: () => Promise<void> }) {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -3452,6 +3487,27 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
     }
   }
 
+  async function deleteOrder(order: SalesOrder): Promise<string | null> {
+    setMessage(null);
+    if (!window.confirm(`Supprimer la commande ${order.number} ?`)) {
+      return null;
+    }
+
+    try {
+      await api.deleteOrder(order.id);
+      if (selectedOrderId === order.id) {
+        setSelectedOrderId(null);
+      }
+
+      await onChanged();
+      return null;
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Suppression de la commande impossible.';
+      setMessage(error);
+      return error;
+    }
+  }
+
   return (
     <>
       <div className="sync-note">Les commandes sont creees depuis un devis signe ou importees depuis PrestaShop.</div>
@@ -3493,6 +3549,12 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
                 Terminer
               </button>
             )}
+            {isAdministrator && (
+              <button className="danger" type="button" disabled={item.status === 'Shipped' || item.status === 'Completed'} onClick={(event) => { event.stopPropagation(); void deleteOrder(item); }}>
+                <Trash2 size={15} />
+                Supprimer
+              </button>
+            )}
           </div>
         ])}
         onRowClick={(index) => setSelectedOrderId(items[index]?.id ?? null)}
@@ -3507,6 +3569,7 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
           onPrintShipmentSlip={() => openShipmentSlip(selectedOrder)}
           onPrintColissimoLabel={() => openColissimoLabel(selectedOrder)}
           onChangeStatus={(status) => changeStatus(selectedOrder, status)}
+          onDeleteOrder={isAdministrator ? () => deleteOrder(selectedOrder) : undefined}
         />
       )}
     </>
@@ -3554,7 +3617,8 @@ function SalesOrderDetailModal({
   onClose,
   onPrintShipmentSlip,
   onPrintColissimoLabel,
-  onChangeStatus
+  onChangeStatus,
+  onDeleteOrder
 }: {
   order: SalesOrder;
   customer?: Customer;
@@ -3563,12 +3627,14 @@ function SalesOrderDetailModal({
   onPrintShipmentSlip: () => Promise<string | null>;
   onPrintColissimoLabel: () => Promise<string | null>;
   onChangeStatus: (status: string) => Promise<string | null>;
+  onDeleteOrder?: () => Promise<string | null>;
 }) {
   const address = order.shippingAddress;
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [changingStatus, setChangingStatus] = useState<string | null>(null);
+  const [deletingOrder, setDeletingOrder] = useState(false);
   const nextActions = [
     order.status === 'Draft' ? { label: 'Confirmer', status: 'Confirmed' } : null,
     order.status === 'Confirmed' || order.status === 'Preparing' ? { label: 'Expedier', status: 'Shipped' } : null,
@@ -3604,6 +3670,18 @@ function SalesOrderDetailModal({
     setActionMessage(error ?? statusSuccessMessages[status] ?? 'Statut mis a jour.');
   }
 
+  async function handleDeleteOrder() {
+    if (!onDeleteOrder) {
+      return;
+    }
+
+    setActionMessage('Suppression de la commande...');
+    setDeletingOrder(true);
+    const error = await onDeleteOrder();
+    setDeletingOrder(false);
+    setActionMessage(error ?? 'Commande supprimee.');
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="modal-panel order-modal" role="dialog" aria-modal="true" aria-label={`Commande ${order.number}`} onMouseDown={(event) => event.stopPropagation()}>
@@ -3634,6 +3712,12 @@ function SalesOrderDetailModal({
               {changingStatus === action.status ? 'Traitement...' : action.label}
             </button>
           ))}
+          {onDeleteOrder && (
+            <button className="danger" type="button" disabled={deletingOrder || order.status === 'Shipped' || order.status === 'Completed'} onClick={() => void handleDeleteOrder()}>
+              <Trash2 size={16} />
+              {deletingOrder ? 'Suppression...' : 'Supprimer'}
+            </button>
+          )}
         </div>
         {actionMessage && <div className="inline-message">{actionMessage}</div>}
 

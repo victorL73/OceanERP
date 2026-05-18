@@ -98,6 +98,35 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task SalesOrderDelete_ReleasesReservedStock()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+        var product = await CreateProductAsync(client);
+        var warehouses = await client.GetFromJsonAsync<IReadOnlyList<WarehouseDto>>("/api/stock/warehouses");
+        var warehouse = warehouses!.First();
+        (await client.PostAsJsonAsync("/api/stock/adjustments", new AdjustStockRequest(product.Id, warehouse.Id, 5, "Initial stock", 2))).EnsureSuccessStatusCode();
+
+        var orderResponse = await client.PostAsJsonAsync("/api/orders", new CreateSalesOrderRequest(
+            customer.Id,
+            warehouse.Id,
+            [new CreateSalesOrderLineRequest(product.Id, "Integration line", 2, 50)]));
+        orderResponse.EnsureSuccessStatusCode();
+        var order = await orderResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+        (await client.PostAsJsonAsync($"/api/orders/{order!.Id}/status", new UpdateSalesOrderStatusRequest("Confirmed"))).EnsureSuccessStatusCode();
+
+        var deleteResponse = await client.DeleteAsync($"/api/orders/{order.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+        var getResponse = await client.GetAsync($"/api/orders/{order.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
+        var stockItems = await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items");
+        var stock = Assert.Single(stockItems!, x => x.ProductId == product.Id && x.WarehouseId == warehouse.Id);
+        Assert.Equal(0, stock.QuantityReserved);
+        Assert.Equal(5, stock.AvailableQuantity);
+    }
+
+    [Fact]
     public async Task ColissimoLabel_WhenOfficialLabelIsUnavailable_ReturnsPreparationPdf()
     {
         using var client = await CreateAuthenticatedClientAsync();

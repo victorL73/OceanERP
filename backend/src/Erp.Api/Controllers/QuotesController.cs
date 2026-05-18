@@ -69,6 +69,14 @@ public sealed class QuotesController(IQuoteService quotes, IQuoteSettingsService
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Administrator")]
+    public async Task<ActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await quotes.DeleteAsync(id, cancellationToken);
+        return result.Succeeded ? NoContent() : BadRequest(new { error = result.Error });
+    }
+
     [HttpPost("{id:guid}/status")]
     [Authorize(Policy = "quotes.write")]
     public async Task<ActionResult<QuoteDto>> ChangeStatus(Guid id, UpdateQuoteStatusRequest request, CancellationToken cancellationToken)

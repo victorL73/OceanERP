@@ -12,4 +12,5 @@ public interface IQuoteService
     Task<Result<QuoteDocumentDto>> GeneratePdfAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<QuoteDto>> SendByEmailAsync(Guid id, SendQuoteEmailRequest request, CancellationToken cancellationToken);
     Task<Result<(Stream Content, string FileName, string MimeType)>> OpenDocumentAsync(Guid quoteId, Guid documentId, CancellationToken cancellationToken);
+    Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken);
 }
