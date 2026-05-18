@@ -60,6 +60,7 @@ public sealed class InvoiceService(
         var invoice = new Invoice
         {
             Number = await NextNumberAsync(cancellationToken),
+            Kind = "Invoice",
             CustomerId = order.CustomerId,
             SalesOrderId = order.Id,
             Status = "Issued",
@@ -78,6 +79,65 @@ public sealed class InvoiceService(
         return Result<InvoiceDto>.Success(await MapAsync(invoice, cancellationToken));
     }
 
+    public async Task<Result<InvoiceDto>> CreateCreditNoteAsync(Guid invoiceId, CreateCreditNoteRequest request, CancellationToken cancellationToken)
+    {
+        var invoice = await db.Invoices.FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken);
+        if (invoice is null)
+        {
+            return Result<InvoiceDto>.Failure("Invoice not found.");
+        }
+
+        if (!string.Equals(invoice.Kind, "Invoice", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<InvoiceDto>.Failure("Credit notes can only be created from invoices.");
+        }
+
+        if (invoice.Status == "Cancelled")
+        {
+            return Result<InvoiceDto>.Failure("Cancelled invoices cannot generate credit notes.");
+        }
+
+        if (await db.Invoices.AnyAsync(x => x.CreditOfInvoiceId == invoice.Id && x.Status != "Cancelled", cancellationToken))
+        {
+            return Result<InvoiceDto>.Failure("A credit note already exists for this invoice.");
+        }
+
+        var lines = await db.InvoiceLines.Where(x => x.InvoiceId == invoice.Id).OrderBy(x => x.Id).ToListAsync(cancellationToken);
+        if (lines.Count == 0)
+        {
+            return Result<InvoiceDto>.Failure("Invoice has no lines.");
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var credit = new Invoice
+        {
+            Number = await NextCreditNumberAsync(cancellationToken),
+            Kind = "CreditNote",
+            CustomerId = invoice.CustomerId,
+            CreditOfInvoiceId = invoice.Id,
+            Status = "Issued",
+            IssueDate = today,
+            DueDate = today,
+            FacturXProfile = invoice.FacturXProfile
+        };
+
+        db.Invoices.Add(credit);
+        foreach (var line in lines)
+        {
+            db.InvoiceLines.Add(new InvoiceLine
+            {
+                InvoiceId = credit.Id,
+                Description = string.IsNullOrWhiteSpace(request.Reason) ? line.Description : $"{line.Description} - {request.Reason}",
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice
+            });
+        }
+
+        db.InvoiceStatusHistories.Add(new InvoiceStatusHistory { InvoiceId = credit.Id, Status = credit.Status });
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<InvoiceDto>.Success(await MapAsync(credit, cancellationToken));
+    }
+
     public async Task<Result<InvoiceDto>> AddPaymentAsync(Guid invoiceId, AddInvoicePaymentRequest request, CancellationToken cancellationToken)
     {
         if (request.Amount <= 0)
@@ -89,6 +149,11 @@ public sealed class InvoiceService(
         if (invoice is null)
         {
             return Result<InvoiceDto>.Failure("Invoice not found.");
+        }
+
+        if (string.Equals(invoice.Kind, "CreditNote", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<InvoiceDto>.Failure("Credit notes cannot receive payments.");
         }
 
         if (invoice.Status == "Cancelled")
@@ -151,11 +216,10 @@ public sealed class InvoiceService(
         }
 
         var dto = await MapAsync(invoice, cancellationToken);
-        var customerName = await db.Customers.Where(x => x.Id == invoice.CustomerId).Select(x => x.CompanyName).FirstOrDefaultAsync(cancellationToken)
-            ?? invoice.CustomerId.ToString();
         var model = new InvoicePdfModel(
             invoice.Number,
-            customerName,
+            dto.Kind,
+            dto.CustomerName,
             invoice.IssueDate,
             invoice.DueDate,
             dto.Total,
@@ -202,6 +266,13 @@ public sealed class InvoiceService(
         return $"{prefix}{count + 1:0000}";
     }
 
+    private async Task<string> NextCreditNumberAsync(CancellationToken cancellationToken)
+    {
+        var prefix = $"AVO-{DateTime.UtcNow:yyyy}-";
+        var count = await db.Invoices.CountAsync(x => x.Number.StartsWith(prefix), cancellationToken);
+        return $"{prefix}{count + 1:0000}";
+    }
+
     private async Task<InvoiceDto> MapAsync(Invoice invoice, CancellationToken cancellationToken)
     {
         var lines = await db.InvoiceLines.Where(x => x.InvoiceId == invoice.Id).OrderBy(x => x.Id).ToListAsync(cancellationToken);
@@ -211,17 +282,31 @@ public sealed class InvoiceService(
         var documents = await db.InvoiceDocuments.Where(x => x.InvoiceId == invoice.Id).OrderByDescending(x => x.Version).ToListAsync(cancellationToken);
         var history = await db.InvoiceStatusHistories.Where(x => x.InvoiceId == invoice.Id).OrderByDescending(x => x.ChangedAt).ToListAsync(cancellationToken);
         var balanceDue = total - paid;
+        var customerName = await db.Customers.Where(x => x.Id == invoice.CustomerId).Select(x => x.CompanyName).FirstOrDefaultAsync(cancellationToken) ?? invoice.CustomerId.ToString();
+        var salesOrderNumber = invoice.SalesOrderId is null
+            ? null
+            : await db.SalesOrders.Where(x => x.Id == invoice.SalesOrderId).Select(x => x.Number).FirstOrDefaultAsync(cancellationToken);
+        var creditOfInvoiceNumber = invoice.CreditOfInvoiceId is null
+            ? null
+            : await db.Invoices.Where(x => x.Id == invoice.CreditOfInvoiceId).Select(x => x.Number).FirstOrDefaultAsync(cancellationToken);
         return new InvoiceDto(
             invoice.Id,
             invoice.Number,
+            invoice.Kind,
             invoice.CustomerId,
+            customerName,
             invoice.SalesOrderId,
-            EffectiveStatus(invoice.Status, invoice.DueDate, balanceDue),
+            salesOrderNumber,
+            invoice.CreditOfInvoiceId,
+            creditOfInvoiceNumber,
+            EffectiveStatus(invoice.Status, invoice.DueDate, balanceDue, invoice.Kind),
             invoice.IssueDate,
             invoice.DueDate,
             total,
             paid,
             balanceDue,
+            invoice.FacturXProfile,
+            !string.IsNullOrWhiteSpace(invoice.FacturXProfile),
             lineDtos,
             documents.Select(Map).ToList(),
             history.Select(x => new InvoiceStatusHistoryDto(x.Id, x.Status, x.ChangedAt)).ToList());
@@ -230,8 +315,13 @@ public sealed class InvoiceService(
     private static InvoiceDocumentDto Map(InvoiceDocument document)
         => new(document.Id, document.FileName, document.MimeType, document.Size, document.Version, document.CreatedAt);
 
-    private static string EffectiveStatus(string status, DateOnly dueDate, decimal balanceDue)
+    private static string EffectiveStatus(string status, DateOnly dueDate, decimal balanceDue, string kind)
     {
+        if (string.Equals(kind, "CreditNote", StringComparison.OrdinalIgnoreCase))
+        {
+            return status;
+        }
+
         if (status is "Cancelled" or "Paid")
         {
             return status;

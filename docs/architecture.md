@@ -30,7 +30,7 @@ La Phase 2 dispose maintenant d'un socle backend/API et frontend pour :
 
 - commandes clients depuis devis ou depuis PrestaShop, detail complet de livraison, statuts boutique, expedition, bon d'expedition ERP et tentative de recuperation d'etiquette Colissimo officielle ;
 - workflow commande `Draft -> Confirmed -> Preparing/Shipped -> Completed/Cancelled`, avec reservation de stock a la confirmation et decrementation a l'expedition ;
-- factures depuis commande expediee, prevention des doubles facturations, paiements, statut `Overdue` calcule automatiquement, annulation controlee et historique de statut ;
+- factures depuis commande expediee, prevention des doubles facturations, paiements, avoirs rattaches a la facture d'origine, statut `Overdue` calcule automatiquement, annulation controlee et historique de statut ;
 - PDF facture QuestPDF stocke hors base de donnees, avec metadonnees uniquement en PostgreSQL ;
 - stock par entrepot avec mouvements d'ajustement, transfert, reservation, liberation, expedition et reception fournisseur, filtres/tri et statut automatique (`En stock`, `Stock bas`, `Hors stock`, `Reapprovisionnement`) ;
 - achats fournisseurs multi-lignes avec fournisseur, entrepot de reception, frais annexes, commentaires, date de reception prevue, retour de statut et reception vers stock ;
@@ -38,7 +38,7 @@ La Phase 2 dispose maintenant d'un socle backend/API et frontend pour :
 - module email complet pour la Phase 2 : serveurs SMTP/IMAP globaux, boites affectees aux utilisateurs, signatures HTML, CC/CCI, pieces jointes, suppression logique, synchronisation IMAP manuelle/automatique et journal des messages ;
 - connecteur PrestaShop avec configuration protegee de cle API, import produits/clients/stocks/commandes, publication des modifications produits/clients/stocks et journal de synchronisation.
 
-Les sujets volontairement reportes en Phase 3 restent : SAV avance, agenda, signature electronique interne, ONLYOFFICE avance, Factur-X, exports comptables complets et application Electron avancee.
+Les sujets volontairement reportes en Phase 3 restent : SAV avance, agenda, signature electronique interne, ONLYOFFICE avance, generation conforme Factur-X PDF/A-3 + XML embarque, exports comptables complets et application Electron avancee.
 
 ## Règles importantes
 

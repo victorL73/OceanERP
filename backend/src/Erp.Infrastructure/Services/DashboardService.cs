@@ -33,8 +33,8 @@ public sealed class DashboardService(ErpDbContext db) : IDashboardService
         var shippedOrders = await db.SalesOrders.CountAsync(x => x.Status == "Shipped", cancellationToken);
         var openPurchaseOrders = await db.PurchaseOrders.CountAsync(x => activePurchaseStatuses.Contains(x.Status), cancellationToken);
         var purchaseOrdersExpectedSoon = await db.PurchaseOrders.CountAsync(x => activePurchaseStatuses.Contains(x.Status) && x.ExpectedAt.HasValue && x.ExpectedAt.Value <= soon, cancellationToken);
-        var unpaidInvoices = await db.Invoices.CountAsync(x => x.Status != "Paid" && x.Status != "Cancelled", cancellationToken);
-        var overdueInvoices = await db.Invoices.CountAsync(x => x.Status != "Paid" && x.Status != "Cancelled" && x.DueDate < today, cancellationToken);
+        var unpaidInvoices = await db.Invoices.CountAsync(x => x.Kind == "Invoice" && x.Status != "Paid" && x.Status != "Cancelled", cancellationToken);
+        var overdueInvoices = await db.Invoices.CountAsync(x => x.Kind == "Invoice" && x.Status != "Paid" && x.Status != "Cancelled" && x.DueDate < today, cancellationToken);
         var lowStock = await db.StockItems
             .Join(db.Products, item => item.ProductId, product => product.Id, (item, product) => new { item, product })
             .CountAsync(x => x.product.IsActive && x.item.AlertThreshold > 0 && x.item.QuantityOnHand - x.item.QuantityReserved <= x.item.AlertThreshold, cancellationToken);

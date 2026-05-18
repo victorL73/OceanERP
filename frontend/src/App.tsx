@@ -3539,6 +3539,11 @@ function Orders({ items, customers, warehouses, isAdministrator, onChanged }: { 
                 Confirmer
               </button>
             )}
+            {item.status === 'Confirmed' && (
+              <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void changeStatus(item, 'Preparing'); }}>
+                Preparer
+              </button>
+            )}
             {(item.status === 'Confirmed' || item.status === 'Preparing') && (
               <button className="secondary" type="button" onClick={(event) => { event.stopPropagation(); void changeStatus(item, 'Shipped'); }}>
                 Expedier
@@ -3637,11 +3642,13 @@ function SalesOrderDetailModal({
   const [deletingOrder, setDeletingOrder] = useState(false);
   const nextActions = [
     order.status === 'Draft' ? { label: 'Confirmer', status: 'Confirmed' } : null,
+    order.status === 'Confirmed' ? { label: 'Preparer', status: 'Preparing' } : null,
     order.status === 'Confirmed' || order.status === 'Preparing' ? { label: 'Expedier', status: 'Shipped' } : null,
     order.status === 'Shipped' ? { label: 'Terminer', status: 'Completed' } : null
   ].filter((item): item is { label: string; status: string } => Boolean(item));
   const statusSuccessMessages: Record<string, string> = {
     Confirmed: 'Commande confirmee.',
+    Preparing: 'Commande en preparation.',
     Shipped: 'Commande expediee.',
     Completed: 'Commande terminee.'
   };
@@ -4358,10 +4365,15 @@ function invoiceStatusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function invoiceKindLabel(kind: string) {
+  return kind === 'CreditNote' ? 'Avoir' : 'Facture';
+}
+
 function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: SalesOrder[]; onChanged: () => Promise<void> }) {
   const [orderId, setOrderId] = useState('');
   const [paymentInvoiceId, setPaymentInvoiceId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('0');
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -4408,6 +4420,11 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
     await onChanged();
   }
 
+  async function createCreditNote(invoice: Invoice) {
+    await api.createInvoiceCreditNote(invoice.id);
+    await onChanged();
+  }
+
   return (
     <>
       <Panel title="Nouvelle facture depuis commande">
@@ -4448,31 +4465,87 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
         </form>
       </Panel>
       <DataTable
-        columns={['Numero', 'Client', 'Statut', 'Echeance', 'Total', 'Solde', 'Historique', 'Actions']}
+        columns={['Type', 'Numero', 'Client', 'Origine', 'Statut', 'Echeance', 'Total', 'Solde', 'Factur-X', 'Actions']}
         rows={items.map((item) => [
+          invoiceKindLabel(item.kind),
           item.number,
-          item.customerId,
+          item.customerName,
+          item.kind === 'CreditNote' ? `Avoir de ${item.creditOfInvoiceNumber ?? '-'}` : item.salesOrderNumber ?? '-',
           invoiceStatusLabel(item.status),
           formatOrderDate(item.dueDate),
           `${item.total.toFixed(2)} EUR`,
           `${item.balanceDue.toFixed(2)} EUR`,
-          `${item.statusHistory.length} statut(s)`,
+          item.facturXReady ? item.facturXProfile : 'A preparer',
           <div className="table-actions">
-            <button className="secondary" onClick={() => generatePdf(item)} type="button">
+            <button className="secondary" onClick={(event) => { event.stopPropagation(); void generatePdf(item); }} type="button">
               <FileText size={15} />
               Generer
             </button>
-            <button className="secondary" disabled={item.documents.length === 0} onClick={() => downloadPdf(item)} type="button">
+            <button className="secondary" disabled={item.documents.length === 0} onClick={(event) => { event.stopPropagation(); void downloadPdf(item); }} type="button">
               <Download size={15} />
               PDF
             </button>
-            <button className="danger" disabled={item.status === 'Paid' || item.status === 'Cancelled' || item.paidTotal > 0} onClick={() => cancelInvoice(item)} type="button">
+            <button className="secondary" disabled={item.kind === 'CreditNote' || item.status === 'Cancelled'} onClick={(event) => { event.stopPropagation(); void createCreditNote(item); }} type="button">
+              Avoir
+            </button>
+            <button className="danger" disabled={item.status === 'Paid' || item.status === 'Cancelled' || item.paidTotal > 0} onClick={(event) => { event.stopPropagation(); void cancelInvoice(item); }} type="button">
               <X size={15} />
               Annuler
             </button>
           </div>
         ])}
+        onRowClick={(index) => setSelectedInvoice(items[index])}
       />
+      {selectedInvoice && (
+        <div className="modal-backdrop" onClick={() => setSelectedInvoice(null)}>
+          <section className="modal-panel order-detail-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">{invoiceKindLabel(selectedInvoice.kind)}</p>
+                <h2>{selectedInvoice.number}</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setSelectedInvoice(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <section className="detail-grid">
+              <DetailItem label="Client" value={selectedInvoice.customerName} />
+              <DetailItem label="Commande" value={selectedInvoice.salesOrderNumber ?? '-'} />
+              <DetailItem label="Avoir de" value={selectedInvoice.creditOfInvoiceNumber ?? '-'} />
+              <DetailItem label="Statut" value={invoiceStatusLabel(selectedInvoice.status)} />
+              <DetailItem label="Emission" value={formatOrderDate(selectedInvoice.issueDate)} />
+              <DetailItem label="Echeance" value={formatOrderDate(selectedInvoice.dueDate)} />
+              <DetailItem label="Total" value={`${selectedInvoice.total.toFixed(2)} EUR`} />
+              <DetailItem label="Regle" value={`${selectedInvoice.paidTotal.toFixed(2)} EUR`} />
+              <DetailItem label="Solde" value={`${selectedInvoice.balanceDue.toFixed(2)} EUR`} />
+              <DetailItem label="Factur-X" value={selectedInvoice.facturXReady ? `Pret profil ${selectedInvoice.facturXProfile}` : 'A preparer'} />
+            </section>
+            <h3>Lignes</h3>
+            <DataTable
+              columns={['Designation', 'Quantite', 'PU HT', 'Total HT']}
+              rows={selectedInvoice.lines.map((line) => [line.description, line.quantity, `${line.unitPrice.toFixed(2)} EUR`, `${line.lineTotal.toFixed(2)} EUR`])}
+            />
+            <h3>Historique</h3>
+            <DataTable
+              columns={['Statut', 'Date']}
+              rows={selectedInvoice.statusHistory.map((history) => [invoiceStatusLabel(history.status), formatOrderDate(history.changedAt)])}
+            />
+            <div className="modal-footer">
+              <button className="secondary" type="button" onClick={() => void generatePdf(selectedInvoice)}>
+                <FileText size={15} />
+                Generer PDF
+              </button>
+              <button className="secondary" disabled={selectedInvoice.documents.length === 0} type="button" onClick={() => void downloadPdf(selectedInvoice)}>
+                <Download size={15} />
+                Telecharger PDF
+              </button>
+              <button className="secondary" disabled={selectedInvoice.kind === 'CreditNote' || selectedInvoice.status === 'Cancelled'} type="button" onClick={() => void createCreditNote(selectedInvoice)}>
+                Creer un avoir
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }

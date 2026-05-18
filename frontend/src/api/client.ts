@@ -507,6 +507,10 @@ export class ApiClient {
     return this.request<Invoice>(`/api/invoices/${invoiceId}/payments`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  createInvoiceCreditNote(invoiceId: string, reason?: string | null) {
+    return this.request<Invoice>(`/api/invoices/${invoiceId}/credit-note`, { method: 'POST', auth: true, body: JSON.stringify({ reason }) });
+  }
+
   cancelInvoice(invoiceId: string) {
     return this.request<Invoice>(`/api/invoices/${invoiceId}/cancel`, { method: 'POST', auth: true });
   }

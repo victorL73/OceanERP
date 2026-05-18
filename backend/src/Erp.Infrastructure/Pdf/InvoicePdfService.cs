@@ -22,7 +22,7 @@ public sealed class InvoicePdfService : IInvoicePdfService
                 page.Header().Column(column =>
                 {
                     column.Item().Text("OceanERP").FontSize(22).Bold();
-                    column.Item().Text($"Facture {invoice.Number}").FontSize(16);
+                    column.Item().Text($"{(invoice.Kind == "CreditNote" ? "Avoir" : "Facture")} {invoice.Number}").FontSize(16);
                     column.Item().Text($"Client: {invoice.CustomerName}");
                     column.Item().Text($"Emission: {invoice.IssueDate:dd/MM/yyyy} - Echeance: {invoice.DueDate:dd/MM/yyyy}");
                 });

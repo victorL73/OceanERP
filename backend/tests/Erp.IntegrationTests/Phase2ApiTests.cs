@@ -60,10 +60,17 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
 
         var confirmResponse = await client.PostAsJsonAsync($"/api/orders/{order!.Id}/status", new UpdateSalesOrderStatusRequest("Confirmed"));
         Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+        var confirmed = await confirmResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+        Assert.Equal("Confirmed", confirmed!.Status);
         var reservedItems = await client.GetFromJsonAsync<IReadOnlyList<StockItemDto>>("/api/stock/items");
         var reserved = Assert.Single(reservedItems!, x => x.ProductId == product.Id);
         Assert.Equal(2, reserved.QuantityReserved);
         Assert.Equal(3, reserved.AvailableQuantity);
+
+        var preparingResponse = await client.PostAsJsonAsync($"/api/orders/{order.Id}/status", new UpdateSalesOrderStatusRequest("Preparing"));
+        Assert.Equal(HttpStatusCode.OK, preparingResponse.StatusCode);
+        var preparing = await preparingResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+        Assert.Equal("Preparing", preparing!.Status);
 
         var shipResponse = await client.PostAsJsonAsync($"/api/orders/{order.Id}/status", new UpdateSalesOrderStatusRequest("Shipped"));
         Assert.Equal(HttpStatusCode.OK, shipResponse.StatusCode);
@@ -195,6 +202,18 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(HttpStatusCode.OK, documentResponse.StatusCode);
         var document = await documentResponse.Content.ReadFromJsonAsync<InvoiceDocumentDto>();
         Assert.EndsWith(".pdf", document!.FileName);
+
+        var creditResponse = await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/credit-note", new CreateCreditNoteRequest("Test avoir"));
+        Assert.Equal(HttpStatusCode.Created, creditResponse.StatusCode);
+        var credit = await creditResponse.Content.ReadFromJsonAsync<InvoiceDto>();
+        Assert.Equal("CreditNote", credit!.Kind);
+        Assert.Equal(invoice.Id, credit.CreditOfInvoiceId);
+        Assert.Equal(invoice.Number, credit.CreditOfInvoiceNumber);
+        Assert.True(credit.FacturXReady);
+        Assert.StartsWith("AVO-", credit.Number);
+
+        var creditPayment = await client.PostAsJsonAsync($"/api/invoices/{credit.Id}/payments", new AddInvoicePaymentRequest(10, DateOnly.FromDateTime(DateTime.UtcNow)));
+        Assert.Equal(HttpStatusCode.BadRequest, creditPayment.StatusCode);
 
         var cancelResponse = await client.PostAsync($"/api/invoices/{invoice.Id}/cancel", null);
         Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);

@@ -50,6 +50,7 @@ La migration `Phase2Workflows` complete ce socle :
 - `SalesOrderLines.ProductId` pour relier les commandes au stock produit.
 - `Invoices.SalesOrderId`, `IssueDate`, `DueDate` et index unique pour eviter de facturer deux fois la meme commande.
 - `InvoiceDocuments` recoit les metadonnees completes des PDF facture.
+- `InvoiceCreditNotes` ajoute `Kind`, `CreditOfInvoiceId` et `FacturXProfile` pour distinguer factures et avoirs, rattacher l'avoir a sa facture d'origine et preparer les futurs exports Factur-X.
 - `MailAccounts` recoit les ports SMTP/IMAP, SSL, utilisateur et nom de secret.
 - `EmailMessages` recoit corps, direction, statut, lu/non lu et date d'envoi.
 
@@ -92,5 +93,6 @@ Les migrations Phase 2 suivantes completent les usages terrain :
 - `EmailAutoSyncSettings` ajoute le rafraichissement IMAP automatique configurable par compte.
 - `CustomerProfileFields` ajoute les champs utiles sur les clients : raison sociale, nom commercial, SIREN/SIRET, TVA, telephones, site, origine, code comptable, conditions de paiement, remise et notes.
 - `SalesOrderShippingDetails` et `SalesOrderPrestashopDetails` ajoutent les informations boutique, livraison, paiement, facture et transporteur necessaires au detail commande et aux documents d'expedition.
+- `InvoiceCreditNotes` finalise le socle facturation Phase 2 avec avoirs, profil Factur-X et index qui autorise une seule facture principale par commande tout en permettant les avoirs rattaches.
 
 Les factures conservent l'historique dans `InvoiceStatusHistories`. Le statut `Overdue` est calcule par l'API a partir de `DueDate` et du solde restant, sans dupliquer cet etat derive en base.

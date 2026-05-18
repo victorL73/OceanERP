@@ -7,6 +7,7 @@ public interface IInvoiceService
     Task<PagedResult<InvoiceDto>> SearchAsync(int page, int pageSize, CancellationToken cancellationToken);
     Task<Result<InvoiceDto>> GetAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<InvoiceDto>> CreateFromOrderAsync(CreateInvoiceFromOrderRequest request, CancellationToken cancellationToken);
+    Task<Result<InvoiceDto>> CreateCreditNoteAsync(Guid invoiceId, CreateCreditNoteRequest request, CancellationToken cancellationToken);
     Task<Result<InvoiceDto>> AddPaymentAsync(Guid invoiceId, AddInvoicePaymentRequest request, CancellationToken cancellationToken);
     Task<Result<InvoiceDto>> CancelAsync(Guid invoiceId, CancellationToken cancellationToken);
     Task<Result<InvoiceDocumentDto>> GeneratePdfAsync(Guid id, CancellationToken cancellationToken);

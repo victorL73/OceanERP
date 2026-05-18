@@ -386,14 +386,21 @@ export type PurchaseOrder = {
 export type Invoice = {
   id: string;
   number: string;
+  kind: string;
   customerId: string;
+  customerName: string;
   salesOrderId?: string;
+  salesOrderNumber?: string;
+  creditOfInvoiceId?: string;
+  creditOfInvoiceNumber?: string;
   status: string;
   issueDate: string;
   dueDate: string;
   total: number;
   paidTotal: number;
   balanceDue: number;
+  facturXProfile: string;
+  facturXReady: boolean;
   lines: Array<{ id: string; description: string; quantity: number; unitPrice: number; lineTotal: number }>;
   documents: InvoiceDocument[];
   statusHistory: Array<{ id: string; status: string; changedAt: string }>;

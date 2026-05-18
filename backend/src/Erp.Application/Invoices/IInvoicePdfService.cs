@@ -7,6 +7,7 @@ public interface IInvoicePdfService
 
 public sealed record InvoicePdfModel(
     string Number,
+    string Kind,
     string CustomerName,
     DateOnly IssueDate,
     DateOnly DueDate,

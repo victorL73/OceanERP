@@ -64,6 +64,7 @@ Swagger est activé en environnement `Development`.
 - `GET /api/invoices`
 - `GET /api/invoices/{id}`
 - `POST /api/invoices/from-order`
+- `POST /api/invoices/{id}/credit-note`
 - `POST /api/invoices/{id}/payments`
 - `POST /api/invoices/{id}/cancel`
 - `POST /api/invoices/{id}/pdf`
@@ -128,6 +129,7 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Les commandes avec lignes produit peuvent etre confirmees puis expediees. La confirmation reserve le stock, l'expedition decremente le stock physique.
 - `GET /api/orders/{id}/shipment-slip` genere le bon d'expedition ERP pour les commandes Colissimo.
 - `GET /api/orders/{id}/colissimo-label` recupere l'etiquette Colissimo officielle si le module PrestaShop l'expose via API ou via `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE`. Si l'etiquette officielle n'est pas accessible, l'API renvoie un PDF de preparation Colissimo imprimable avec un avertissement indiquant que l'etiquette transporteur officielle doit etre generee dans PrestaShop.
+- `POST /api/invoices/{id}/credit-note` cree un avoir `AVO-YYYY-xxxx` rattache a la facture d'origine et conserve le profil de preparation Factur-X.
 - Une facture ne peut etre creee que depuis une commande `Shipped` ou `Completed`.
 - Le statut facture expose par l'API devient automatiquement `Overdue` quand l'echeance est depassee et que le solde reste positif. `POST /api/invoices/{id}/cancel` annule une facture sans paiement et ajoute une entree dans l'historique de statut.
 - `POST /api/invoices/{id}/pdf` genere un PDF facture via QuestPDF et stocke uniquement ses metadonnees en PostgreSQL.

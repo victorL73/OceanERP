@@ -332,9 +332,12 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         modelBuilder.Entity<Invoice>(entity =>
         {
             entity.HasIndex(x => x.Number).IsUnique();
-            entity.HasIndex(x => x.SalesOrderId).IsUnique().HasFilter("\"SalesOrderId\" IS NOT NULL");
+            entity.HasIndex(x => x.SalesOrderId).IsUnique().HasFilter("\"SalesOrderId\" IS NOT NULL AND \"Kind\" = 'Invoice'");
+            entity.HasIndex(x => x.CreditOfInvoiceId);
             entity.Property(x => x.Number).HasMaxLength(80);
+            entity.Property(x => x.Kind).HasMaxLength(40);
             entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.FacturXProfile).HasMaxLength(80);
         });
 
         modelBuilder.Entity<InvoiceLine>(entity =>
