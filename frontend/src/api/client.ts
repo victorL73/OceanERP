@@ -317,6 +317,10 @@ export class ApiClient {
     await this.download(`/api/drive/files/${fileId}/download`, fileName);
   }
 
+  driveFileBlob(fileId: string): Promise<Blob> {
+    return this.blob(`/api/drive/files/${fileId}/download`);
+  }
+
   renameDriveFile(fileId: string, name: string) {
     return this.request<DriveItem>(`/api/drive/files/${fileId}/rename`, { method: 'PUT', auth: true, body: JSON.stringify({ name }) });
   }
@@ -715,6 +719,24 @@ export class ApiClient {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+  }
+
+  private async blob(path: string, retryOnUnauthorized = true): Promise<Blob> {
+    const headers = new Headers();
+    if (this.accessToken) {
+      headers.set('Authorization', `Bearer ${this.accessToken}`);
+    }
+
+    const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+    if (response.status === 401 && retryOnUnauthorized && (await this.refreshAuth())) {
+      return this.blob(path, false);
+    }
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    return response.blob();
   }
 }
 

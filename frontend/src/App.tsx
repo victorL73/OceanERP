@@ -1,6 +1,6 @@
 import { type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { AuditLog, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -6037,6 +6037,19 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
 
 type DriveEntryRef = { kind: 'folder' | 'file'; id: string; name: string };
 type DriveFolderOption = { id: string; name: string; depth: number };
+type DrivePreview = { file: DriveItem; url: string; mimeType: string };
+
+function isImageDriveFile(file: DriveItem) {
+  return file.mimeType.toLowerCase().startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name);
+}
+
+function isPdfDriveFile(file: DriveItem) {
+  return file.mimeType.toLowerCase().includes('pdf') || /\.pdf$/i.test(file.name);
+}
+
+function isTextDriveFile(file: DriveItem) {
+  return file.mimeType.toLowerCase().startsWith('text/') || /\.(txt|csv|json|xml|md)$/i.test(file.name);
+}
 
 function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
   const [folderName, setFolderName] = useState('');
@@ -6055,6 +6068,9 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
   const [moveFolders, setMoveFolders] = useState<DriveFolderOption[]>([]);
   const [draggedEntry, setDraggedEntry] = useState<DriveEntryRef | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => (localStorage.getItem('oceanerp.driveViewMode') === 'grid' ? 'grid' : 'list'));
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
+  const [preview, setPreview] = useState<DrivePreview | null>(null);
 
   async function refreshDrive() {
     const [nextFolders, nextFiles] = await Promise.all([api.folders(currentFolderId, search, showTrash), api.files(currentFolderId, search, showTrash)]);
@@ -6065,6 +6081,52 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
   useEffect(() => {
     refreshDrive().catch((err) => setMessage(err instanceof Error ? err.message : 'Chargement Drive impossible'));
   }, [currentFolderId, search, showTrash]);
+
+  useEffect(() => {
+    localStorage.setItem('oceanerp.driveViewMode', viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const createdUrls: string[] = [];
+    const imageFiles = visibleFiles.filter((file) => !file.isTrashed && isImageDriveFile(file));
+
+    Promise.all(imageFiles.map(async (file) => {
+      try {
+        const blob = await api.driveFileBlob(file.id);
+        const url = URL.createObjectURL(blob);
+        createdUrls.push(url);
+        return [file.id, url] as const;
+      } catch {
+        return null;
+      }
+    })).then((entries) => {
+      if (cancelled) {
+        createdUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      setThumbnailUrls((current) => {
+        Object.values(current).forEach((url) => URL.revokeObjectURL(url));
+        return Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry)));
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      createdUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [visibleFiles]);
+
+  useEffect(() => () => {
+    Object.values(thumbnailUrls).forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
+  useEffect(() => () => {
+    if (preview?.url) {
+      URL.revokeObjectURL(preview.url);
+    }
+  }, [preview?.url]);
 
   async function createFolder(event: FormEvent) {
     event.preventDefault();
@@ -6250,6 +6312,79 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
     await moveEntry(entry, destinationFolderId);
   }
 
+  async function openFilePreview(file: DriveItem) {
+    if (file.isTrashed) {
+      return;
+    }
+
+    setMessage(null);
+    try {
+      const blob = await api.driveFileBlob(file.id);
+      const url = URL.createObjectURL(blob);
+      setPreview((current) => {
+        if (current?.url) {
+          URL.revokeObjectURL(current.url);
+        }
+
+        return { file, url, mimeType: blob.type || file.mimeType };
+      });
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Apercu impossible');
+    }
+  }
+
+  function closePreview() {
+    setPreview((current) => {
+      if (current?.url) {
+        URL.revokeObjectURL(current.url);
+      }
+
+      return null;
+    });
+  }
+
+  function renderFileVisual(file: DriveItem) {
+    const thumbnailUrl = thumbnailUrls[file.id];
+    if (isImageDriveFile(file)) {
+      return (
+        <span className="drive-thumb">
+          {thumbnailUrl ? <img src={thumbnailUrl} alt={file.name} /> : <ImageIcon size={24} />}
+        </span>
+      );
+    }
+
+    return (
+      <span className="drive-file-icon">
+        <FileText size={20} />
+      </span>
+    );
+  }
+
+  function renderFilePreview() {
+    if (!preview) {
+      return null;
+    }
+
+    if (isImageDriveFile(preview.file)) {
+      return <img className="drive-preview-image" src={preview.url} alt={preview.file.name} />;
+    }
+
+    if (isPdfDriveFile(preview.file) || isTextDriveFile(preview.file)) {
+      return <iframe className="drive-preview-frame" src={preview.url} title={preview.file.name} />;
+    }
+
+    return (
+      <div className="drive-preview-empty">
+        <FileText size={42} />
+        <strong>Apercu non disponible pour ce type de fichier.</strong>
+        <button className="secondary" type="button" onClick={() => api.downloadDriveFile(preview.file.id, preview.file.name)}>
+          <Download size={15} />
+          Telecharger
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
       <Panel title="Documents">
@@ -6285,6 +6420,16 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
           </div>
           <div className="drive-filters">
             <input aria-label="Recherche Drive" placeholder="Rechercher un document ou dossier" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <div className="view-switch" role="group" aria-label="Affichage Drive">
+              <button className={viewMode === 'list' ? 'active' : ''} type="button" onClick={() => setViewMode('list')} title="Vue liste">
+                <List size={16} />
+                Liste
+              </button>
+              <button className={viewMode === 'grid' ? 'active' : ''} type="button" onClick={() => setViewMode('grid')} title="Vue mosaique">
+                <Grid2X2 size={16} />
+                Mosaique
+              </button>
+            </div>
             <label className="checkbox-line">
               <input type="checkbox" checked={showTrash} onChange={(event) => setShowTrash(event.target.checked)} />
               Corbeille incluse
@@ -6293,7 +6438,7 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
         </div>
         {message && <div className="inline-message">{message}</div>}
       </Panel>
-      <section className="drive-list">
+      <section className={viewMode === 'grid' ? 'drive-list drive-grid' : 'drive-list'}>
         {visibleFolders.map((folder) => (
           <article
             key={folder.id}
@@ -6339,9 +6484,10 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
             draggable={!file.isTrashed}
             onDragStart={(event) => startDrag({ kind: 'file', id: file.id, name: file.name }, event)}
             onDragEnd={() => { setDraggedEntry(null); setDropTargetId(null); }}
+            onDoubleClick={() => openFilePreview(file)}
           >
-            <div className="drive-main">
-              <FileText size={18} />
+            <div className="drive-main drive-file-main" role="button" tabIndex={0} title="Double-cliquer pour afficher un apercu" onDoubleClick={(event) => { event.stopPropagation(); openFilePreview(file); }} onKeyDown={(event) => { if (event.key === 'Enter') openFilePreview(file); }}>
+              {renderFileVisual(file)}
               <span>{file.name}</span>
             </div>
             <small>{file.isTrashed ? 'Corbeille' : `${Math.round(file.size / 1024)} Ko`}</small>
@@ -6432,6 +6578,30 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
               </button>
             </div>
           </form>
+        </div>
+      )}
+      {preview && (
+        <div className="modal-backdrop" onClick={closePreview}>
+          <section className="modal-panel drive-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="drive-preview-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">Apercu</p>
+                <h2 id="drive-preview-title">{preview.file.name}</h2>
+              </div>
+              <div className="modal-actions">
+                <button className="secondary" type="button" onClick={() => api.downloadDriveFile(preview.file.id, preview.file.name)}>
+                  <Download size={15} />
+                  Telecharger
+                </button>
+                <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={closePreview}>
+                  <X size={18} />
+                </button>
+              </div>
+            </header>
+            <div className="drive-preview-body">
+              {renderFilePreview()}
+            </div>
+          </section>
         </div>
       )}
     </>
