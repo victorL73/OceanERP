@@ -74,6 +74,45 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task ColissimoLabel_WhenOfficialLabelIsUnavailable_ReturnsPreparationPdf()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+
+        var orderResponse = await client.PostAsJsonAsync("/api/orders", new CreateSalesOrderRequest(
+            customer.Id,
+            null,
+            [new CreateSalesOrderLineRequest(null, "Ligne Colissimo", 1, 10)]));
+        Assert.Equal(HttpStatusCode.Created, orderResponse.StatusCode);
+        var order = await orderResponse.Content.ReadFromJsonAsync<SalesOrderDto>();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
+            var saved = await db.SalesOrders.FindAsync(order!.Id);
+            saved!.ShippingCarrierName = "Colissimo Domicile sans signature";
+            saved.ShippingServiceName = "FR - DOMICILE sans signature";
+            saved.ShippingAddressName = "Client test";
+            saved.ShippingAddressLine1 = "1 rue du Port";
+            saved.ShippingPostalCode = "14980";
+            saved.ShippingCity = "Rots";
+            saved.ShippingCountry = "France";
+            await db.SaveChangesAsync();
+        }
+
+        var labelResponse = await client.GetAsync($"/api/orders/{order!.Id}/colissimo-label");
+
+        Assert.Equal(HttpStatusCode.OK, labelResponse.StatusCode);
+        Assert.Equal("application/pdf", labelResponse.Content.Headers.ContentType?.MediaType);
+        var content = await labelResponse.Content.ReadAsByteArrayAsync();
+        Assert.True(content.Length > 4);
+        Assert.Equal((byte)'%', content[0]);
+        Assert.Equal((byte)'P', content[1]);
+        Assert.Equal((byte)'D', content[2]);
+        Assert.Equal((byte)'F', content[3]);
+    }
+
+    [Fact]
     public async Task Invoice_CreateFromShippedOrder_CalculatesOverdueGeneratesPdfAndCancels()
     {
         using var client = await CreateAuthenticatedClientAsync();

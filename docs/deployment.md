@@ -99,7 +99,7 @@ Pour imprimer les etiquettes Colissimo officielles depuis l'ERP, le module Colis
 PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE=https://boutique.example.com/modules/colissimo/label.php?id_order={orderId}
 ```
 
-Puis recreer `erp-api` et `nginx`. Sans endpoint expose par le module, l'ERP garde le bouton visible sur les commandes Colissimo mais affiche un message clair et il faut generer l'etiquette dans le back-office PrestaShop.
+Puis recreer `erp-api` et `nginx`. Sans endpoint expose par le module, l'ERP garde le bouton visible sur les commandes Colissimo et genere un PDF de preparation imprimable. Ce document n'est pas l'etiquette transporteur officielle : l'etiquette officielle reste a creer ou telecharger dans le back-office PrestaShop tant que le module Colissimo ne l'expose pas par URL/API.
 
 ## Commandes utiles
 

@@ -233,7 +233,7 @@ public sealed class SalesOrderService(
         var externalOrderId = await GetPrestashopExternalOrderIdAsync(order.Id, cancellationToken);
         if (string.IsNullOrWhiteSpace(externalOrderId))
         {
-            return Result<SalesOrderShipmentSlipFileDto>.Failure("Cette commande n'est pas reliee a une commande PrestaShop.");
+            return await GenerateColissimoFallbackLabelAsync(order, "Cette commande n'est pas reliee a une commande PrestaShop.", cancellationToken);
         }
 
         var connection = await db.PrestashopConnections
@@ -242,13 +242,13 @@ public sealed class SalesOrderService(
             .FirstOrDefaultAsync(cancellationToken);
         if (connection is null)
         {
-            return Result<SalesOrderShipmentSlipFileDto>.Failure("Aucune connexion PrestaShop active n'est configuree.");
+            return await GenerateColissimoFallbackLabelAsync(order, "Aucune connexion PrestaShop active n'est configuree.", cancellationToken);
         }
 
         var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
         if (!apiKeyResult.Succeeded)
         {
-            return Result<SalesOrderShipmentSlipFileDto>.Failure(apiKeyResult.Error ?? "Cle API PrestaShop non configuree.");
+            return await GenerateColissimoFallbackLabelAsync(order, apiKeyResult.Error ?? "Cle API PrestaShop non configuree.", cancellationToken);
         }
 
         var configuredEndpoint = await TryConfiguredColissimoLabelEndpointAsync(order, externalOrderId, connection, apiKeyResult.Value!, cancellationToken);
@@ -266,8 +266,34 @@ public sealed class SalesOrderService(
         var configuredDetail = configuredEndpoint.Error?.StartsWith("Aucun endpoint", StringComparison.OrdinalIgnoreCase) == false
             ? $"{configuredEndpoint.Error} "
             : string.Empty;
-        return Result<SalesOrderShipmentSlipFileDto>.Failure(
-            $"{configuredDetail}Etiquette Colissimo officielle introuvable via l'API PrestaShop. Configurez PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE si le module Colissimo expose une URL d'impression, sinon generez l'etiquette depuis PrestaShop.");
+        return await GenerateColissimoFallbackLabelAsync(
+            order,
+            $"{configuredDetail}Etiquette officielle introuvable via l'API PrestaShop. Si l'etiquette existe deja dans PrestaShop, configurez PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE avec l'URL exposee par le module.",
+            cancellationToken);
+    }
+
+    private async Task<Result<SalesOrderShipmentSlipFileDto>> GenerateColissimoFallbackLabelAsync(SalesOrder order, string reason, CancellationToken cancellationToken)
+    {
+        var customer = await db.Customers.Include(x => x.Addresses).FirstOrDefaultAsync(x => x.Id == order.CustomerId, cancellationToken);
+        var address = BuildShippingAddress(order, customer);
+        var lines = await MapLinesAsync(order.Id, cancellationToken);
+        var model = new SalesOrderShipmentSlipPdfModel(
+            order.Number,
+            customer?.CompanyName ?? order.ShippingAddressName ?? "Client",
+            order.ShippingCarrierName ?? order.ShippingServiceName,
+            order.ShippingTrackingNumber,
+            address,
+            lines,
+            order.OrderedAt ?? order.CreatedAt,
+            "Preparation etiquette Colissimo",
+            "Document de preparation genere par OceanERP. Ce document n'est pas une etiquette transporteur officielle.",
+            $"Etiquette Colissimo officielle non disponible depuis l'API PrestaShop. {reason} Generez l'etiquette officielle dans le back-office PrestaShop si necessaire.");
+
+        var content = shipmentPdfService.Generate(model);
+        return Result<SalesOrderShipmentSlipFileDto>.Success(new SalesOrderShipmentSlipFileDto(
+            $"preparation-etiquette-colissimo-{SanitizeFileName(order.Number)}.pdf",
+            "application/pdf",
+            content));
     }
 
     private async Task<Result<SalesOrderShipmentSlipFileDto>> TryConfiguredColissimoLabelEndpointAsync(

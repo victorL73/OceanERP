@@ -24,7 +24,7 @@ public sealed class SalesOrderShipmentPdfService : ISalesOrderShipmentPdfService
                     row.RelativeItem().Column(column =>
                     {
                         column.Item().Text("OceanERP").FontSize(22).Bold();
-                        column.Item().Text("Bon d'expedition").FontSize(16).SemiBold();
+                        column.Item().Text(model.DocumentTitle).FontSize(16).SemiBold();
                         column.Item().Text($"Commande: {model.OrderNumber}");
                     });
 
@@ -39,6 +39,18 @@ public sealed class SalesOrderShipmentPdfService : ISalesOrderShipmentPdfService
                 page.Content().PaddingVertical(24).Column(column =>
                 {
                     column.Spacing(18);
+
+                    if (!string.IsNullOrWhiteSpace(model.NoticeText))
+                    {
+                        column.Item()
+                            .Border(1)
+                            .BorderColor(Colors.Orange.Medium)
+                            .Background(Colors.Orange.Lighten5)
+                            .Padding(10)
+                            .Text(model.NoticeText)
+                            .FontColor(Colors.Orange.Darken4)
+                            .SemiBold();
+                    }
 
                     column.Item().Row(row =>
                     {
@@ -97,7 +109,7 @@ public sealed class SalesOrderShipmentPdfService : ISalesOrderShipmentPdfService
                     });
                 });
 
-                page.Footer().AlignCenter().Text("Bon d'expedition genere par OceanERP. Etiquette transporteur officielle a produire dans le service Colissimo si necessaire.");
+                page.Footer().AlignCenter().Text(model.FooterText);
             });
         }).GeneratePdf();
 

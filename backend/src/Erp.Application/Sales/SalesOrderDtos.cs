@@ -42,7 +42,10 @@ public sealed record SalesOrderShipmentSlipPdfModel(
     string? TrackingNumber,
     SalesOrderShippingAddressDto ShippingAddress,
     IReadOnlyList<SalesOrderLineDto> Lines,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string DocumentTitle = "Bon d'expedition",
+    string FooterText = "Bon d'expedition genere par OceanERP. Etiquette transporteur officielle a produire dans le service Colissimo si necessaire.",
+    string? NoticeText = null);
 public sealed record CreateSalesOrderRequest(Guid CustomerId, Guid? WarehouseId, IReadOnlyList<CreateSalesOrderLineRequest> Lines);
 public sealed record CreateSalesOrderLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice);
 public sealed record CreateSalesOrderFromQuoteRequest(Guid QuoteId, Guid? WarehouseId = null);
