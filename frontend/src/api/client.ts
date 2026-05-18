@@ -407,30 +407,42 @@ export class ApiClient {
 
   async openOrderShipmentSlip(orderId: string, orderNumber: string) {
     const fileName = `bon-expedition-${orderNumber}.pdf`;
-    const pdf = await this.blob(`/api/orders/${orderId}/shipment-slip`);
-    const url = URL.createObjectURL(pdf);
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!opened) {
-      await this.download(`/api/orders/${orderId}/shipment-slip`, fileName);
-      URL.revokeObjectURL(url);
-      return;
-    }
+    const opened = this.openPendingDocumentWindow("Preparation du bon d'expedition...");
+    try {
+      const pdf = await this.blob(`/api/orders/${orderId}/shipment-slip`);
+      const url = URL.createObjectURL(pdf);
+      if (!opened) {
+        await this.download(`/api/orders/${orderId}/shipment-slip`, fileName);
+        URL.revokeObjectURL(url);
+        return;
+      }
 
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+      opened.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      opened?.close();
+      throw err;
+    }
   }
 
   async openOrderColissimoLabel(orderId: string, orderNumber: string) {
     const fileName = `etiquette-colissimo-${orderNumber}.pdf`;
-    const label = await this.blob(`/api/orders/${orderId}/colissimo-label`);
-    const url = URL.createObjectURL(label);
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!opened) {
-      await this.download(`/api/orders/${orderId}/colissimo-label`, fileName);
-      URL.revokeObjectURL(url);
-      return;
-    }
+    const opened = this.openPendingDocumentWindow("Recherche de l'etiquette Colissimo...");
+    try {
+      const label = await this.blob(`/api/orders/${orderId}/colissimo-label`);
+      const url = URL.createObjectURL(label);
+      if (!opened) {
+        await this.download(`/api/orders/${orderId}/colissimo-label`, fileName);
+        URL.revokeObjectURL(url);
+        return;
+      }
 
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+      opened.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      opened?.close();
+      throw err;
+    }
   }
 
   purchaseOrders() {
@@ -735,7 +747,7 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      throw new Error(await this.readErrorMessage(response));
     }
 
     const blob = await response.blob();
@@ -747,6 +759,19 @@ export class ApiClient {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+  }
+
+  private openPendingDocumentWindow(message: string) {
+    const opened = window.open('', '_blank');
+    if (!opened) {
+      return null;
+    }
+
+    opened.document.title = 'OceanERP';
+    opened.document.body.style.fontFamily = 'Arial, sans-serif';
+    opened.document.body.style.padding = '24px';
+    opened.document.body.textContent = message;
+    return opened;
   }
 
   private async blob(path: string, retryOnUnauthorized = true): Promise<Blob> {
@@ -761,10 +786,24 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      throw new Error(await this.readErrorMessage(response));
     }
 
     return response.blob();
+  }
+
+  private async readErrorMessage(response: Response) {
+    const text = await response.text();
+    if (!text.trim()) {
+      return `HTTP ${response.status}`;
+    }
+
+    try {
+      const json = JSON.parse(text) as { error?: string; title?: string; detail?: string };
+      return json.error ?? json.detail ?? json.title ?? text;
+    } catch {
+      return text;
+    }
   }
 }
 

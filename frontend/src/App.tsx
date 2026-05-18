@@ -3421,21 +3421,27 @@ function Orders({ items, customers, warehouses, onChanged }: { items: SalesOrder
     await onChanged();
   }
 
-  async function openShipmentSlip(order: SalesOrder) {
+  async function openShipmentSlip(order: SalesOrder): Promise<string | null> {
     setMessage(null);
     try {
       await api.openOrderShipmentSlip(order.id, order.number);
+      return null;
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Generation du bon d'expedition impossible.");
+      const error = err instanceof Error ? err.message : "Generation du bon d'expedition impossible.";
+      setMessage(error);
+      return error;
     }
   }
 
-  async function openColissimoLabel(order: SalesOrder) {
+  async function openColissimoLabel(order: SalesOrder): Promise<string | null> {
     setMessage(null);
     try {
       await api.openOrderColissimoLabel(order.id, order.number);
+      return null;
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Impression de l'etiquette Colissimo impossible.");
+      const error = err instanceof Error ? err.message : "Impression de l'etiquette Colissimo impossible.";
+      setMessage(error);
+      return error;
     }
   }
 
@@ -3547,16 +3553,35 @@ function SalesOrderDetailModal({
   customer?: Customer;
   warehouse?: Warehouse;
   onClose: () => void;
-  onPrintShipmentSlip: () => Promise<void>;
-  onPrintColissimoLabel: () => Promise<void>;
+  onPrintShipmentSlip: () => Promise<string | null>;
+  onPrintColissimoLabel: () => Promise<string | null>;
   onChangeStatus: (status: string) => Promise<void>;
 }) {
   const address = order.shippingAddress;
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [printingSlip, setPrintingSlip] = useState(false);
+  const [printingLabel, setPrintingLabel] = useState(false);
   const nextActions = [
     order.status === 'Draft' ? { label: 'Confirmer', status: 'Confirmed' } : null,
     order.status === 'Confirmed' || order.status === 'Preparing' ? { label: 'Expedier', status: 'Shipped' } : null,
     order.status === 'Shipped' ? { label: 'Terminer', status: 'Completed' } : null
   ].filter((item): item is { label: string; status: string } => Boolean(item));
+
+  async function handlePrintShipmentSlip() {
+    setActionMessage("Preparation du bon d'expedition...");
+    setPrintingSlip(true);
+    const error = await onPrintShipmentSlip();
+    setPrintingSlip(false);
+    setActionMessage(error ?? "Ouverture du bon d'expedition lancee.");
+  }
+
+  async function handlePrintColissimoLabel() {
+    setActionMessage("Recherche de l'etiquette Colissimo...");
+    setPrintingLabel(true);
+    const error = await onPrintColissimoLabel();
+    setPrintingLabel(false);
+    setActionMessage(error ?? "Ouverture de l'etiquette Colissimo lancee.");
+  }
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -3572,15 +3597,15 @@ function SalesOrderDetailModal({
         </div>
         <div className="modal-actions">
           {order.canPrintShippingSlip && (
-            <button className="secondary" type="button" onClick={() => void onPrintShipmentSlip()}>
+            <button className="secondary" type="button" disabled={printingSlip} onClick={() => void handlePrintShipmentSlip()}>
               <Printer size={16} />
-              Imprimer le bon d'expedition
+              {printingSlip ? 'Preparation...' : "Imprimer le bon d'expedition"}
             </button>
           )}
           {canPrintOrderColissimoLabel(order) && (
-            <button className="secondary" type="button" onClick={() => void onPrintColissimoLabel()}>
+            <button className="secondary" type="button" disabled={printingLabel} onClick={() => void handlePrintColissimoLabel()}>
               <Printer size={16} />
-              Imprimer l'etiquette Colissimo
+              {printingLabel ? 'Recherche...' : "Imprimer l'etiquette Colissimo"}
             </button>
           )}
           {nextActions.map((action) => (
@@ -3589,6 +3614,7 @@ function SalesOrderDetailModal({
             </button>
           ))}
         </div>
+        {actionMessage && <div className="inline-message">{actionMessage}</div>}
 
         <div className="detail-grid">
           <DetailItem label="Client" value={order.customerName ?? customer?.companyName ?? order.customerId} />
