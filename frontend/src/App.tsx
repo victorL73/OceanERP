@@ -6145,20 +6145,36 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
   }
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) {
-      setBusy(true);
-      setMessage(null);
-      try {
-        await api.uploadDriveFile(file, currentFolderId);
-        event.target.value = '';
-        await refreshDrive();
-        await onChanged();
-      } catch (err) {
-        setMessage(err instanceof Error ? err.message : 'Upload impossible');
-      } finally {
-        setBusy(false);
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length === 0) {
+      return;
+    }
+
+    setBusy(true);
+    setMessage(null);
+    try {
+      const results = await Promise.all(selectedFiles.map(async (file) => {
+        try {
+          await api.uploadDriveFile(file, currentFolderId);
+          return { fileName: file.name, success: true, error: null };
+        } catch (err) {
+          return { fileName: file.name, success: false, error: err instanceof Error ? err.message : 'Upload impossible' };
+        }
+      }));
+      const failedUploads = results.filter((result) => !result.success);
+      event.target.value = '';
+      await refreshDrive();
+      await onChanged();
+      if (failedUploads.length > 0) {
+        const failedNames = failedUploads.map((result) => result.fileName).join(', ');
+        setMessage(`${selectedFiles.length - failedUploads.length}/${selectedFiles.length} fichier(s) envoyes. Echec : ${failedNames}`);
+      } else {
+        setMessage(selectedFiles.length === 1 ? 'Fichier envoye.' : `${selectedFiles.length} fichiers envoyes.`);
       }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Upload impossible');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -6399,7 +6415,7 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
           <label className="upload-button">
             <Upload size={16} />
             Upload
-            <input type="file" onChange={upload} />
+            <input type="file" multiple onChange={upload} />
           </label>
         </div>
         <div className="drive-toolbar">
