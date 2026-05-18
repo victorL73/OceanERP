@@ -2,7 +2,7 @@ import { type ChangeEvent, type FormEvent, type ReactNode, isValidElement, useEf
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, Download, FileText, Folder, Forward, KeyRound, LayoutDashboard, LogOut, Mail, Package, Paperclip, Pencil, Plus, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { Customer, DashboardSummary, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailMessage, EmailSyncSummary, EmailTemplate, Invoice, MailAccount, MailServerSettings, NotificationItem, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop';
 
@@ -94,6 +94,7 @@ export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [customers, setCustomers] = useState<PagedResult<Customer> | null>(null);
   const [products, setProducts] = useState<PagedResult<Product> | null>(null);
   const [quotes, setQuotes] = useState<PagedResult<Quote> | null>(null);
@@ -143,10 +144,11 @@ export default function App() {
         const user = await api.me();
         setCurrentUser(user);
         if (hasPermission(user, 'auth.users.read')) {
-          const [nextUsers, nextRoles, nextPermissions] = await Promise.all([api.users(), api.roles(), api.permissions()]);
+          const [nextUsers, nextRoles, nextPermissions, nextAuditLogs] = await Promise.all([api.users(), api.roles(), api.permissions(), api.auditLogs()]);
           setUsers(nextUsers);
           setRoles(nextRoles);
           setPermissions(nextPermissions);
+          setAuditLogs(nextAuditLogs);
         }
         if (hasPermission(user, 'prestashop.read') && hasPermission(user, 'prestashop.write')) {
           setPrestashopConnections(await api.prestashopConnections());
@@ -315,6 +317,33 @@ export default function App() {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated || typeof window === 'undefined' || !('Notification' in window)) {
+      return;
+    }
+
+    if (Notification.permission === 'default' && notifications.some((item) => !item.isRead)) {
+      Notification.requestPermission().catch(() => undefined);
+      return;
+    }
+
+    if (Notification.permission !== 'granted') {
+      return;
+    }
+
+    const storageKey = 'oceanerp.browserNotifications.seen';
+    const seen = new Set((localStorage.getItem(storageKey) ?? '').split(',').filter(Boolean));
+    const nextSeen = new Set(seen);
+    notifications
+      .filter((item) => !item.isRead && !seen.has(item.id))
+      .slice(0, 5)
+      .forEach((item) => {
+        new Notification(item.title, { body: item.message, tag: item.id });
+        nextSeen.add(item.id);
+      });
+    localStorage.setItem(storageKey, Array.from(nextSeen).slice(-200).join(','));
+  }, [isAuthenticated, notifications]);
+
+  useEffect(() => {
     if (isAuthenticated) {
       load(view);
     }
@@ -401,6 +430,7 @@ export default function App() {
             users={users}
             roles={roles}
             permissions={permissions}
+            auditLogs={auditLogs}
             prestashopConnections={prestashopConnections}
             warehouses={warehouses}
             mailAccounts={mailAccounts}
@@ -514,6 +544,7 @@ function Settings({
   users,
   roles,
   permissions,
+  auditLogs,
   prestashopConnections,
   warehouses,
   mailAccounts,
@@ -532,6 +563,7 @@ function Settings({
   users: User[];
   roles: Role[];
   permissions: Permission[];
+  auditLogs: AuditLog[];
   prestashopConnections: PrestashopConnection[];
   warehouses: Warehouse[];
   mailAccounts: MailAccount[];
@@ -552,7 +584,7 @@ function Settings({
   const canManageEmails = hasPermission(currentUser, 'emails.read') && hasPermission(currentUser, 'emails.write');
   const isAdministrator = Boolean(currentUser?.roles.includes('Administrator'));
   const canManageQuoteSettings = isAdministrator && hasPermission(currentUser, 'quotes.read') && hasPermission(currentUser, 'quotes.write');
-  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'warehouses' | 'prestashop'>('account');
+  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'audit' | 'warehouses' | 'prestashop'>('account');
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -567,7 +599,7 @@ function Settings({
   }, [currentUser]);
 
   useEffect(() => {
-    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'quotes' && !canManageQuoteSettings) || (activeTab === 'access' && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
+    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'quotes' && !canManageQuoteSettings) || ((activeTab === 'access' || activeTab === 'audit') && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
       setActiveTab('account');
     }
   }, [activeTab, canManageEmails, canManagePrestashop, canManageQuoteSettings, canManageUsers, canManageWarehouses]);
@@ -609,6 +641,7 @@ function Settings({
     ...(canManageEmails ? [{ key: 'emails' as const, label: 'Boites mail' }] : []),
     ...(canManageQuoteSettings ? [{ key: 'quotes' as const, label: 'Devis' }] : []),
     ...(canManageUsers ? [{ key: 'access' as const, label: 'Utilisateurs/Roles' }] : []),
+    ...(canManageUsers ? [{ key: 'audit' as const, label: 'Journal audit' }] : []),
     ...(canManageWarehouses ? [{ key: 'warehouses' as const, label: 'Entrepots' }] : []),
     ...(canManagePrestashop ? [{ key: 'prestashop' as const, label: 'PrestaShop' }] : [])
   ];
@@ -657,6 +690,7 @@ function Settings({
         {activeTab === 'emails' && canManageEmails && <MailAccountSettings accounts={mailAccounts} serverSettings={mailServerSettings} users={users} currentUser={currentUser} canAssignUsers={canManageUsers} canManageServerSettings={isAdministrator} onChanged={onMailAccountsChanged} onServerSettingsChanged={onMailServerSettingsChanged} />}
         {activeTab === 'quotes' && canManageQuoteSettings && <QuoteSettingsPanel settings={quoteSettings} onChanged={onQuoteSettingsChanged} />}
         {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
+        {activeTab === 'audit' && canManageUsers && <AuditLogs logs={auditLogs} />}
         {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
         {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettings connections={prestashopConnections} warehouses={warehouses} onChanged={onPrestashopChanged} />}
       </section>
@@ -1126,6 +1160,23 @@ function MailAccountSettings({
         ])}
       />
     </>
+  );
+}
+
+function AuditLogs({ logs }: { logs: AuditLog[] }) {
+  return (
+    <Panel title="Journal d'audit">
+      <DataTable
+        columns={['Date', 'Utilisateur', 'Action', 'Entite', 'Adresse IP']}
+        rows={logs.map((log) => [
+          new Date(log.createdAt).toLocaleString('fr-FR'),
+          log.userDisplayName ? `${log.userDisplayName} <${log.userEmail ?? '-'}>` : (log.userEmail ?? '-'),
+          log.action,
+          `${log.entityName}${log.entityId ? ` #${log.entityId}` : ''}`,
+          log.ipAddress ?? '-'
+        ])}
+      />
+    </Panel>
   );
 }
 
@@ -2136,6 +2187,8 @@ function CustomerDetailsModal({ customer, onClose, onSaved }: { customer: Custom
               <h3>Notes</h3>
               <div className="text-block">{customer.notes || 'Aucune note renseignee.'}</div>
             </section>
+
+            <DocumentLinksPanel module="customers" entityId={customer.id} />
           </>
         )}
       </section>
@@ -2471,6 +2524,7 @@ function ProductDetailsModal({ product, formatAmount, onClose, onSaved }: { prod
           <DetailItem label="URL image" value={product.imageUrl ? <a href={product.imageUrl} target="_blank" rel="noreferrer">Ouvrir l'image</a> : '-'} />
           <DetailItem label="Identifiant interne" value={product.id} />
         </div>
+        <DocumentLinksPanel module="products" entityId={product.id} />
           </>
         )}
       </section>
@@ -5983,21 +6037,142 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
 
 function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
   const [folderName, setFolderName] = useState('');
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [path, setPath] = useState<Array<{ id: string | null; name: string }>>([{ id: null, name: 'Racine' }]);
+  const [visibleFolders, setVisibleFolders] = useState<DriveFolder[]>(folders);
+  const [visibleFiles, setVisibleFiles] = useState<DriveItem[]>(files);
+  const [search, setSearch] = useState('');
+  const [showTrash, setShowTrash] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function refreshDrive() {
+    const [nextFolders, nextFiles] = await Promise.all([api.folders(currentFolderId, search, showTrash), api.files(currentFolderId, search, showTrash)]);
+    setVisibleFolders(nextFolders);
+    setVisibleFiles(nextFiles);
+  }
+
+  useEffect(() => {
+    refreshDrive().catch((err) => setMessage(err instanceof Error ? err.message : 'Chargement Drive impossible'));
+  }, [currentFolderId, search, showTrash]);
 
   async function createFolder(event: FormEvent) {
     event.preventDefault();
-    await api.createFolder({ name: folderName, parentFolderId: null });
-    setFolderName('');
-    await onChanged();
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.createFolder({ name: folderName, parentFolderId: currentFolderId });
+      setFolderName('');
+      await refreshDrive();
+      await onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Creation du dossier impossible');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (file) {
-      await api.uploadDriveFile(file);
-      event.target.value = '';
-      await onChanged();
+      setBusy(true);
+      setMessage(null);
+      try {
+        await api.uploadDriveFile(file, currentFolderId);
+        event.target.value = '';
+        await refreshDrive();
+        await onChanged();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : 'Upload impossible');
+      } finally {
+        setBusy(false);
+      }
     }
+  }
+
+  function openFolder(folder: DriveFolder) {
+    if (folder.isTrashed) {
+      return;
+    }
+
+    setCurrentFolderId(folder.id);
+    setPath((items) => [...items, { id: folder.id, name: folder.name }]);
+  }
+
+  function goTo(index: number) {
+    const nextPath = path.slice(0, index + 1);
+    setPath(nextPath);
+    setCurrentFolderId(nextPath[nextPath.length - 1]?.id ?? null);
+  }
+
+  async function runDriveAction(action: () => Promise<void>) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await action();
+      await refreshDrive();
+      await onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Action Drive impossible');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolveDestinationFolder() {
+    const value = window.prompt('Dossier destination : vide pour la racine, ou nom exact/identifiant du dossier.');
+    if (value === null) {
+      return undefined;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+      return trimmed;
+    }
+
+    const matches = await api.folders(null, trimmed, true);
+    const match = matches.find((folder) => folder.name.toLowerCase() === trimmed.toLowerCase());
+    if (!match) {
+      throw new Error(`Dossier "${trimmed}" introuvable.`);
+    }
+
+    return match.id;
+  }
+
+  async function renameFolder(folder: DriveFolder) {
+    const name = window.prompt('Nouveau nom du dossier', folder.name);
+    if (name?.trim()) {
+      await runDriveAction(() => api.renameFolder(folder.id, name.trim()).then(() => undefined));
+    }
+  }
+
+  async function moveFolder(folder: DriveFolder) {
+    await runDriveAction(async () => {
+      const destination = await resolveDestinationFolder();
+      if (destination !== undefined) {
+        await api.moveFolder(folder.id, destination);
+      }
+    });
+  }
+
+  async function renameFile(file: DriveItem) {
+    const name = window.prompt('Nouveau nom du fichier', file.name);
+    if (name?.trim()) {
+      await runDriveAction(() => api.renameDriveFile(file.id, name.trim()).then(() => undefined));
+    }
+  }
+
+  async function moveFile(file: DriveItem) {
+    await runDriveAction(async () => {
+      const destination = await resolveDestinationFolder();
+      if (destination !== undefined) {
+        await api.moveDriveFile(file.id, destination);
+      }
+    });
   }
 
   return (
@@ -6017,27 +6192,88 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
             <input type="file" onChange={upload} />
           </label>
         </div>
+        <div className="drive-toolbar">
+          <div className="drive-path">
+            {path.map((item, index) => (
+              <button key={`${item.id ?? 'root'}-${index}`} className="link-button" type="button" onClick={() => goTo(index)}>
+                {item.name}
+              </button>
+            ))}
+          </div>
+          <div className="drive-filters">
+            <input aria-label="Recherche Drive" placeholder="Rechercher un document ou dossier" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <label className="checkbox-line">
+              <input type="checkbox" checked={showTrash} onChange={(event) => setShowTrash(event.target.checked)} />
+              Corbeille incluse
+            </label>
+          </div>
+        </div>
+        {message && <div className="inline-message">{message}</div>}
       </Panel>
       <section className="drive-list">
-        {folders.map((folder) => (
-          <article key={folder.id} className="drive-row">
-            <Folder size={18} />
-            <span>{folder.name}</span>
-            <small>Dossier</small>
-          </article>
-        ))}
-        {files.map((file) => (
-          <article key={file.id} className="drive-row">
-            <FileText size={18} />
-            <span>{file.name}</span>
-            <button className="secondary" onClick={() => api.downloadDriveFile(file.id, file.name)} type="button">
-              <Download size={15} />
-              Ouvrir
+        {visibleFolders.map((folder) => (
+          <article key={folder.id} className={folder.isTrashed ? 'drive-row trashed' : 'drive-row'}>
+            <button className="drive-main" type="button" onClick={() => openFolder(folder)} disabled={folder.isTrashed}>
+              <Folder size={18} />
+              <span>{folder.name}</span>
             </button>
-            <small>{Math.round(file.size / 1024)} Ko</small>
+            <small>{folder.isTrashed ? 'Corbeille' : 'Dossier'}</small>
+            <div className="drive-actions">
+              {folder.isTrashed ? (
+                <button className="secondary" type="button" disabled={busy} onClick={() => runDriveAction(() => api.restoreFolder(folder.id).then(() => undefined))}>
+                  Restaurer
+                </button>
+              ) : (
+                <>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => renameFolder(folder)}>
+                    <Pencil size={15} />
+                    Renommer
+                  </button>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => moveFolder(folder)}>
+                    Deplacer
+                  </button>
+                  <button className="danger" type="button" disabled={busy} onClick={() => window.confirm(`Mettre "${folder.name}" a la corbeille ?`) && runDriveAction(() => api.trashFolder(folder.id))}>
+                    <Trash2 size={15} />
+                  </button>
+                </>
+              )}
+            </div>
           </article>
         ))}
-        {folders.length + files.length === 0 && <EmptyState icon={Folder} title="Aucun document" />}
+        {visibleFiles.map((file) => (
+          <article key={file.id} className={file.isTrashed ? 'drive-row trashed' : 'drive-row'}>
+            <div className="drive-main">
+              <FileText size={18} />
+              <span>{file.name}</span>
+            </div>
+            <small>{file.isTrashed ? 'Corbeille' : `${Math.round(file.size / 1024)} Ko`}</small>
+            <div className="drive-actions">
+              {file.isTrashed ? (
+                <button className="secondary" type="button" disabled={busy} onClick={() => runDriveAction(() => api.restoreDriveFile(file.id).then(() => undefined))}>
+                  Restaurer
+                </button>
+              ) : (
+                <>
+                  <button className="secondary" onClick={() => api.downloadDriveFile(file.id, file.name)} type="button">
+                    <Download size={15} />
+                    Ouvrir
+                  </button>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => renameFile(file)}>
+                    <Pencil size={15} />
+                    Renommer
+                  </button>
+                  <button className="secondary" type="button" disabled={busy} onClick={() => moveFile(file)}>
+                    Deplacer
+                  </button>
+                  <button className="danger" type="button" disabled={busy} onClick={() => window.confirm(`Mettre "${file.name}" a la corbeille ?`) && runDriveAction(() => api.trashDriveFile(file.id))}>
+                    <Trash2 size={15} />
+                  </button>
+                </>
+              )}
+            </div>
+          </article>
+        ))}
+        {visibleFolders.length + visibleFiles.length === 0 && <EmptyState icon={Folder} title="Aucun document" />}
       </section>
     </>
   );
@@ -6075,6 +6311,111 @@ function DetailItem({ label, value }: { label: string; value: ReactNode }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function DocumentLinksPanel({ module, entityId }: { module: 'customers' | 'products'; entityId: string }) {
+  const [links, setLinks] = useState<DocumentLink[]>([]);
+  const [fileSearch, setFileSearch] = useState('');
+  const [candidateFiles, setCandidateFiles] = useState<DriveItem[]>([]);
+  const [driveItemId, setDriveItemId] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function loadLinks() {
+    setLinks(await api.documentLinks(module, entityId));
+  }
+
+  useEffect(() => {
+    loadLinks().catch((err) => setMessage(err instanceof Error ? err.message : 'Documents lies indisponibles'));
+  }, [module, entityId]);
+
+  useEffect(() => {
+    if (fileSearch.trim().length < 2) {
+      setCandidateFiles([]);
+      return;
+    }
+
+    let cancelled = false;
+    api.files(null, fileSearch, false)
+      .then((items) => {
+        if (!cancelled) {
+          setCandidateFiles(items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCandidateFiles([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileSearch]);
+
+  async function addLink(event: FormEvent) {
+    event.preventDefault();
+    if (!driveItemId) {
+      setMessage('Selectionnez un fichier Drive.');
+      return;
+    }
+
+    setMessage(null);
+    try {
+      await api.linkDocument({ driveItemId, module, entityId });
+      setDriveItemId('');
+      setFileSearch('');
+      setCandidateFiles([]);
+      await loadLinks();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Rattachement impossible');
+    }
+  }
+
+  async function removeLink(linkId: string) {
+    setMessage(null);
+    try {
+      await api.unlinkDocument(linkId);
+      await loadLinks();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Suppression du lien impossible');
+    }
+  }
+
+  return (
+    <section className="customer-detail-section">
+      <h3>Documents lies</h3>
+      <form className="document-link-form" onSubmit={addLink}>
+        <input value={fileSearch} onChange={(event) => setFileSearch(event.target.value)} placeholder="Rechercher un fichier Drive" />
+        <select value={driveItemId} onChange={(event) => setDriveItemId(event.target.value)}>
+          <option value="">Fichier Drive</option>
+          {candidateFiles.map((file) => (
+            <option key={file.id} value={file.id}>{file.name}</option>
+          ))}
+        </select>
+        <button className="secondary" type="submit">
+          <Plus size={16} />
+          Lier
+        </button>
+      </form>
+      {message && <div className="inline-message">{message}</div>}
+      <div className="document-link-list">
+        {links.map((link) => (
+          <article className="document-link-row" key={link.id}>
+            <FileText size={17} />
+            <span>{link.fileName}</span>
+            <small>{Math.round(link.size / 1024)} Ko</small>
+            <button className="secondary" type="button" onClick={() => api.downloadDriveFile(link.driveItemId, link.fileName)}>
+              <Download size={15} />
+              Ouvrir
+            </button>
+            <button className="danger" type="button" onClick={() => removeLink(link.id)}>
+              <Trash2 size={15} />
+            </button>
+          </article>
+        ))}
+        {links.length === 0 && <p className="panel-note">Aucun document lie.</p>}
+      </div>
+    </section>
   );
 }
 

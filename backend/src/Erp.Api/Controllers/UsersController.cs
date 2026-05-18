@@ -55,4 +55,9 @@ public sealed class UsersController(IAuthService authService) : ControllerBase
     [Authorize(Policy = "auth.users.read")]
     public async Task<ActionResult<IReadOnlyList<PermissionDto>>> GetPermissions(CancellationToken cancellationToken)
         => Ok(await authService.GetPermissionsAsync(cancellationToken));
+
+    [HttpGet("audit-logs")]
+    [Authorize(Policy = "auth.users.read")]
+    public async Task<ActionResult<IReadOnlyList<AuditLogDto>>> GetAuditLogs([FromQuery] int take = 100, CancellationToken cancellationToken = default)
+        => Ok(await authService.GetAuditLogsAsync(take, cancellationToken));
 }

@@ -1,7 +1,9 @@
 import type {
   AuthResponse,
+  AuditLog,
   Customer,
   DashboardSummary,
+  DocumentLink,
   DriveFolder,
   DriveItem,
   EmailMessage,
@@ -244,9 +246,19 @@ export class ApiClient {
     await this.download(`/api/quotes/${quoteId}/documents/${documentId}/download`, fileName);
   }
 
-  folders(parentFolderId?: string) {
-    const query = parentFolderId ? `?parentFolderId=${parentFolderId}` : '';
-    return this.request<DriveFolder[]>(`/api/drive/folders${query}`, { auth: true });
+  folders(parentFolderId?: string | null, search = '', includeTrashed = false) {
+    const params = new URLSearchParams();
+    if (parentFolderId) {
+      params.set('parentFolderId', parentFolderId);
+    }
+    if (search.trim()) {
+      params.set('search', search.trim());
+    }
+    if (includeTrashed) {
+      params.set('includeTrashed', 'true');
+    }
+    const query = params.toString();
+    return this.request<DriveFolder[]>(`/api/drive/folders${query ? `?${query}` : ''}`, { auth: true });
   }
 
   createFolder(payload: { parentFolderId?: string | null; name: string }) {
@@ -257,9 +269,35 @@ export class ApiClient {
     });
   }
 
-  files(folderId?: string) {
-    const query = folderId ? `?folderId=${folderId}` : '';
-    return this.request<DriveItem[]>(`/api/drive/files${query}`, { auth: true });
+  renameFolder(folderId: string, name: string) {
+    return this.request<DriveFolder>(`/api/drive/folders/${folderId}/rename`, { method: 'PUT', auth: true, body: JSON.stringify({ name }) });
+  }
+
+  moveFolder(folderId: string, destinationFolderId?: string | null) {
+    return this.request<DriveFolder>(`/api/drive/folders/${folderId}/move`, { method: 'PUT', auth: true, body: JSON.stringify({ folderId: destinationFolderId ?? null }) });
+  }
+
+  trashFolder(folderId: string) {
+    return this.request<void>(`/api/drive/folders/${folderId}`, { method: 'DELETE', auth: true });
+  }
+
+  restoreFolder(folderId: string) {
+    return this.request<DriveFolder>(`/api/drive/folders/${folderId}/restore`, { method: 'POST', auth: true });
+  }
+
+  files(folderId?: string | null, search = '', includeTrashed = false) {
+    const params = new URLSearchParams();
+    if (folderId) {
+      params.set('folderId', folderId);
+    }
+    if (search.trim()) {
+      params.set('search', search.trim());
+    }
+    if (includeTrashed) {
+      params.set('includeTrashed', 'true');
+    }
+    const query = params.toString();
+    return this.request<DriveItem[]>(`/api/drive/files${query ? `?${query}` : ''}`, { auth: true });
   }
 
   uploadDriveFile(file: File, folderId?: string | null) {
@@ -277,6 +315,34 @@ export class ApiClient {
 
   async downloadDriveFile(fileId: string, fileName: string) {
     await this.download(`/api/drive/files/${fileId}/download`, fileName);
+  }
+
+  renameDriveFile(fileId: string, name: string) {
+    return this.request<DriveItem>(`/api/drive/files/${fileId}/rename`, { method: 'PUT', auth: true, body: JSON.stringify({ name }) });
+  }
+
+  moveDriveFile(fileId: string, folderId?: string | null) {
+    return this.request<DriveItem>(`/api/drive/files/${fileId}/move`, { method: 'PUT', auth: true, body: JSON.stringify({ folderId: folderId ?? null }) });
+  }
+
+  trashDriveFile(fileId: string) {
+    return this.request<void>(`/api/drive/files/${fileId}`, { method: 'DELETE', auth: true });
+  }
+
+  restoreDriveFile(fileId: string) {
+    return this.request<DriveItem>(`/api/drive/files/${fileId}/restore`, { method: 'POST', auth: true });
+  }
+
+  documentLinks(module: string, entityId: string) {
+    return this.request<DocumentLink[]>(`/api/drive/links/${module}/${entityId}`, { auth: true });
+  }
+
+  linkDocument(payload: { driveItemId: string; module: string; entityId: string }) {
+    return this.request<DocumentLink>('/api/drive/links', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  unlinkDocument(linkId: string) {
+    return this.request<void>(`/api/drive/links/${linkId}`, { method: 'DELETE', auth: true });
   }
 
   notifications() {
@@ -305,6 +371,10 @@ export class ApiClient {
 
   permissions() {
     return this.request<Permission[]>('/api/users/permissions', { auth: true });
+  }
+
+  auditLogs(take = 100) {
+    return this.request<AuditLog[]>(`/api/users/audit-logs?take=${take}`, { auth: true });
   }
 
   createRole(payload: { name: string; description: string; permissions: string[] }) {

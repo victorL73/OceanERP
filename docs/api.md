@@ -17,6 +17,7 @@ Swagger est activé en environnement `Development`.
 - `POST /api/users/roles`
 - `PUT /api/users/roles/{id}`
 - `GET /api/users/permissions`
+- `GET /api/users/audit-logs`
 - `GET /api/customers`
 - `POST /api/customers`
 - `PUT /api/customers/{id}`
@@ -32,9 +33,20 @@ Swagger est activé en environnement `Development`.
 - `GET /api/quotes/{id}/documents/{documentId}/download`
 - `GET /api/drive/folders`
 - `POST /api/drive/folders`
+- `PUT /api/drive/folders/{id}/rename`
+- `PUT /api/drive/folders/{id}/move`
+- `DELETE /api/drive/folders/{id}`
+- `POST /api/drive/folders/{id}/restore`
 - `GET /api/drive/files`
 - `POST /api/drive/files`
 - `GET /api/drive/files/{id}/download`
+- `PUT /api/drive/files/{id}/rename`
+- `PUT /api/drive/files/{id}/move`
+- `DELETE /api/drive/files/{id}`
+- `POST /api/drive/files/{id}/restore`
+- `GET /api/drive/links/{module}/{entityId}`
+- `POST /api/drive/links`
+- `DELETE /api/drive/links/{id}`
 - `GET /api/notifications`
 - `POST /api/notifications`
 - `GET /api/dashboard/summary`
@@ -104,7 +116,7 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 - Le module email journalise les envois, stocke les pieces jointes hors PostgreSQL et permet la synchronisation IMAP. L'envoi SMTP reel est active seulement si `Email:EnableSmtpSending=true`; sinon l'email reste journalise avec le statut `Logged` et l'interface indique explicitement qu'il n'a pas ete envoye.
 - La releve IMAP automatique est pilotee par `Parametres > Boites mail`. L'intervalle est en minutes; la valeur `0` active un mode rapide serveur toutes les 15 secondes. L'onglet Emails lance aussi une actualisation automatique courte tant qu'il est ouvert et visible.
 - `POST /api/emails/accounts/{id}/test-smtp` teste toujours la connexion et l'authentification SMTP de la boite, meme si l'envoi reel est desactive.
-- L'envoi d'un devis ne passe le devis en statut envoye que si le mail est effectivement parti avec le statut `Sent`.
+- L'envoi d'un devis passe le devis en statut envoye quand l'email est `Sent`. En environnement sans SMTP reel (`Email:EnableSmtpSending=false`), le statut `Logged` est accepte pour permettre les tests et le workflow de validation, avec une trace explicite dans l'historique du devis.
 - Les emails entrants et sortants conservent les champs `Cc` et `Bcc` en metadonnees. Le SMTP envoie les destinataires Cci par enveloppe sans les afficher dans les entetes du message emis.
 - `DELETE /api/emails/messages/{id}` supprime logiquement le mail de l'ERP. Le message reste marque en base pour que la synchronisation IMAP ne le reimporte pas lors des prochains rafraichissements.
 - Les mots de passe SMTP/IMAP peuvent etre stockes chiffres en base avec `Secrets:EncryptionKey`, ou references par un secret d'environnement via `PasswordSecretName`. Les signatures HTML sont ajoutees automatiquement aux emails sortants.

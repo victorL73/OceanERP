@@ -16,8 +16,8 @@ OceanERP suit une Clean Architecture stricte.
 - Clients.
 - Produits, catégories et fournisseurs produits.
 - Devis avec calculs, statuts et PDF QuestPDF.
-- Drive simple avec dossiers, fichiers, versions et métadonnées.
-- Notifications internes et hub SignalR.
+- Drive simple avec dossiers, fichiers, versions, métadonnées, recherche, corbeille/restauration et liens documentaires clients/produits.
+- Notifications internes, hub SignalR et notification navigateur lorsque l'application est ouverte.
 - Dashboard de base.
 
 ## Modules préparés

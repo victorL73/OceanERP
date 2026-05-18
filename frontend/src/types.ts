@@ -35,6 +35,20 @@ export type Permission = {
   code: string;
 };
 
+export type AuditLog = {
+  id: string;
+  userId?: string;
+  userEmail?: string;
+  userDisplayName?: string;
+  action: string;
+  entityName: string;
+  entityId?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  metadataJson?: string;
+  createdAt: string;
+};
+
 export type Customer = {
   id: string;
   code: string;
@@ -214,6 +228,17 @@ export type DriveFolder = {
   parentFolderId?: string;
   name: string;
   isTrashed: boolean;
+  createdAt: string;
+};
+
+export type DocumentLink = {
+  id: string;
+  driveItemId: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  module: string;
+  entityId: string;
   createdAt: string;
 };
 

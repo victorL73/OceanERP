@@ -15,6 +15,7 @@ public interface IAuthService
     Task<IReadOnlyList<UserDto>> GetUsersAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<RoleDto>> GetRolesAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<PermissionDto>> GetPermissionsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<AuditLogDto>> GetAuditLogsAsync(int take, CancellationToken cancellationToken);
     Task<Result<RoleDto>> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken);
     Task<Result<RoleDto>> UpdateRoleAsync(Guid roleId, UpdateRoleRequest request, CancellationToken cancellationToken);
 }

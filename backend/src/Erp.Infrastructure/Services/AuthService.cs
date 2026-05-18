@@ -248,6 +248,32 @@ public sealed class AuthService(
             .Select(x => new PermissionDto(x.Id, x.Module, x.Action, x.Code))
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<AuditLogDto>> GetAuditLogsAsync(int take, CancellationToken cancellationToken)
+    {
+        var limit = Math.Clamp(take, 1, 300);
+        var logs = await (
+            from audit in db.AuditLogs
+            join user in db.Users on audit.UserId equals user.Id into userJoin
+            from user in userJoin.DefaultIfEmpty()
+            orderby audit.CreatedAt descending
+            select new AuditLogDto(
+                audit.Id,
+                audit.UserId,
+                user == null ? null : user.Email,
+                user == null ? null : user.DisplayName,
+                audit.Action,
+                audit.EntityName,
+                audit.EntityId,
+                audit.IpAddress,
+                audit.UserAgent,
+                audit.MetadataJson,
+                audit.CreatedAt))
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
+        return logs;
+    }
+
     public async Task<Result<RoleDto>> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Name))

@@ -79,12 +79,18 @@ gzip -t /opt/oceanerp/backups/YYYYMMDDTHHMMSSZ/postgres.sql.gz
 tar -tzf /opt/oceanerp/backups/YYYYMMDDTHHMMSSZ/documents.tar.gz
 ```
 
-## Phase 2 en cours
+## Phase 1 cloturee
 
 Phase 1 couvre maintenant aussi :
 
 - espace `Parametres` du compte connecte : email, nom affiche, changement de mot de passe ;
 - ecran admin `Utilisateurs/Roles` pour creer les comptes, creer les roles et affecter les permissions par module.
+- journal d'audit consultable par les administrateurs ;
+- Drive avec dossiers, fichiers, recherche, renommage, deplacement, corbeille, restauration et liens documentaires vers clients/produits ;
+- notifications internes SignalR avec notification navigateur quand l'application est ouverte ;
+- workflow devis/PDF/email compatible avec le mode SMTP reel ou journalise pour les tests.
+
+## Phase 2 en cours
 
 La Phase 2 contient maintenant :
 

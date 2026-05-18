@@ -262,19 +262,27 @@ public sealed class QuoteService(
             return Result<QuoteDto>.Failure(sendResult.Error!);
         }
 
-        if (!string.Equals(sendResult.Value!.Status, "Sent", StringComparison.OrdinalIgnoreCase))
+        var sendStatus = sendResult.Value!.Status;
+        if (!string.Equals(sendStatus, "Sent", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(sendStatus, "Logged", StringComparison.OrdinalIgnoreCase))
         {
             return Result<QuoteDto>.Failure(sendResult.Value.ErrorMessage ?? "L'email du devis a ete journalise mais n'a pas ete envoye par SMTP.");
         }
 
+        var statusMessage = string.Equals(sendStatus, "Logged", StringComparison.OrdinalIgnoreCase)
+            ? $"Email journalise pour {request.To.Trim()} (SMTP reel desactive)"
+            : $"Envoye par email a {request.To.Trim()}";
+
         if (quote.Status == QuoteStatus.Draft)
         {
             quote.SetStatus(QuoteStatus.Sent);
-            AddHistory(quote, QuoteStatus.Sent, $"Envoye par email a {request.To.Trim()}");
+            AddHistory(quote, QuoteStatus.Sent, statusMessage);
         }
         else
         {
-            AddHistory(quote, quote.Status, $"Email renvoye a {request.To.Trim()}");
+            AddHistory(quote, quote.Status, string.Equals(sendStatus, "Logged", StringComparison.OrdinalIgnoreCase)
+                ? $"Email rejournalise pour {request.To.Trim()} (SMTP reel desactive)"
+                : $"Email renvoye a {request.To.Trim()}");
         }
 
         await db.SaveChangesAsync(cancellationToken);

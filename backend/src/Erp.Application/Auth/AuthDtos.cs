@@ -12,3 +12,4 @@ public sealed record AuthResponse(string AccessToken, string RefreshToken, DateT
 public sealed record UserDto(Guid Id, string Email, string DisplayName, bool IsActive, IReadOnlyList<string> Roles, IReadOnlyList<string> Permissions);
 public sealed record RoleDto(Guid Id, string Name, string Description, IReadOnlyList<string> Permissions);
 public sealed record PermissionDto(Guid Id, string Module, string Action, string Code);
+public sealed record AuditLogDto(Guid Id, Guid? UserId, string? UserEmail, string? UserDisplayName, string Action, string EntityName, string? EntityId, string? IpAddress, string? UserAgent, string? MetadataJson, DateTimeOffset CreatedAt);
