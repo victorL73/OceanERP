@@ -37,7 +37,25 @@ const viewLabels: Record<ViewKey, string> = {
   notifications: 'Notifications'
 };
 
+const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'prestashop'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
+
+function readStoredChoice<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
+  try {
+    const value = localStorage.getItem(key);
+    return value && (allowed as readonly string[]).includes(value) ? value as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function storeChoice(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Le stockage local peut etre bloque par la politique du navigateur.
+  }
+}
 
 type WarehouseDraft = {
   name: string;
@@ -86,7 +104,7 @@ function hasPermission(user: User | null, permission?: string) {
 
 export default function App() {
   const [isAuthenticated, setAuthenticated] = useState(Boolean(api.token));
-  const [view, setView] = useState<ViewKey>('dashboard');
+  const [view, setView] = useState<ViewKey>(() => readStoredChoice('oceanerp.activeView', 'dashboard', appViewKeys));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(api.user);
@@ -349,6 +367,10 @@ export default function App() {
     }
   }, [isAuthenticated, view]);
 
+  useEffect(() => {
+    storeChoice('oceanerp.activeView', view);
+  }, [view]);
+
   if (!isAuthenticated) {
     return (
       <Login
@@ -423,8 +445,8 @@ export default function App() {
         {error && <div className="alert">{error}</div>}
         {loading && <div className="loading">Chargement...</div>}
 
-        {!loading && view === 'dashboard' && <Dashboard summary={summary} />}
-        {!loading && view === 'settings' && (
+        {view === 'dashboard' && <Dashboard summary={summary} />}
+        {view === 'settings' && (
           <Settings
             currentUser={currentUser}
             users={users}
@@ -450,17 +472,17 @@ export default function App() {
             }}
           />
         )}
-        {!loading && view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
-        {!loading && view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
-        {!loading && view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} onChanged={() => load('quotes')} />}
-        {!loading && view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
-        {!loading && view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
-        {!loading && view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
-        {!loading && view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
-        {!loading && view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
-        {!loading && view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
-        {!loading && view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
-        {!loading && view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
+        {view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
+        {view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
+        {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} onChanged={() => load('quotes')} />}
+        {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} warehouses={warehouses} onChanged={() => load('orders')} />}
+        {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
+        {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
+        {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
+        {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
+        {view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
+        {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
+        {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
     </div>
   );
@@ -584,7 +606,7 @@ function Settings({
   const canManageEmails = hasPermission(currentUser, 'emails.read') && hasPermission(currentUser, 'emails.write');
   const isAdministrator = Boolean(currentUser?.roles.includes('Administrator'));
   const canManageQuoteSettings = isAdministrator && hasPermission(currentUser, 'quotes.read') && hasPermission(currentUser, 'quotes.write');
-  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'audit' | 'warehouses' | 'prestashop'>('account');
+  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'audit' | 'warehouses' | 'prestashop'>(() => readStoredChoice('oceanerp.settings.activeTab', 'account', ['account', 'emails', 'quotes', 'access', 'audit', 'warehouses', 'prestashop'] as const));
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -603,6 +625,10 @@ function Settings({
       setActiveTab('account');
     }
   }, [activeTab, canManageEmails, canManagePrestashop, canManageQuoteSettings, canManageUsers, canManageWarehouses]);
+
+  useEffect(() => {
+    storeChoice('oceanerp.settings.activeTab', activeTab);
+  }, [activeTab]);
 
   async function updateProfile(event: FormEvent) {
     event.preventDefault();
@@ -1441,7 +1467,7 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
 }
 
 function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; roles: Role[]; permissions: Permission[]; onChanged: () => Promise<void> }) {
-  const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'roles'>(() => readStoredChoice('oceanerp.usersRoles.activeTab', 'users', ['users', 'roles'] as const));
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -1478,6 +1504,10 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
       setEditRolePermissions(role.permissions);
     }
   }, [editRoleId, roles]);
+
+  useEffect(() => {
+    storeChoice('oceanerp.usersRoles.activeTab', activeTab);
+  }, [activeTab]);
 
   async function createUser(event: FormEvent) {
     event.preventDefault();
@@ -4005,7 +4035,7 @@ function Stock({
   const [warehouseId, setWarehouseId] = useState('');
   const [quantity, setQuantity] = useState('0');
   const [alertThreshold, setAlertThreshold] = useState('0');
-  const [activeStockTab, setActiveStockTab] = useState<'items' | 'movements'>('items');
+  const [activeStockTab, setActiveStockTab] = useState<'items' | 'movements'>(() => readStoredChoice('oceanerp.stock.activeTab', 'items', ['items', 'movements'] as const));
   const [stockSearch, setStockSearch] = useState('');
   const [stockFilterColumn, setStockFilterColumn] = useState('all');
   const [stockFilterWarehouseId, setStockFilterWarehouseId] = useState('');
@@ -4033,6 +4063,10 @@ function Stock({
       setStockFilterWarehouseId('');
     }
   }, [focusedProductIds]);
+
+  useEffect(() => {
+    storeChoice('oceanerp.stock.activeTab', activeStockTab);
+  }, [activeStockTab]);
 
   function productLabel(id: string) {
     const product = productById.get(id);
@@ -4948,7 +4982,7 @@ function emailSendFeedback(message: EmailMessage) {
 }
 
 function Emails({ accounts, messages, templates, customers, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; customers: Customer[]; onChanged: () => Promise<void> }) {
-  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>('messages');
+  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates'>(() => readStoredChoice('oceanerp.emails.activeTab', 'messages', ['accounts', 'compose', 'messages', 'templates'] as const));
   const [editingAccountId, setEditingAccountId] = useState('');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -5069,6 +5103,10 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
   useEffect(() => {
     messageAccountFilterRef.current = messageAccountFilter;
   }, [messageAccountFilter]);
+
+  useEffect(() => {
+    storeChoice('oceanerp.emails.activeTab', tab);
+  }, [tab]);
 
   useEffect(() => {
     if (tab !== 'messages' || activeAccounts.length === 0) {
