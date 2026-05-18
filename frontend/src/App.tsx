@@ -16,7 +16,6 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
   { key: 'invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
   { key: 'stock', label: 'Stock', icon: WarehouseIcon, permission: 'stock.read' },
   { key: 'emails', label: 'Emails', icon: Mail, permission: 'emails.read' },
-  { key: 'prestashop', label: 'PrestaShop', icon: Store, permission: 'prestashop.read' },
   { key: 'service', label: 'SAV', icon: LifeBuoy, permission: 'service.read' },
   { key: 'calendar', label: 'Agenda', icon: CalendarDays, permission: 'calendar.read' },
   { key: 'signatures', label: 'Signatures', icon: FileSignature, permission: 'signatures.read' },
@@ -45,7 +44,7 @@ const viewLabels: Record<ViewKey, string> = {
   notifications: 'Notifications'
 };
 
-const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'prestashop', 'service', 'calendar', 'signatures', 'flowcean'];
+const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'service', 'calendar', 'signatures', 'flowcean'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
 
 function readStoredChoice<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
@@ -190,7 +189,9 @@ export default function App() {
           setAuditLogs(nextAuditLogs);
         }
         if (hasPermission(user, 'prestashop.read') && hasPermission(user, 'prestashop.write')) {
-          setPrestashopConnections(await api.prestashopConnections());
+          const [nextConnections, nextLogs] = await Promise.all([api.prestashopConnections(), api.prestashopLogs()]);
+          setPrestashopConnections(nextConnections);
+          setPrestashopLogs(nextLogs);
         }
         if (hasPermission(user, 'stock.read')) {
           setWarehouses(await api.warehouses());
@@ -523,12 +524,14 @@ export default function App() {
             permissions={permissions}
             auditLogs={auditLogs}
             prestashopConnections={prestashopConnections}
+            prestashopLogs={prestashopLogs}
             warehouses={warehouses}
             mailAccounts={mailAccounts}
             mailServerSettings={mailServerSettings}
             quoteSettings={quoteSettings}
             onUsersRolesChanged={() => load('settings')}
             onPrestashopChanged={() => load('settings')}
+            onPrestashopSyncChanged={refreshPrestashopData}
             onWarehousesChanged={() => load('settings')}
             onMailAccountsChanged={() => load('settings')}
             onMailServerSettingsChanged={() => load('settings')}
@@ -549,7 +552,6 @@ export default function App() {
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
-        {view === 'prestashop' && <Prestashop connections={prestashopConnections} logs={prestashopLogs} onChanged={refreshPrestashopData} />}
         {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('service')} />}
         {view === 'calendar' && <Calendar events={calendarEvents?.items ?? []} onChanged={() => load('calendar')} />}
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} onChanged={() => load('signatures')} />}
@@ -996,12 +998,14 @@ function Settings({
   permissions,
   auditLogs,
   prestashopConnections,
+  prestashopLogs,
   warehouses,
   mailAccounts,
   mailServerSettings,
   quoteSettings,
   onUsersRolesChanged,
   onPrestashopChanged,
+  onPrestashopSyncChanged,
   onWarehousesChanged,
   onMailAccountsChanged,
   onMailServerSettingsChanged,
@@ -1015,12 +1019,14 @@ function Settings({
   permissions: Permission[];
   auditLogs: AuditLog[];
   prestashopConnections: PrestashopConnection[];
+  prestashopLogs: PrestashopSyncLog[];
   warehouses: Warehouse[];
   mailAccounts: MailAccount[];
   mailServerSettings: MailServerSettings | null;
   quoteSettings: QuoteSettings | null;
   onUsersRolesChanged: () => Promise<void>;
   onPrestashopChanged: () => Promise<void>;
+  onPrestashopSyncChanged: () => Promise<void>;
   onWarehousesChanged: () => Promise<void>;
   onMailAccountsChanged: () => Promise<void>;
   onMailServerSettingsChanged: () => Promise<void>;
@@ -1146,7 +1152,7 @@ function Settings({
         {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
         {activeTab === 'audit' && canManageUsers && <AuditLogs logs={auditLogs} />}
         {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
-        {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettings connections={prestashopConnections} warehouses={warehouses} onChanged={onPrestashopChanged} />}
+        {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettingsTab connections={prestashopConnections} logs={prestashopLogs} warehouses={warehouses} onSettingsChanged={onPrestashopChanged} onSyncChanged={onPrestashopSyncChanged} />}
       </section>
     </>
   );
@@ -1890,6 +1896,41 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
         <p className="panel-note">Cet entrepot sert de valeur par defaut lors de l'import de nouveaux produits. Chaque article peut ensuite etre rattache a son propre entrepot depuis la page Stock.</p>
       </Panel>
       <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : 'Entrepot principal automatique', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
+    </>
+  );
+}
+
+function PrestashopSettingsTab({
+  connections,
+  logs,
+  warehouses,
+  onSettingsChanged,
+  onSyncChanged
+}: {
+  connections: PrestashopConnection[];
+  logs: PrestashopSyncLog[];
+  warehouses: Warehouse[];
+  onSettingsChanged: () => Promise<void>;
+  onSyncChanged: () => Promise<void>;
+}) {
+  const [activeTab, setActiveTab] = useState<'settings' | 'sync'>(() => readStoredChoice('oceanerp.settings.prestashopTab', 'settings', ['settings', 'sync'] as const));
+
+  useEffect(() => {
+    storeChoice('oceanerp.settings.prestashopTab', activeTab);
+  }, [activeTab]);
+
+  return (
+    <>
+      <div className="browser-tabs sub-tabs" role="tablist" aria-label="PrestaShop">
+        <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')} type="button">
+          Configuration
+        </button>
+        <button className={activeTab === 'sync' ? 'active' : ''} onClick={() => setActiveTab('sync')} type="button">
+          Synchronisation
+        </button>
+      </div>
+      {activeTab === 'settings' && <PrestashopSettings connections={connections} warehouses={warehouses} onChanged={onSettingsChanged} />}
+      {activeTab === 'sync' && <Prestashop connections={connections} logs={logs} onChanged={onSyncChanged} showConfigNote={false} />}
     </>
   );
 }
@@ -6819,7 +6860,7 @@ function Emails({ accounts, messages, templates, customers, onChanged }: { accou
   );
 }
 
-function Prestashop({ connections, logs, onChanged }: { connections: PrestashopConnection[]; logs: PrestashopSyncLog[]; onChanged: () => Promise<void> }) {
+function Prestashop({ connections, logs, onChanged, showConfigNote = true }: { connections: PrestashopConnection[]; logs: PrestashopSyncLog[]; onChanged: () => Promise<void>; showConfigNote?: boolean }) {
   const [syncingConnectionId, setSyncingConnectionId] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncFailed, setSyncFailed] = useState(false);
@@ -6893,7 +6934,7 @@ function Prestashop({ connections, logs, onChanged }: { connections: PrestashopC
   return (
     <>
       <Panel title="Synchronisation PrestaShop">
-        <p className="panel-note">La configuration des boutiques et des cles API se fait dans Parametres avec un compte administrateur.</p>
+        <p className="panel-note">{showConfigNote ? 'La configuration des boutiques et des cles API se fait dans Parametres avec un compte administrateur.' : 'Synchronisez manuellement les produits, clients, commandes et stocks de la boutique depuis cet onglet administrateur.'}</p>
       </Panel>
       {syncMessage && <div className={syncFailed ? 'alert' : 'loading'}>{syncMessage}</div>}
       <DataTable
