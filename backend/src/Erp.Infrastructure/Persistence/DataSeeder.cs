@@ -41,7 +41,8 @@ public static class DataSeeder
             "meet.read", "meet.write",
             "signatures.read", "signatures.write",
             "onlyoffice.read", "onlyoffice.write",
-            "flowcean.read", "flowcean.write"
+            "flowcean.read", "flowcean.write",
+            "backup.read", "backup.write"
         };
 
         foreach (var code in permissionCodes)

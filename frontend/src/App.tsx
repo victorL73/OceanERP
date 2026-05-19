@@ -3,9 +3,9 @@ import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import { NotionWorkspaceModule } from './components/NotionWorkspace';
-import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingRoomState, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, BackupArchive, BackupOperationResult, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingRoomState, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
-type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean';
+type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
   { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
@@ -23,6 +23,7 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
   { key: 'signatures', label: 'Signatures', icon: FileSignature, permission: 'signatures.read' },
   { key: 'flowcean', label: 'Espace', icon: BriefcaseBusiness, permission: 'flowcean.read' },
   { key: 'drive', label: 'Drive', icon: Folder, permission: 'drive.read' },
+  { key: 'backups', label: 'Sauvegardes', icon: Download, permission: 'backup.read' },
   { key: 'notifications', label: 'Notifications', icon: Bell, permission: 'notifications.read' }
 ];
 
@@ -43,11 +44,12 @@ const viewLabels: Record<ViewKey, string> = {
   meetings: 'Meet',
   signatures: 'Signatures',
   flowcean: 'Espace de travail',
+  backups: 'Sauvegardes',
   drive: 'Drive',
   notifications: 'Notifications'
 };
 
-const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean'];
+const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean', 'backups'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
 
 function readStoredChoice<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
@@ -168,6 +170,7 @@ export default function App() {
   const [meetingDashboard, setMeetingDashboard] = useState<MeetingDashboard | null>(null);
   const [meetingInitialRoomId, setMeetingInitialRoomId] = useState<string | null>(null);
   const [signatureRequests, setSignatureRequests] = useState<PagedResult<SignatureRequest> | null>(null);
+  const [backups, setBackups] = useState<BackupArchive[]>([]);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
 
@@ -362,6 +365,9 @@ export default function App() {
       }
       if (target === 'flowcean') {
         await api.flowceanWorkspaces();
+      }
+      if (target === 'backups') {
+        setBackups(await api.backups());
       }
       if (target === 'notifications') {
         setNotifications(await api.notifications());
@@ -652,6 +658,7 @@ export default function App() {
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} quotes={quotes?.items ?? []} onChanged={() => load('signatures')} />}
         {view === 'flowcean' && <NotionWorkspaceModule />}
         {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
+        {view === 'backups' && <Backups archives={backups} onChanged={() => load('backups')} />}
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
     </div>
@@ -999,6 +1006,137 @@ function Dashboard({ summary }: { summary: DashboardSummary | null }) {
       </section>
     </>
   );
+}
+
+function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [operation, setOperation] = useState<BackupOperationResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runBackup() {
+    setBusy('backup');
+    setError(null);
+    setOperation(null);
+    try {
+      const result = await api.createBackup();
+      setOperation(result);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sauvegarde impossible');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function restoreBackup(archive: BackupArchive) {
+    const complete = archive.hasPostgresDump && archive.hasDocumentsArchive;
+    if (!complete) {
+      setError('Cette sauvegarde est incomplete et ne peut pas etre restauree.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Restaurer la sauvegarde ${archive.name} ? Cette operation remplace PostgreSQL et les documents.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setBusy(archive.name);
+    setError(null);
+    setOperation(null);
+    try {
+      const result = await api.restoreBackup(archive.name);
+      setOperation(result);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Restauration impossible');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="backup-module">
+      <Panel title="Sauvegardes serveur">
+        <div className="backup-toolbar">
+          <div>
+            <strong>{archives.length} sauvegarde(s)</strong>
+            <p>Les sauvegardes contiennent PostgreSQL et les documents stockes hors base.</p>
+          </div>
+          <div className="backup-actions">
+            <button className="secondary" type="button" disabled={Boolean(busy)} onClick={onChanged}>
+              <Search size={16} />
+              Actualiser
+            </button>
+            <button className="primary" type="button" disabled={Boolean(busy)} onClick={runBackup}>
+              <Download size={16} />
+              {busy === 'backup' ? 'Sauvegarde...' : 'Lancer une sauvegarde'}
+            </button>
+          </div>
+        </div>
+
+        {error && <div className="alert">{error}</div>}
+        {operation && (
+          <div className={operation.succeeded ? 'success backup-result' : 'alert backup-result'}>
+            <strong>{operation.message}</strong>
+            {operation.backupName && <span>Sauvegarde : {operation.backupName}</span>}
+            {operation.output && <pre>{operation.output}</pre>}
+          </div>
+        )}
+
+        <DataTable
+          columns={['Sauvegarde', 'Date', 'PostgreSQL', 'Documents', 'Taille totale', 'Actions']}
+          rows={archives.map((archive) => {
+            const complete = archive.hasPostgresDump && archive.hasDocumentsArchive;
+            return [
+              <strong key="name">{archive.name}</strong>,
+              formatBackupDate(archive.createdAt),
+              archive.hasPostgresDump ? formatBytes(archive.postgresSizeBytes) : <span className="text-danger">Manquant</span>,
+              archive.hasDocumentsArchive ? formatBytes(archive.documentsSizeBytes) : <span className="text-danger">Manquant</span>,
+              formatBytes(archive.totalSizeBytes),
+              <button
+                key="restore"
+                className="secondary"
+                type="button"
+                disabled={Boolean(busy) || !complete}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  restoreBackup(archive);
+                }}
+              >
+                <Upload size={16} />
+                {busy === archive.name ? 'Restauration...' : 'Restaurer'}
+              </button>
+            ];
+          })}
+        />
+      </Panel>
+    </section>
+  );
+}
+
+function formatBackupDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'medium' }).format(date);
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0 octet';
+  }
+
+  const units = ['octets', 'Ko', 'Mo', 'Go', 'To'];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: unitIndex === 0 ? 0 : 1 }).format(size)} ${units[unitIndex]}`;
 }
 
 const dashboardStorageKey = 'oceanerp.dashboard.blocks';

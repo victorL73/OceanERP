@@ -7,6 +7,14 @@ Les sauvegardes couvrent deux elements distincts :
 
 ## 1. Creer une sauvegarde
 
+Depuis l'interface OceanERP, un administrateur peut utiliser le module `Sauvegardes` :
+
+- `Sauvegardes > Lancer une sauvegarde` execute le script `deploy/ubuntu/backup.sh`.
+- La liste affiche les archives disponibles, leur taille et la presence des fichiers PostgreSQL/documents.
+- Depuis l'interface, le conteneur API utilise `pg_dump`, `psql` et le volume documents monte directement. En SSH, les memes scripts utilisent Docker Compose comme avant.
+
+La sauvegarde peut aussi etre lancee en SSH :
+
 ```bash
 cd ~/OceanERP/deploy/ubuntu
 ./backup.sh
@@ -75,7 +83,11 @@ Les dossiers plus anciens sont supprimes automatiquement par `backup.sh`.
 
 ## 5. Restaurer une sauvegarde
 
-Attention : une restauration remplace le contenu PostgreSQL et le volume documents.
+Attention : une restauration remplace le contenu PostgreSQL et le volume documents. Le script vide le schema `public` avant de rejouer l'archive PostgreSQL.
+
+Depuis l'interface OceanERP, utiliser `Sauvegardes > Restaurer` sur la sauvegarde voulue. L'API execute `deploy/ubuntu/restore.sh` avec le dossier de sauvegarde selectionne.
+
+La restauration peut aussi etre lancee en SSH :
 
 ```bash
 cd ~/OceanERP/deploy/ubuntu
@@ -96,3 +108,25 @@ curl http://localhost:8080/api/health
 - Chiffrer les sauvegardes si elles sortent du reseau interne.
 - Ne jamais supprimer `oceanerp_documents` sans sauvegarde valide.
 
+## 7. Module Sauvegardes dans Docker
+
+Pour permettre a l'interface de piloter les scripts, le conteneur `erp-api` monte :
+
+- `${BACKUP_ROOT:-/opt/oceanerp/backups}` cote serveur, monte en `/opt/oceanerp/backups` dans le conteneur API.
+- le dossier `deploy/ubuntu` en lecture seule dans `/opt/oceanerp/deploy/ubuntu`.
+- le volume documents dans `/var/lib/oceanerp/documents`.
+
+Variables utiles :
+
+```env
+BACKUP_ROOT=/opt/oceanerp/backups
+BACKUP_RETENTION_DAYS=14
+BACKUP_COMMAND_TIMEOUT_SECONDS=900
+```
+
+Si le module affiche `Script de sauvegarde introuvable` ou une erreur Docker, verifier que le deploiement a bien ete reconstruit avec :
+
+```bash
+docker compose --env-file .env -f docker-compose.yml build --no-cache erp-api nginx
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
+```

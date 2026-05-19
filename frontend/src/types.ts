@@ -35,6 +35,25 @@ export type Permission = {
   code: string;
 };
 
+export type BackupArchive = {
+  name: string;
+  path: string;
+  createdAt: string;
+  postgresSizeBytes: number;
+  documentsSizeBytes: number;
+  totalSizeBytes: number;
+  hasPostgresDump: boolean;
+  hasDocumentsArchive: boolean;
+};
+
+export type BackupOperationResult = {
+  succeeded: boolean;
+  message: string;
+  backupName?: string;
+  output: string;
+  completedAt: string;
+};
+
 export type AuditLog = {
   id: string;
   userId?: string;

@@ -101,7 +101,8 @@ var permissionCodes = new[]
     "meet.read", "meet.write",
     "signatures.read", "signatures.write",
     "onlyoffice.read", "onlyoffice.write",
-    "flowcean.read", "flowcean.write"
+    "flowcean.read", "flowcean.write",
+    "backup.read", "backup.write"
 };
 
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();

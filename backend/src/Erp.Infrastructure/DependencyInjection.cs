@@ -1,4 +1,5 @@
 using Erp.Application.Auth;
+using Erp.Application.Backups;
 using Erp.Application.Calendar;
 using Erp.Application.Customers;
 using Erp.Application.Dashboard;
@@ -36,6 +37,7 @@ public static class DependencyInjection
     {
         services.Configure<JwtOptions>(configuration.GetSection("Jwt"));
         services.Configure<FileStorageOptions>(configuration.GetSection("Storage"));
+        services.Configure<BackupOptions>(configuration.GetSection("Backup"));
 
         services.AddDbContext<ErpDbContext>(options =>
         {
@@ -77,6 +79,7 @@ public static class DependencyInjection
         services.AddScoped<IOnlyOfficeService, OnlyOfficeService>();
         services.AddScoped<IFlowceanService, FlowceanService>();
         services.AddScoped<IMeetingService, MeetingService>();
+        services.AddScoped<IBackupService, BackupService>();
         services.AddHostedService<LowStockAlertWorker>();
 
         return services;

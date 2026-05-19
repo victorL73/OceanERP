@@ -23,9 +23,19 @@ services:
       Prestashop__AutoSyncIntervalSeconds: ${PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS:-10}
       Secrets__EncryptionKey: ${SECRETS_ENCRYPTION_KEY:-CHANGE_ME_WITH_64_RANDOM_CHARACTERS_FOR_SECRET_ENCRYPTION}
       Secrets__SMTP_MAIN_PASSWORD: ${SMTP_MAIN_PASSWORD:-}
+      Backup__BackupsDirectory: /opt/oceanerp/backups
+      Backup__ScriptDirectory: /opt/oceanerp/deploy/ubuntu
+      Backup__CommandTimeoutSeconds: ${BACKUP_COMMAND_TIMEOUT_SECONDS:-900}
+      BACKUP_ROOT_CONTAINER: /opt/oceanerp/backups
+      BACKUP_USE_DIRECT_DB: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DOCUMENTS_ROOT_CONTAINER: /var/lib/oceanerp/documents
     volumes:
       - oceanerp_documents:/var/lib/oceanerp/documents
       - oceanerp_api_logs:/var/log/oceanerp
+      - ${BACKUP_ROOT:-/opt/oceanerp/backups}:/opt/oceanerp/backups
+      - ../deploy/ubuntu:/opt/oceanerp/deploy/ubuntu:ro
     depends_on:
       postgres:
         condition: service_healthy

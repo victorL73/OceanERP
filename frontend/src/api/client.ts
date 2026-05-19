@@ -1,6 +1,8 @@
 import type {
   AuthResponse,
   AuditLog,
+  BackupArchive,
+  BackupOperationResult,
   CalendarEvent,
   Customer,
   DashboardSummary,
@@ -97,6 +99,18 @@ export class ApiClient {
 
   summary() {
     return this.request<DashboardSummary>('/api/dashboard/summary', { auth: true });
+  }
+
+  backups() {
+    return this.request<BackupArchive[]>('/api/backups', { auth: true });
+  }
+
+  createBackup() {
+    return this.request<BackupOperationResult>('/api/backups', { method: 'POST', auth: true });
+  }
+
+  restoreBackup(name: string) {
+    return this.request<BackupOperationResult>(`/api/backups/${encodeURIComponent(name)}/restore`, { method: 'POST', auth: true });
   }
 
   customers(search = '', page = 1, pageSize = 100) {
