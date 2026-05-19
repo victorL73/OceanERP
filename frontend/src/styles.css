@@ -5270,6 +5270,10 @@ button.drive-main {
   min-height: 38px;
 }
 
+.meet-device-select {
+  width: min(260px, 100%);
+}
+
 .meet-toolbar button.active {
   border-color: var(--accent);
   background: var(--accent);

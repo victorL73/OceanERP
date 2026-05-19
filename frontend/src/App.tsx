@@ -1,4 +1,4 @@
-import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, type ReactNode, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
@@ -9015,6 +9015,9 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [screenEnabled, setScreenEnabled] = useState(false);
+  const [mediaDevices, setMediaDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedAudioInputId, setSelectedAudioInputId] = useState('');
+  const [selectedVideoInputId, setSelectedVideoInputId] = useState('');
   const [transcriptionEnabled, setTranscriptionEnabled] = useState(false);
   const [translationEnabled, setTranslationEnabled] = useState(false);
   const [backgroundMode, setBackgroundMode] = useState<'none' | 'blur' | 'ocean' | 'studio' | 'workshop'>('none');
@@ -9025,10 +9028,40 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const audioInputDevices = mediaDevices.filter((device) => device.kind === 'audioinput');
+  const videoInputDevices = mediaDevices.filter((device) => device.kind === 'videoinput');
+
+  const loadMediaDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setMediaDevices([]);
+      return;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setMediaDevices(devices);
+      setSelectedAudioInputId((current) => current && devices.some((device) => device.kind === 'audioinput' && device.deviceId === current) ? current : '');
+      setSelectedVideoInputId((current) => current && devices.some((device) => device.kind === 'videoinput' && device.deviceId === current) ? current : '');
+    } catch {
+      setMediaDevices([]);
+    }
+  }, []);
 
   useEffect(() => {
     setRooms(dashboard?.rooms ?? []);
   }, [dashboard]);
+
+  useEffect(() => {
+    void loadMediaDevices();
+
+    if (!navigator.mediaDevices?.addEventListener) {
+      return undefined;
+    }
+
+    const onDeviceChange = () => void loadMediaDevices();
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+  }, [loadMediaDevices]);
 
   useEffect(() => {
     if (!initialRoomId) {
@@ -9089,8 +9122,19 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     localStreamRef.current = null;
 
     navigator.mediaDevices.getUserMedia({
-      video: cameraEnabled ? { facingMode: 'user' } : false,
-      audio: microphoneEnabled ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false
+      video: cameraEnabled
+        ? selectedVideoInputId
+          ? { deviceId: { exact: selectedVideoInputId } }
+          : { facingMode: 'user' }
+        : false,
+      audio: microphoneEnabled
+        ? {
+          ...(selectedAudioInputId ? { deviceId: { exact: selectedAudioInputId } } : {}),
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+        : false
     })
       .then((nextStream) => {
         if (!alive) {
@@ -9100,6 +9144,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
 
         stream = nextStream;
         localStreamRef.current = nextStream;
+        void loadMediaDevices();
         if (videoRef.current) {
           videoRef.current.srcObject = nextStream;
           void videoRef.current.play().catch(() => undefined);
@@ -9118,7 +9163,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
         localStreamRef.current = null;
       }
     };
-  }, [cameraEnabled, microphoneEnabled, roomState?.room.id]);
+  }, [cameraEnabled, loadMediaDevices, microphoneEnabled, roomState?.room.id, selectedAudioInputId, selectedVideoInputId]);
 
   useEffect(() => () => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -9423,10 +9468,30 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                 {microphoneEnabled ? <Mic size={16} /> : <MicOff size={16} />}
                 Micro
               </button>
+              {canUseMediaDevices && audioInputDevices.length > 1 && (
+                <select className="meet-device-select" value={selectedAudioInputId} onChange={(event) => setSelectedAudioInputId(event.target.value)} aria-label="Choisir le micro">
+                  <option value="">Micro par defaut</option>
+                  {audioInputDevices.map((device, index) => (
+                    <option value={device.deviceId} key={device.deviceId || `audio-${index}`}>
+                      {device.label || `Micro ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button className={cameraEnabled ? 'active' : ''} type="button" disabled={!canUseMediaDevices} title={!canUseMediaDevices ? "Camera indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => setCameraEnabled((value) => !value)}>
                 {cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />}
                 Camera
               </button>
+              {canUseMediaDevices && videoInputDevices.length > 1 && (
+                <select className="meet-device-select" value={selectedVideoInputId} onChange={(event) => setSelectedVideoInputId(event.target.value)} aria-label="Choisir la camera">
+                  <option value="">Camera par defaut</option>
+                  {videoInputDevices.map((device, index) => (
+                    <option value={device.deviceId} key={device.deviceId || `video-${index}`}>
+                      {device.label || `Camera ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button className={screenEnabled ? 'active' : ''} type="button" disabled={!canUseDisplayMedia} title={!canUseDisplayMedia ? "Partage d'ecran indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => void toggleScreenShare()}>
                 <ScreenShare size={16} />
                 Ecran
@@ -9455,7 +9520,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
             </div>
             {(!canUseMediaDevices || !canUseDisplayMedia) && (
               <div className="alert meet-media-warning">
-                Camera, micro ou partage d'ecran indisponible dans ce contexte. Utilisez l'application Windows mise a jour, ou servez l'ERP en HTTPS pour le navigateur.
+                {meetMediaAvailabilityMessage(canUseMediaDevices, canUseDisplayMedia)}
               </div>
             )}
 
@@ -9482,7 +9547,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                     <div className="meet-avatar">{participant.displayName.slice(0, 2).toUpperCase()}</div>
                     <footer>
                       <strong>{participant.displayName}</strong>
-                      <span>{participant.microphoneEnabled ? 'Micro actif' : 'Micro coupe'} · {participant.cameraEnabled ? 'Camera active' : 'Camera coupee'}</span>
+                      <span>{participant.microphoneEnabled ? 'Micro actif' : 'Micro coupe'} - {participant.cameraEnabled ? 'Camera active' : 'Camera coupee'}</span>
                     </footer>
                   </article>
                 ))}
@@ -9494,7 +9559,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                   {roomState.participants.map((participant) => (
                     <div className="meet-participant" key={participant.id}>
                       <strong>{participant.displayName}</strong>
-                      <span>{participant.sourceLanguage} · {participant.connectionState}</span>
+                      <span>{participant.sourceLanguage} - {participant.connectionState}</span>
                     </div>
                   ))}
                 </section>
@@ -9581,6 +9646,20 @@ async function copyTextToClipboard(value: string) {
   } finally {
     textarea.remove();
   }
+}
+
+function meetMediaAvailabilityMessage(canUseMediaDevices: boolean, canUseDisplayMedia: boolean) {
+  const missing = [
+    !canUseMediaDevices ? 'camera/micro' : null,
+    !canUseDisplayMedia ? "partage d'ecran" : null
+  ].filter(Boolean).join(' et ');
+
+  const origin = window.location.origin;
+  if (!window.isSecureContext) {
+    return `${missing} indisponible sur ${origin}. En navigateur, servez l'ERP en HTTPS. Dans l'application Windows, enregistrez l'adresse serveur puis relancez l'application pour autoriser cette origine HTTP.`;
+  }
+
+  return `${missing} indisponible. Verifiez les permissions Windows, les autorisations du navigateur et qu'un peripherique compatible est branche.`;
 }
 
 function formatMeetMediaError(error: unknown, fallback: string) {

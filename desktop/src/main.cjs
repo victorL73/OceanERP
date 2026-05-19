@@ -12,6 +12,19 @@ let mainWindow;
 let tray;
 let updateCheckInProgress = false;
 
+function getHttpOrigin(value) {
+  try {
+    if (!value) {
+      return null;
+    }
+
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 function configuredServerOrigins() {
   const origins = new Set([
     'http://localhost:8080',
@@ -29,22 +42,19 @@ function configuredServerOrigins() {
   }
 
   for (const candidate of [process.env.OCEANERP_WEB_URL, defaultSettings.serverUrl, savedServerUrl]) {
-    try {
-      if (candidate) {
-        const parsed = new URL(candidate);
-        if (parsed.protocol === 'http:') {
-          origins.add(parsed.origin);
-        }
-      }
-    } catch {
-      // Ignore invalid optional origins.
+    const origin = getHttpOrigin(candidate);
+    if (origin) {
+      origins.add(origin);
     }
   }
 
   return [...origins];
 }
 
-app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', configuredServerOrigins().join(','));
+const secureMediaOrigins = configuredServerOrigins();
+if (secureMediaOrigins.length > 0) {
+  app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', secureMediaOrigins.join(','));
+}
 
 function readPackagedServerUrl() {
   const candidates = [
@@ -99,6 +109,18 @@ function writeSettings(nextSettings) {
   fs.mkdirSync(path.dirname(getSettingsPath()), { recursive: true });
   fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2));
   return settings;
+}
+
+function restartForNewHttpMediaOrigin(serverUrl) {
+  const origin = getHttpOrigin(serverUrl);
+  if (!origin || secureMediaOrigins.includes(origin)) {
+    return false;
+  }
+
+  log.info('Restarting OceanERP to enable media permissions for HTTP origin', origin);
+  app.relaunch();
+  app.exit(0);
+  return true;
 }
 
 function getIconPath() {
@@ -245,6 +267,10 @@ function loadLauncher(errorMessage = '') {
             event.preventDefault();
             error.textContent = '';
             const result = await window.oceanErpDesktop.connectServer(input.value);
+            if (result.restarting) {
+              error.textContent = "Redemarrage de l'application pour autoriser camera, micro et partage d'ecran sur cette adresse HTTP...";
+              return;
+            }
             if (!result.ok) {
               error.textContent = result.error || 'URL invalide';
             }
@@ -496,6 +522,9 @@ ipcMain.handle('settings:connect', (_, payload) => {
   try {
     const serverUrl = normalizeServerUrl(payload?.serverUrl || '');
     writeSettings({ serverUrl });
+    if (restartForNewHttpMediaOrigin(serverUrl)) {
+      return { ok: true, restarting: true };
+    }
     loadServerUrl(serverUrl);
     return { ok: true };
   } catch (error) {
@@ -507,6 +536,9 @@ ipcMain.handle('settings:save', (_, payload) => {
   try {
     const serverUrl = normalizeServerUrl(payload?.serverUrl || '');
     writeSettings({ serverUrl });
+    if (restartForNewHttpMediaOrigin(serverUrl)) {
+      return { ok: true, restarting: true };
+    }
     loadServerUrl(serverUrl);
     return { ok: true };
   } catch (error) {
