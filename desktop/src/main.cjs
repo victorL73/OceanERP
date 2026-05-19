@@ -226,6 +226,38 @@ function loadServerUrl(serverUrl) {
   mainWindow.loadURL(serverUrl || readSettings().serverUrl);
 }
 
+function isAllowedAppNavigation(targetUrl) {
+  if (!targetUrl || targetUrl === 'about:blank') {
+    return false;
+  }
+
+  if (targetUrl.startsWith('data:text/html')) {
+    return true;
+  }
+
+  const settings = readSettings();
+  if (!settings.serverUrl) {
+    return true;
+  }
+
+  try {
+    const target = new URL(targetUrl);
+    const server = new URL(settings.serverUrl);
+    const serverPath = server.pathname.replace(/\/$/, '');
+    const allowedPaths = new Set([
+      serverPath || '/',
+      `${serverPath}/`,
+      `${serverPath}/index.html`
+    ]);
+
+    return ['http:', 'https:'].includes(target.protocol)
+      && target.origin === server.origin
+      && allowedPaths.has(target.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function createWindow() {
   const iconPath = getIconPath();
   mainWindow = new BrowserWindow({
@@ -247,8 +279,17 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedUrl) => {
-    if (errorCode !== -3) {
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedAppNavigation(url)) {
+      event.preventDefault();
+      if (/^https?:\/\//i.test(url)) {
+        shell.openExternal(url);
+      }
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    if (isMainFrame !== false && errorCode !== -3) {
       loadLauncher(`Impossible de joindre le serveur ${validatedUrl}. ${errorDescription || ''}`);
     }
   });

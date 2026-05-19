@@ -2256,6 +2256,9 @@ button.drive-main {
 .onlyoffice-host {
   width: 100%;
   height: 100%;
+  display: block;
+  border: 0;
+  background: #fff;
 }
 
 .onlyoffice-status {

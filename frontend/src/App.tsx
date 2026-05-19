@@ -7305,13 +7305,12 @@ type DriveEntryRef = { kind: 'folder' | 'file'; id: string; name: string };
 type DriveFolderOption = { id: string; name: string; depth: number };
 type DrivePreview = { file: DriveItem; url: string; mimeType: string };
 type DriveOfficeSession = { file: DriveItem; config: OnlyOfficeConfig };
-type OnlyOfficeWindow = Window & {
-  DocsAPI?: {
-    DocEditor: new (holderId: string, config: Record<string, unknown>) => { destroyEditor?: () => void };
-  };
+type OnlyOfficeBridgeMessage = {
+  source?: string;
+  editorId?: string;
+  type?: 'loaded' | 'ready' | 'error' | 'request-close';
+  message?: string;
 };
-
-const onlyOfficeScriptPromises = new Map<string, Promise<void>>();
 
 function resolveOnlyOfficeServerUrl(documentServerUrl: string) {
   const value = (documentServerUrl || '/onlyoffice').trim() || '/onlyoffice';
@@ -7348,53 +7347,110 @@ function getOnlyOfficeEditorConfig(config: OnlyOfficeConfig) {
   };
 }
 
-function loadOnlyOfficeScript(documentServerUrl: string) {
-  const baseUrl = resolveOnlyOfficeServerUrl(documentServerUrl);
-  const src = `${baseUrl}/web-apps/apps/api/documents/api.js`;
-  const existing = onlyOfficeScriptPromises.get(src);
-  if (existing) {
-    return existing;
-  }
+function stringifyForOnlyOfficeFrame(value: unknown) {
+  return (JSON.stringify(value) ?? 'null')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
 
-  const promise = new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const timer = window.setTimeout(() => {
-      finish(() => reject(new Error(`Chargement ONLYOFFICE trop long. Verifiez que ${src} est accessible depuis ce poste.`)));
-    }, 15000);
-    const finish = (callback: () => void) => {
-      if (settled) {
-        return;
+function getOnlyOfficeFrameHtml(editorId: string, config: OnlyOfficeConfig) {
+  const scriptUrl = `${resolveOnlyOfficeServerUrl(config.documentServerUrl)}/web-apps/apps/api/documents/api.js`;
+  const editorConfig = getOnlyOfficeEditorConfig(config);
+
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body, #placeholder {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+  </style>
+</head>
+<body>
+  <div id="placeholder"></div>
+  <script>
+    (function () {
+      var editorId = ${stringifyForOnlyOfficeFrame(editorId)};
+      var scriptUrl = ${stringifyForOnlyOfficeFrame(scriptUrl)};
+      var config = ${stringifyForOnlyOfficeFrame(editorConfig)};
+      var parentWindow = window.parent;
+
+      function post(type, message) {
+        parentWindow.postMessage({
+          source: 'oceanerp.onlyoffice',
+          editorId: editorId,
+          type: type,
+          message: message || ''
+        }, '*');
       }
 
-      settled = true;
-      window.clearTimeout(timer);
-      callback();
-    };
-    const apiWindow = window as OnlyOfficeWindow;
-    if (apiWindow.DocsAPI?.DocEditor) {
-      finish(resolve);
-      return;
-    }
+      function callOriginal(callback, args) {
+        if (typeof callback === 'function') {
+          try {
+            callback.apply(null, args);
+          } catch (error) {
+            post('error', error && error.message ? error.message : String(error));
+          }
+        }
+      }
 
-    const currentScript = document.querySelector<HTMLScriptElement>(`script[data-onlyoffice-src="${src}"]`);
-    if (currentScript) {
-      currentScript.addEventListener('load', () => finish(resolve), { once: true });
-      currentScript.addEventListener('error', () => finish(() => reject(new Error(`Chargement ONLYOFFICE impossible depuis ${src}.`))), { once: true });
-      return;
-    }
+      window.onerror = function (message, source, line, column, error) {
+        post('error', error && error.message ? error.message : String(message || 'Erreur JavaScript ONLYOFFICE.'));
+        return false;
+      };
 
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.dataset.onlyofficeSrc = src;
-    script.onload = () => finish(resolve);
-    script.onerror = () => finish(() => reject(new Error(`Chargement ONLYOFFICE impossible depuis ${src}.`)));
-    document.body.appendChild(script);
-  });
+      var script = document.createElement('script');
+      script.src = scriptUrl;
+      script.async = true;
+      script.onload = function () {
+        try {
+          if (!window.DocsAPI || !window.DocsAPI.DocEditor) {
+            throw new Error('ONLYOFFICE DocsAPI indisponible.');
+          }
 
-  onlyOfficeScriptPromises.set(src, promise);
-  promise.catch(() => onlyOfficeScriptPromises.delete(src));
-  return promise;
+          var originalEvents = config.events || {};
+          config.events = Object.assign({}, originalEvents, {
+            onAppReady: function () {
+              post('loaded');
+              callOriginal(originalEvents.onAppReady, arguments);
+            },
+            onDocumentReady: function () {
+              post('ready');
+              callOriginal(originalEvents.onDocumentReady, arguments);
+            },
+            onError: function (event) {
+              var raw = event && event.data ? JSON.stringify(event.data) : '';
+              post('error', raw || 'Erreur ONLYOFFICE pendant l edition.');
+              callOriginal(originalEvents.onError, arguments);
+            },
+            onRequestClose: function () {
+              post('request-close');
+              callOriginal(originalEvents.onRequestClose, arguments);
+            }
+          });
+
+          window.oceanErpOnlyOfficeEditor = new window.DocsAPI.DocEditor('placeholder', config);
+        } catch (error) {
+          post('error', error && error.message ? error.message : String(error));
+        }
+      };
+      script.onerror = function () {
+        post('error', 'Chargement ONLYOFFICE impossible depuis ' + scriptUrl + '.');
+      };
+      document.head.appendChild(script);
+    })();
+  </script>
+</body>
+</html>`;
 }
 
 function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
@@ -7998,72 +8054,47 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
 
 function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSession; onClose: () => void }) {
   const editorId = useMemo(() => `onlyoffice-editor-${session.file.id.replace(/[^a-z0-9]/gi, '')}`, [session.file.id]);
-  const editorRef = useRef<{ destroyEditor?: () => void } | null>(null);
-  const readyTimerRef = useRef<number | null>(null);
+  const frameHtml = useMemo(() => getOnlyOfficeFrameHtml(editorId, session.config), [editorId, session.config]);
   const [status, setStatus] = useState('Chargement de l editeur ONLYOFFICE...');
 
   useEffect(() => {
     let cancelled = false;
-    const clearReadyTimer = () => {
-      if (readyTimerRef.current !== null) {
-        window.clearTimeout(readyTimerRef.current);
-        readyTimerRef.current = null;
+    setStatus('Connexion a ONLYOFFICE...');
+    const readyFallbackTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setStatus('');
+      }
+    }, 12000);
+
+    const handleOnlyOfficeMessage = (event: MessageEvent<OnlyOfficeBridgeMessage>) => {
+      const data = event.data;
+      if (!data || data.source !== 'oceanerp.onlyoffice' || data.editorId !== editorId) {
+        return;
+      }
+
+      if (data.type === 'loaded') {
+        setStatus('Chargement du document dans ONLYOFFICE...');
+        return;
+      }
+
+      window.clearTimeout(readyFallbackTimer);
+      if (data.type === 'ready') {
+        setStatus('');
+      } else if (data.type === 'error') {
+        setStatus(data.message ? `Erreur ONLYOFFICE : ${data.message}` : 'Erreur ONLYOFFICE pendant l edition.');
+      } else if (data.type === 'request-close') {
+        onClose();
       }
     };
 
-    async function startEditor() {
-      setStatus('Connexion a ONLYOFFICE...');
-      await loadOnlyOfficeScript(session.config.documentServerUrl);
-      if (cancelled) {
-        return;
-      }
-      setStatus('Ouverture du document dans ONLYOFFICE...');
-
-      const apiWindow = window as OnlyOfficeWindow;
-      if (!apiWindow.DocsAPI?.DocEditor) {
-        throw new Error('ONLYOFFICE Docs n est pas accessible depuis OceanERP.');
-      }
-
-      editorRef.current?.destroyEditor?.();
-      const editorConfig = {
-        ...getOnlyOfficeEditorConfig(session.config),
-        events: {
-          onDocumentReady: () => {
-            clearReadyTimer();
-            setStatus('');
-          },
-          onError: (event: unknown) => {
-            clearReadyTimer();
-            const raw = typeof event === 'object' && event && 'data' in event ? String((event as { data?: unknown }).data ?? '') : '';
-            setStatus(raw ? `Erreur ONLYOFFICE : ${raw}` : 'Erreur ONLYOFFICE pendant l edition.');
-          },
-          onRequestClose: onClose
-        }
-      };
-      editorRef.current = new apiWindow.DocsAPI.DocEditor(editorId, editorConfig);
-      readyTimerRef.current = window.setTimeout(() => {
-        if (!cancelled) {
-          setStatus('');
-        }
-      }, 12000);
-    }
-
-    startEditor().catch((err) => {
-      if (!cancelled) {
-        setStatus(err instanceof Error ? err.message : 'Ouverture ONLYOFFICE impossible.');
-      }
-    });
+    window.addEventListener('message', handleOnlyOfficeMessage);
 
     return () => {
       cancelled = true;
-      clearReadyTimer();
-      try {
-        editorRef.current?.destroyEditor?.();
-      } finally {
-        editorRef.current = null;
-      }
+      window.clearTimeout(readyFallbackTimer);
+      window.removeEventListener('message', handleOnlyOfficeMessage);
     };
-  }, [editorId, onClose, session.config]);
+  }, [editorId, frameHtml, onClose]);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -8079,7 +8110,14 @@ function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSessi
         </header>
         <div className="onlyoffice-frame">
           {status && <div className="onlyoffice-status">{status}</div>}
-          <div id={editorId} className="onlyoffice-host" />
+          <iframe
+            key={editorId}
+            className="onlyoffice-host"
+            title={`ONLYOFFICE - ${session.file.name}`}
+            srcDoc={frameHtml}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
+            allow="clipboard-read; clipboard-write; fullscreen"
+          />
         </div>
       </section>
     </div>
