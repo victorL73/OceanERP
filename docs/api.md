@@ -136,8 +136,11 @@ La Phase 3 ajoute les permissions `service.*`, `calendar.*`, `signatures.*` et `
 - `GET /api/service-tickets/{id}`
 - `POST /api/service-tickets`
 - `PUT /api/service-tickets/{id}`
+- `POST /api/service-tickets/{id}/assignment`
 - `POST /api/service-tickets/{id}/status`
 - `POST /api/service-tickets/{id}/messages`
+- `GET /api/service-tickets/settings/assignment`
+- `PUT /api/service-tickets/settings/assignment`
 - `GET /api/calendar/events`
 - `GET /api/calendar/events/{id}`
 - `POST /api/calendar/events`
@@ -185,5 +188,6 @@ La Phase 3 ajoute les permissions `service.*`, `calendar.*`, `signatures.*` et `
 - La fiche client accepte les champs administratifs et commerciaux : raison sociale, nom commercial, SIREN, SIRET, TVA, email, telephone, mobile, site web, secteur, type, origine, code comptable, conditions de paiement et remise par defaut.
 - L'URL PrestaShop peut etre saisie sous forme `https://boutique.example.com` ou `https://boutique.example.com/api`. Le backend evite automatiquement le doublon `/api/api`.
 - `POST /api/prestashop/connections/{id}/sync` cree un journal `Queued` et retourne immediatement. Un worker serveur passe ensuite le journal en `Running`, puis importe les produits, clients, stocks, commandes et conversations SAV PrestaShop dans les modules ERP via `ExternalReference`.
-- La synchronisation automatique PrestaShop tourne toutes les 30 secondes sur les connexions actives. Les ressources `customer_threads` et `customer_messages` alimentent les tickets SAV, dedoublonnent les messages par reference externe, rattachent client/produit/commande quand les references existent et emettent une notification SignalR `service.prestashop.new`.
+- Les tickets SAV peuvent etre attribues a un utilisateur interne via `POST /api/service-tickets/{id}/assignment`. Les administrateurs definissent les destinataires initiaux des demandes non attribuees avec `/api/service-tickets/settings/assignment`.
+- La synchronisation automatique PrestaShop tourne toutes les 30 secondes sur les connexions actives. Les ressources `customer_threads` et `customer_messages` alimentent les tickets SAV, dedoublonnent les messages par reference externe, rattachent client/produit/commande quand les references existent et emettent une notification SignalR `service.prestashop.new` vers le responsable du ticket ou, si le ticket n'est pas attribue, vers les destinataires initiaux SAV.
 - Le statut final est `Completed`, `CompletedWithWarnings` ou `Failed`, avec le nombre de creations/mises a jour par ressource PrestaShop.

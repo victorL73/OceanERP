@@ -108,6 +108,8 @@ La migration `Phase3Core` ajoute :
 
 Les tables de signature ne stockent pas le binaire signe en PostgreSQL. `SignedDocuments.StoragePath` pointe vers le stockage fichiers securise, et `SignedDocuments.DocumentSha256` conserve l'empreinte de preuve.
 
+La migration `ServiceTicketAssignment` ajoute `ServiceTickets.AssignedUserId` et `ServiceTicketInitialResponders`. Ces champs permettent d'attribuer un ticket SAV a un utilisateur interne et de configurer les utilisateurs qui recoivent les nouvelles demandes SAV non encore attribuees.
+
 Les tables `ApiClients`, `ApiKeys` et `ApiRequestLogs` sont posees pour le futur module API externe : le durcissement complet des cles, permissions par cle et limitation par client reste a finaliser dans une evolution dediee.
 
 ## Tables Espace de travail Flowcean

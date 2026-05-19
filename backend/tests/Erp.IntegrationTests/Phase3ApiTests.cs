@@ -53,6 +53,37 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task ServiceTicketAssignment_CanConfigureInitialRespondersAndAssignUser()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var userEmail = $"sav-{Guid.NewGuid():N}@example.com";
+        var userResponse = await client.PostAsJsonAsync("/api/users", new RegisterUserRequest(userEmail, "Responsable SAV", "ChangeMe!12345", ["Administrator"]));
+        Assert.Equal(HttpStatusCode.Created, userResponse.StatusCode);
+        var assignee = await userResponse.Content.ReadFromJsonAsync<UserDto>();
+
+        var settingsResponse = await client.PutAsJsonAsync("/api/service-tickets/settings/assignment", new UpdateServiceTicketAssignmentSettingsRequest([assignee!.Id]));
+        Assert.Equal(HttpStatusCode.OK, settingsResponse.StatusCode);
+        var settings = await settingsResponse.Content.ReadFromJsonAsync<ServiceTicketAssignmentSettingsDto>();
+        Assert.Contains(assignee.Id, settings!.InitialResponderUserIds);
+
+        var customer = await CreateCustomerAsync(client);
+        var createResponse = await client.PostAsJsonAsync("/api/service-tickets", new CreateServiceTicketRequest(
+            customer.Id,
+            "Demande importee",
+            "Message initial",
+            AssignedUserId: assignee.Id));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var ticket = await createResponse.Content.ReadFromJsonAsync<ServiceTicketDto>();
+        Assert.Equal(assignee.Id, ticket!.AssignedUserId);
+        Assert.Equal("Responsable SAV", ticket.AssignedUserName);
+
+        var unassignResponse = await client.PostAsJsonAsync($"/api/service-tickets/{ticket.Id}/assignment", new AssignServiceTicketRequest(null));
+        Assert.Equal(HttpStatusCode.OK, unassignResponse.StatusCode);
+        var unassigned = await unassignResponse.Content.ReadFromJsonAsync<ServiceTicketDto>();
+        Assert.Null(unassigned!.AssignedUserId);
+    }
+
+    [Fact]
     public async Task Calendar_CanCreateUpdateAndDeleteEvent()
     {
         using var client = await CreateAuthenticatedClientAsync();

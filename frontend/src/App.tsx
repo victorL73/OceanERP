@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, Clock, Download, FileSignature, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, LifeBuoy, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'signatures' | 'flowcean';
 
@@ -160,6 +160,7 @@ export default function App() {
   const [prestashopConnections, setPrestashopConnections] = useState<PrestashopConnection[]>([]);
   const [prestashopLogs, setPrestashopLogs] = useState<PrestashopSyncLog[]>([]);
   const [serviceTickets, setServiceTickets] = useState<PagedResult<ServiceTicket> | null>(null);
+  const [serviceAssignmentSettings, setServiceAssignmentSettings] = useState<ServiceTicketAssignmentSettings | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<PagedResult<CalendarEvent> | null>(null);
   const [signatureRequests, setSignatureRequests] = useState<PagedResult<SignatureRequest> | null>(null);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
@@ -247,6 +248,9 @@ export default function App() {
         if (user.roles.includes('Administrator') && hasPermission(user, 'quotes.read')) {
           setQuoteSettings(await api.quoteSettings());
         }
+        if (hasPermission(user, 'auth.users.write') && hasPermission(user, 'service.write')) {
+          setServiceAssignmentSettings(await api.serviceTicketAssignmentSettings());
+        }
       }
       if (target === 'customers') {
         setCustomers(await api.customers());
@@ -322,11 +326,18 @@ export default function App() {
         await refreshPrestashopData();
       }
       if (target === 'service') {
-        const [nextTickets, nextCustomers, nextProducts, nextOrders] = await Promise.all([api.serviceTickets(), api.customers(), api.products(), api.orders()]);
+        const [nextTickets, nextCustomers, nextProducts, nextOrders, nextUsers] = await Promise.all([
+          api.serviceTickets(),
+          api.customers(),
+          api.products(),
+          api.orders(),
+          hasPermission(currentUser, 'auth.users.read') ? api.users() : Promise.resolve(users)
+        ]);
         setServiceTickets(nextTickets);
         setCustomers(nextCustomers);
         setProducts(nextProducts);
         setOrders(nextOrders);
+        setUsers(nextUsers);
       }
       if (target === 'calendar') {
         setCalendarEvents(await api.calendarEvents());
@@ -577,6 +588,7 @@ export default function App() {
             mailAccounts={mailAccounts}
             mailServerSettings={mailServerSettings}
             quoteSettings={quoteSettings}
+            serviceAssignmentSettings={serviceAssignmentSettings}
             onUsersRolesChanged={() => load('settings')}
             onPrestashopChanged={() => load('settings')}
             onPrestashopSyncChanged={refreshPrestashopData}
@@ -584,6 +596,7 @@ export default function App() {
             onMailAccountsChanged={() => load('settings')}
             onMailServerSettingsChanged={() => load('settings')}
             onQuoteSettingsChanged={() => load('settings')}
+            onServiceSettingsChanged={() => load('settings')}
             onUserChanged={setCurrentUser}
             onSignedOut={() => {
               api.logout();
@@ -600,7 +613,7 @@ export default function App() {
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
-        {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('service')} />}
+        {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} onChanged={() => load('service')} />}
         {view === 'calendar' && <Calendar events={calendarEvents?.items ?? []} onChanged={() => load('calendar')} />}
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} onChanged={() => load('signatures')} />}
         {view === 'flowcean' && <FlowceanWorkspaceModule />}
@@ -1051,6 +1064,7 @@ function Settings({
   mailAccounts,
   mailServerSettings,
   quoteSettings,
+  serviceAssignmentSettings,
   onUsersRolesChanged,
   onPrestashopChanged,
   onPrestashopSyncChanged,
@@ -1058,6 +1072,7 @@ function Settings({
   onMailAccountsChanged,
   onMailServerSettingsChanged,
   onQuoteSettingsChanged,
+  onServiceSettingsChanged,
   onUserChanged,
   onSignedOut
 }: {
@@ -1072,6 +1087,7 @@ function Settings({
   mailAccounts: MailAccount[];
   mailServerSettings: MailServerSettings | null;
   quoteSettings: QuoteSettings | null;
+  serviceAssignmentSettings: ServiceTicketAssignmentSettings | null;
   onUsersRolesChanged: () => Promise<void>;
   onPrestashopChanged: () => Promise<void>;
   onPrestashopSyncChanged: () => Promise<void>;
@@ -1079,6 +1095,7 @@ function Settings({
   onMailAccountsChanged: () => Promise<void>;
   onMailServerSettingsChanged: () => Promise<void>;
   onQuoteSettingsChanged: () => Promise<void>;
+  onServiceSettingsChanged: () => Promise<void>;
   onUserChanged: (user: User) => void;
   onSignedOut: () => void;
 }) {
@@ -1088,7 +1105,8 @@ function Settings({
   const canManageEmails = hasPermission(currentUser, 'emails.read') && hasPermission(currentUser, 'emails.write');
   const isAdministrator = Boolean(currentUser?.roles.includes('Administrator'));
   const canManageQuoteSettings = isAdministrator && hasPermission(currentUser, 'quotes.read') && hasPermission(currentUser, 'quotes.write');
-  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'audit' | 'warehouses' | 'prestashop'>(() => readStoredChoice('oceanerp.settings.activeTab', 'account', ['account', 'emails', 'quotes', 'access', 'audit', 'warehouses', 'prestashop'] as const));
+  const canManageServiceAssignments = isAdministrator && hasPermission(currentUser, 'service.write') && hasPermission(currentUser, 'auth.users.write');
+  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'audit' | 'warehouses' | 'prestashop' | 'service'>(() => readStoredChoice('oceanerp.settings.activeTab', 'account', ['account', 'emails', 'quotes', 'access', 'audit', 'warehouses', 'prestashop', 'service'] as const));
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -1103,10 +1121,10 @@ function Settings({
   }, [currentUser]);
 
   useEffect(() => {
-    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'quotes' && !canManageQuoteSettings) || ((activeTab === 'access' || activeTab === 'audit') && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop)) {
+    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'quotes' && !canManageQuoteSettings) || ((activeTab === 'access' || activeTab === 'audit') && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop) || (activeTab === 'service' && !canManageServiceAssignments)) {
       setActiveTab('account');
     }
-  }, [activeTab, canManageEmails, canManagePrestashop, canManageQuoteSettings, canManageUsers, canManageWarehouses]);
+  }, [activeTab, canManageEmails, canManagePrestashop, canManageQuoteSettings, canManageServiceAssignments, canManageUsers, canManageWarehouses]);
 
   useEffect(() => {
     storeChoice('oceanerp.settings.activeTab', activeTab);
@@ -1151,7 +1169,8 @@ function Settings({
     ...(canManageUsers ? [{ key: 'access' as const, label: 'Utilisateurs/Roles' }] : []),
     ...(canManageUsers ? [{ key: 'audit' as const, label: 'Journal audit' }] : []),
     ...(canManageWarehouses ? [{ key: 'warehouses' as const, label: 'Entrepots' }] : []),
-    ...(canManagePrestashop ? [{ key: 'prestashop' as const, label: 'PrestaShop' }] : [])
+    ...(canManagePrestashop ? [{ key: 'prestashop' as const, label: 'PrestaShop' }] : []),
+    ...(canManageServiceAssignments ? [{ key: 'service' as const, label: 'SAV' }] : [])
   ];
 
   return (
@@ -1201,8 +1220,52 @@ function Settings({
         {activeTab === 'audit' && canManageUsers && <AuditLogs logs={auditLogs} />}
         {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
         {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettingsTab connections={prestashopConnections} logs={prestashopLogs} warehouses={warehouses} onSettingsChanged={onPrestashopChanged} onSyncChanged={onPrestashopSyncChanged} />}
+        {activeTab === 'service' && canManageServiceAssignments && <ServiceAssignmentSettingsPanel users={users} settings={serviceAssignmentSettings} onChanged={onServiceSettingsChanged} />}
       </section>
     </>
+  );
+}
+
+function ServiceAssignmentSettingsPanel({ users, settings, onChanged }: { users: User[]; settings: ServiceTicketAssignmentSettings | null; onChanged: () => Promise<void> }) {
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>(settings?.initialResponderUserIds ?? []);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const activeUsers = users.filter((user) => user.isActive);
+
+  useEffect(() => {
+    setSelectedUserIds(settings?.initialResponderUserIds ?? []);
+  }, [settings]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setFeedback(null);
+    try {
+      await api.updateServiceTicketAssignmentSettings({ initialResponderUserIds: selectedUserIds });
+      setFeedback('Destinataires initiaux SAV enregistres.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Enregistrement impossible.');
+    }
+  }
+
+  return (
+    <Panel title="Attribution SAV">
+      <form className="form-grid" onSubmit={save}>
+        <label className="field wide-field">
+          Utilisateurs qui recoivent les nouvelles demandes non attribuees
+          <select multiple size={Math.min(Math.max(activeUsers.length, 3), 8)} value={selectedUserIds} onChange={(event) => setSelectedUserIds(Array.from(event.target.selectedOptions).map((option) => option.value))}>
+            {activeUsers.map((user) => (
+              <option key={user.id} value={user.id}>{user.displayName} &lt;{user.email}&gt;</option>
+            ))}
+          </select>
+        </label>
+        <button className="primary form-actions" type="submit">
+          <Save size={16} />
+          Enregistrer
+        </button>
+      </form>
+      <p className="panel-note">Les tickets SAV attribues notifient directement leur responsable. Les tickets non attribues notifient uniquement ces utilisateurs.</p>
+      {feedback && <div className="inline-message">{feedback}</div>}
+    </Panel>
   );
 }
 
@@ -7920,17 +7983,19 @@ function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSessi
   );
 }
 
-function ServiceTickets({ items, customers, products, orders, onChanged }: { items: ServiceTicket[]; customers: Customer[]; products: Product[]; orders: SalesOrder[]; onChanged: () => Promise<void> }) {
+function ServiceTickets({ items, customers, products, orders, users, onChanged }: { items: ServiceTicket[]; customers: Customer[]; products: Product[]; orders: SalesOrder[]; users: User[]; onChanged: () => Promise<void> }) {
   const [selected, setSelected] = useState<ServiceTicket | null>(null);
   const [message, setMessage] = useState('');
   const [draft, setDraft] = useState({
     customerId: '',
     productId: '',
     salesOrderId: '',
+    assignedUserId: '',
     subject: '',
     description: '',
     priority: 'Normal'
   });
+  const activeUsers = users.filter((user) => user.isActive);
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -7944,14 +8009,21 @@ function ServiceTickets({ items, customers, products, orders, onChanged }: { ite
       description: draft.description || null,
       productId: draft.productId || null,
       salesOrderId: draft.salesOrderId || null,
-      priority: draft.priority
+      priority: draft.priority,
+      assignedUserId: draft.assignedUserId || null
     });
-    setDraft({ customerId: '', productId: '', salesOrderId: '', subject: '', description: '', priority: 'Normal' });
+    setDraft({ customerId: '', productId: '', salesOrderId: '', assignedUserId: '', subject: '', description: '', priority: 'Normal' });
     await onChanged();
   }
 
   async function changeStatus(ticket: ServiceTicket, status: string) {
     const updated = await api.changeServiceTicketStatus(ticket.id, status);
+    setSelected(updated);
+    await onChanged();
+  }
+
+  async function assignTicket(ticket: ServiceTicket, assignedUserId: string) {
+    const updated = await api.assignServiceTicket(ticket.id, assignedUserId || null);
     setSelected(updated);
     await onChanged();
   }
@@ -8009,6 +8081,15 @@ function ServiceTickets({ items, customers, products, orders, onChanged }: { ite
               <option value="Urgent">Urgente</option>
             </select>
           </label>
+          <label className="field">
+            Responsable
+            <select value={draft.assignedUserId} onChange={(event) => setDraft({ ...draft, assignedUserId: event.target.value })}>
+              <option value="">A attribuer</option>
+              {activeUsers.map((user) => (
+                <option key={user.id} value={user.id}>{user.displayName}</option>
+              ))}
+            </select>
+          </label>
           <label className="field wide-field">
             Sujet
             <input value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} placeholder="Sujet du ticket" />
@@ -8025,8 +8106,8 @@ function ServiceTickets({ items, customers, products, orders, onChanged }: { ite
       </Panel>
 
       <DataTable
-        columns={['Numero', 'Client', 'Sujet', 'Priorite', 'Statut', 'Cree le']}
-        rows={items.map((ticket) => [ticket.number, ticket.customerName, ticket.subject, ticket.priority, ticket.status, formatOrderDate(ticket.createdAt)])}
+        columns={['Numero', 'Client', 'Responsable', 'Sujet', 'Priorite', 'Statut', 'Cree le']}
+        rows={items.map((ticket) => [ticket.number, ticket.customerName, ticket.assignedUserName ?? 'A attribuer', ticket.subject, ticket.priority, ticket.status, formatOrderDate(ticket.createdAt)])}
         onRowClick={(index) => setSelected(items[index])}
       />
 
@@ -8046,10 +8127,24 @@ function ServiceTickets({ items, customers, products, orders, onChanged }: { ite
               <DetailItem label="Client" value={selected.customerName} />
               <DetailItem label="Produit" value={selected.productReference ? `${selected.productReference} - ${selected.productName}` : '-'} />
               <DetailItem label="Commande" value={selected.salesOrderNumber ?? '-'} />
+              <DetailItem label="Responsable" value={selected.assignedUserName ?? 'A attribuer'} />
               <DetailItem label="Priorite" value={selected.priority} />
               <DetailItem label="Statut" value={selected.status} />
               <DetailItem label="Description" value={selected.description ?? '-'} />
             </div>
+            <Panel title="Attribution">
+              <form className="form-grid compact-form">
+                <label className="field">
+                  Responsable interne
+                  <select value={selected.assignedUserId ?? ''} onChange={(event) => assignTicket(selected, event.target.value)}>
+                    <option value="">A attribuer</option>
+                    {activeUsers.map((user) => (
+                      <option key={user.id} value={user.id}>{user.displayName}</option>
+                    ))}
+                  </select>
+                </label>
+              </form>
+            </Panel>
             <div className="module-actions">
               {['Open', 'InProgress', 'WaitingCustomer', 'Resolved', 'Closed'].map((status) => (
                 <button key={status} className="secondary" type="button" onClick={() => changeStatus(selected, status)}>{status}</button>

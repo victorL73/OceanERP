@@ -43,7 +43,7 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
     public async Task<Result<ServiceTicketDto>> CreateAsync(CreateServiceTicketRequest request, CancellationToken cancellationToken)
     {
-        var validation = await ValidateAsync(request.CustomerId, request.ProductId, request.SalesOrderId, request.Subject, request.Priority, "Open", cancellationToken);
+        var validation = await ValidateAsync(request.CustomerId, request.ProductId, request.SalesOrderId, request.AssignedUserId, request.Subject, request.Priority, "Open", cancellationToken);
         if (!validation.Succeeded)
         {
             return Result<ServiceTicketDto>.Failure(validation.Error!);
@@ -55,6 +55,7 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             CustomerId = request.CustomerId,
             ProductId = request.ProductId,
             SalesOrderId = request.SalesOrderId,
+            AssignedUserId = request.AssignedUserId,
             Subject = request.Subject.Trim(),
             Description = NormalizeOptional(request.Description),
             Priority = NormalizePriority(request.Priority),
@@ -94,15 +95,17 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
         }
 
         var nextStatus = NormalizeStatus(request.Status);
-        var validation = await ValidateAsync(ticket.CustomerId, request.ProductId, request.SalesOrderId, request.Subject, request.Priority, nextStatus, cancellationToken);
+        var validation = await ValidateAsync(ticket.CustomerId, request.ProductId, request.SalesOrderId, request.AssignedUserId, request.Subject, request.Priority, nextStatus, cancellationToken);
         if (!validation.Succeeded)
         {
             return Result<ServiceTicketDto>.Failure(validation.Error!);
         }
 
         var statusChanged = ticket.Status != nextStatus;
+        var assignmentChanged = ticket.AssignedUserId != request.AssignedUserId;
         ticket.ProductId = request.ProductId;
         ticket.SalesOrderId = request.SalesOrderId;
+        ticket.AssignedUserId = request.AssignedUserId;
         ticket.Subject = request.Subject.Trim();
         ticket.Description = NormalizeOptional(request.Description);
         ticket.Priority = NormalizePriority(request.Priority);
@@ -118,6 +121,50 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
                 ChangedByUserId = currentUser.UserId
             });
         }
+
+        if (assignmentChanged)
+        {
+            db.ServiceTicketStatusHistories.Add(new ServiceTicketStatusHistory
+            {
+                ServiceTicketId = ticket.Id,
+                Status = ticket.Status,
+                Comment = await BuildAssignmentCommentAsync(ticket.AssignedUserId, cancellationToken),
+                ChangedByUserId = currentUser.UserId
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));
+    }
+
+    public async Task<Result<ServiceTicketDto>> AssignAsync(Guid id, AssignServiceTicketRequest request, CancellationToken cancellationToken)
+    {
+        var ticket = await db.ServiceTickets.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (ticket is null)
+        {
+            return Result<ServiceTicketDto>.Failure("Ticket SAV introuvable.");
+        }
+
+        var validation = await ValidateAssignedUserAsync(request.AssignedUserId, cancellationToken);
+        if (!validation.Succeeded)
+        {
+            return Result<ServiceTicketDto>.Failure(validation.Error!);
+        }
+
+        if (ticket.AssignedUserId == request.AssignedUserId)
+        {
+            return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));
+        }
+
+        ticket.AssignedUserId = request.AssignedUserId;
+        ticket.UpdatedAt = DateTimeOffset.UtcNow;
+        db.ServiceTicketStatusHistories.Add(new ServiceTicketStatusHistory
+        {
+            ServiceTicketId = ticket.Id,
+            Status = ticket.Status,
+            Comment = await BuildAssignmentCommentAsync(ticket.AssignedUserId, cancellationToken),
+            ChangedByUserId = currentUser.UserId
+        });
 
         await db.SaveChangesAsync(cancellationToken);
         return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));
@@ -181,7 +228,43 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
         return Result<ServiceTicketMessageDto>.Success(await MapMessageAsync(message, cancellationToken));
     }
 
-    private async Task<Result> ValidateAsync(Guid requestCustomerId, Guid? productId, Guid? salesOrderId, string subject, string priority, string status, CancellationToken cancellationToken)
+    public async Task<ServiceTicketAssignmentSettingsDto> GetAssignmentSettingsAsync(CancellationToken cancellationToken)
+    {
+        var userIds = await db.ServiceTicketInitialResponders
+            .OrderBy(x => x.UserId)
+            .Select(x => x.UserId)
+            .ToListAsync(cancellationToken);
+
+        return new ServiceTicketAssignmentSettingsDto(userIds);
+    }
+
+    public async Task<Result<ServiceTicketAssignmentSettingsDto>> UpdateAssignmentSettingsAsync(UpdateServiceTicketAssignmentSettingsRequest request, CancellationToken cancellationToken)
+    {
+        var requestedUserIds = (request.InitialResponderUserIds ?? [])
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        var validation = await ValidateResponderUsersAsync(requestedUserIds, cancellationToken);
+        if (!validation.Succeeded)
+        {
+            return Result<ServiceTicketAssignmentSettingsDto>.Failure(validation.Error!);
+        }
+
+        var existing = await db.ServiceTicketInitialResponders.ToListAsync(cancellationToken);
+        db.ServiceTicketInitialResponders.RemoveRange(existing.Where(x => !requestedUserIds.Contains(x.UserId)));
+
+        var existingUserIds = existing.Select(x => x.UserId).ToHashSet();
+        foreach (var userId in requestedUserIds.Where(x => !existingUserIds.Contains(x)))
+        {
+            db.ServiceTicketInitialResponders.Add(new ServiceTicketInitialResponder { UserId = userId });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<ServiceTicketAssignmentSettingsDto>.Success(await GetAssignmentSettingsAsync(cancellationToken));
+    }
+
+    private async Task<Result> ValidateAsync(Guid requestCustomerId, Guid? productId, Guid? salesOrderId, Guid? assignedUserId, string subject, string priority, string status, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(subject))
         {
@@ -213,7 +296,7 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             return Result.Failure("Commande introuvable.");
         }
 
-        return Result.Success();
+        return await ValidateAssignedUserAsync(assignedUserId, cancellationToken);
     }
 
     private async Task<IReadOnlyList<ServiceTicketDto>> MapManyAsync(IReadOnlyList<ServiceTicket> tickets, CancellationToken cancellationToken)
@@ -236,6 +319,9 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
         var salesOrderNumber = ticket.SalesOrderId.HasValue
             ? await db.SalesOrders.Where(x => x.Id == ticket.SalesOrderId.Value).Select(x => x.Number).FirstOrDefaultAsync(cancellationToken)
             : null;
+        var assignedUserName = ticket.AssignedUserId.HasValue
+            ? await db.Users.Where(x => x.Id == ticket.AssignedUserId.Value).Select(x => x.DisplayName).FirstOrDefaultAsync(cancellationToken)
+            : null;
         var messages = await db.ServiceTicketMessages.Where(x => x.ServiceTicketId == ticket.Id).OrderByDescending(x => x.CreatedAt).ToListAsync(cancellationToken);
         var histories = await db.ServiceTicketStatusHistories.Where(x => x.ServiceTicketId == ticket.Id).OrderByDescending(x => x.ChangedAt).ToListAsync(cancellationToken);
 
@@ -249,6 +335,8 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             product?.Name,
             ticket.SalesOrderId,
             salesOrderNumber,
+            ticket.AssignedUserId,
+            assignedUserName,
             ticket.Subject,
             ticket.Description,
             ticket.Priority,
@@ -307,4 +395,44 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
     private static string? NormalizeOptional(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task<Result> ValidateAssignedUserAsync(Guid? assignedUserId, CancellationToken cancellationToken)
+    {
+        if (!assignedUserId.HasValue)
+        {
+            return Result.Success();
+        }
+
+        return await db.Users.AnyAsync(x => x.Id == assignedUserId.Value && x.IsActive, cancellationToken)
+            ? Result.Success()
+            : Result.Failure("Responsable SAV introuvable ou inactif.");
+    }
+
+    private async Task<Result> ValidateResponderUsersAsync(IReadOnlyList<Guid> userIds, CancellationToken cancellationToken)
+    {
+        if (userIds.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        var existingCount = await db.Users.CountAsync(x => userIds.Contains(x.Id) && x.IsActive, cancellationToken);
+        return existingCount == userIds.Count
+            ? Result.Success()
+            : Result.Failure("Un ou plusieurs destinataires SAV sont introuvables ou inactifs.");
+    }
+
+    private async Task<string> BuildAssignmentCommentAsync(Guid? assignedUserId, CancellationToken cancellationToken)
+    {
+        if (!assignedUserId.HasValue)
+        {
+            return "Attribution retiree";
+        }
+
+        var displayName = await db.Users
+            .Where(x => x.Id == assignedUserId.Value)
+            .Select(x => x.DisplayName)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return $"Attribue a {displayName ?? assignedUserId.Value.ToString()}";
+    }
 }

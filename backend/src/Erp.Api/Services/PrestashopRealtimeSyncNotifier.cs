@@ -1,11 +1,13 @@
 using Erp.Application.Notifications;
 using Erp.Application.Prestashop;
 using Erp.Api.Hubs;
+using Erp.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
 
 namespace Erp.Api.Services;
 
-public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublisher publisher, IHubContext<NotificationHub> hubContext) : IPrestashopSyncNotifier
+public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublisher publisher, IHubContext<NotificationHub> hubContext, ErpDbContext db) : IPrestashopSyncNotifier
 {
     public async Task NotifyNewOrdersAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedOrderNotification> orders, CancellationToken cancellationToken)
     {
@@ -31,15 +33,21 @@ public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublishe
             return;
         }
 
-        var messageCount = tickets.Sum(x => x.NewMessages);
         var title = tickets.Count == 1 ? "Nouveau message SAV PrestaShop" : "Nouveaux messages SAV PrestaShop";
-        var ticketNumbers = string.Join(", ", tickets.Select(x => x.Number).Take(5));
-        var suffix = tickets.Count > 5 ? $" et {tickets.Count - 5} autre(s)" : string.Empty;
-        var message = tickets.Count == 1
-            ? $"{messageCount} message(s) recu(s) sur {ticketNumbers} depuis {shopUrl}."
-            : $"{messageCount} message(s) recu(s) sur {tickets.Count} tickets depuis {shopUrl}: {ticketNumbers}{suffix}.";
+        var initialResponders = await db.ServiceTicketInitialResponders
+            .Select(x => x.UserId)
+            .ToListAsync(cancellationToken);
 
-        await publisher.PublishAsync(new CreateNotificationRequest(null, "service.prestashop.new", title, message, "/service"), cancellationToken);
+        foreach (var ticket in tickets)
+        {
+            var assignedUserId = await db.ServiceTickets
+                .Where(x => x.Id == ticket.ServiceTicketId)
+                .Select(x => x.AssignedUserId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            var message = $"{ticket.Number} - {ticket.Subject}: {ticket.NewMessages} nouveau(x) message(s) depuis {shopUrl}.";
+            await PublishServiceNotificationAsync(assignedUserId, initialResponders, title, message, cancellationToken);
+        }
     }
 
     public async Task NotifySyncCompletedAsync(PrestashopSyncCompletedEvent syncEvent, CancellationToken cancellationToken)
@@ -50,5 +58,25 @@ public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublishe
         }
 
         await hubContext.Clients.All.SendAsync("prestashopSyncCompleted", syncEvent, cancellationToken);
+    }
+
+    private async Task PublishServiceNotificationAsync(Guid? assignedUserId, IReadOnlyList<Guid> initialResponders, string title, string message, CancellationToken cancellationToken)
+    {
+        if (assignedUserId.HasValue)
+        {
+            await publisher.PublishAsync(new CreateNotificationRequest(assignedUserId.Value, "service.prestashop.new", title, message, "/service"), cancellationToken);
+            return;
+        }
+
+        if (initialResponders.Count == 0)
+        {
+            await publisher.PublishAsync(new CreateNotificationRequest(null, "service.prestashop.new", title, message, "/service"), cancellationToken);
+            return;
+        }
+
+        foreach (var userId in initialResponders.Distinct())
+        {
+            await publisher.PublishAsync(new CreateNotificationRequest(userId, "service.prestashop.new", title, message, "/service"), cancellationToken);
+        }
     }
 }

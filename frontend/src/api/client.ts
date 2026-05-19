@@ -33,6 +33,7 @@ import type {
   Role,
   SalesOrder,
   ServiceTicket,
+  ServiceTicketAssignmentSettings,
   SignatureRequest,
   StockItem,
   StockMovement,
@@ -719,12 +720,24 @@ export class ApiClient {
     return this.request<PagedResult<ServiceTicket>>(`/api/service-tickets?${query.toString()}`, { auth: true });
   }
 
-  createServiceTicket(payload: { customerId: string; subject: string; description?: string | null; productId?: string | null; salesOrderId?: string | null; priority: string }) {
+  createServiceTicket(payload: { customerId: string; subject: string; description?: string | null; productId?: string | null; salesOrderId?: string | null; priority: string; assignedUserId?: string | null }) {
     return this.request<ServiceTicket>('/api/service-tickets', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
-  updateServiceTicket(ticketId: string, payload: { subject: string; description?: string | null; productId?: string | null; salesOrderId?: string | null; priority: string; status: string }) {
+  updateServiceTicket(ticketId: string, payload: { subject: string; description?: string | null; productId?: string | null; salesOrderId?: string | null; priority: string; status: string; assignedUserId?: string | null }) {
     return this.request<ServiceTicket>(`/api/service-tickets/${ticketId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  assignServiceTicket(ticketId: string, assignedUserId?: string | null) {
+    return this.request<ServiceTicket>(`/api/service-tickets/${ticketId}/assignment`, { method: 'POST', auth: true, body: JSON.stringify({ assignedUserId }) });
+  }
+
+  serviceTicketAssignmentSettings() {
+    return this.request<ServiceTicketAssignmentSettings>('/api/service-tickets/settings/assignment', { auth: true });
+  }
+
+  updateServiceTicketAssignmentSettings(payload: { initialResponderUserIds: string[] }) {
+    return this.request<ServiceTicketAssignmentSettings>('/api/service-tickets/settings/assignment', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
   changeServiceTicketStatus(ticketId: string, status: string, comment?: string | null) {

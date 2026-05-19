@@ -75,6 +75,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<ServiceTicket> ServiceTickets => Set<ServiceTicket>();
     public DbSet<ServiceTicketMessage> ServiceTicketMessages => Set<ServiceTicketMessage>();
     public DbSet<ServiceTicketStatusHistory> ServiceTicketStatusHistories => Set<ServiceTicketStatusHistory>();
+    public DbSet<ServiceTicketInitialResponder> ServiceTicketInitialResponders => Set<ServiceTicketInitialResponder>();
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
     public DbSet<CalendarReminder> CalendarReminders => Set<CalendarReminder>();
     public DbSet<CalendarEventLink> CalendarEventLinks => Set<CalendarEventLink>();
@@ -532,6 +533,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         {
             entity.HasIndex(x => x.Number).IsUnique();
             entity.HasIndex(x => new { x.CustomerId, x.Status });
+            entity.HasIndex(x => x.AssignedUserId);
             entity.Property(x => x.Number).HasMaxLength(80);
             entity.Property(x => x.Subject).HasMaxLength(260);
             entity.Property(x => x.Description).HasMaxLength(4000);
@@ -540,6 +542,13 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<SalesOrder>().WithMany().HasForeignKey(x => x.SalesOrderId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ServiceTicketInitialResponder>(entity =>
+        {
+            entity.HasIndex(x => x.UserId).IsUnique();
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ServiceTicketMessage>(entity =>

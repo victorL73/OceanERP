@@ -618,6 +618,8 @@ export type ServiceTicket = {
   productName?: string;
   salesOrderId?: string;
   salesOrderNumber?: string;
+  assignedUserId?: string;
+  assignedUserName?: string;
   subject: string;
   description?: string;
   priority: string;
@@ -626,6 +628,10 @@ export type ServiceTicket = {
   updatedAt?: string;
   messages: ServiceTicketMessage[];
   statusHistory: ServiceTicketStatusHistory[];
+};
+
+export type ServiceTicketAssignmentSettings = {
+  initialResponderUserIds: string[];
 };
 
 export type CalendarReminder = {
