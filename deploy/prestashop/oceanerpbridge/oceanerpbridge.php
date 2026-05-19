@@ -10,7 +10,7 @@ class Oceanerpbridge extends Module
     {
         $this->name = 'oceanerpbridge';
         $this->tab = 'administration';
-        $this->version = '0.1.1';
+        $this->version = '0.2.0';
         $this->author = 'OceanERP';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -47,6 +47,9 @@ class Oceanerpbridge extends Module
         }
 
         $token = htmlspecialchars((string) Configuration::get('OCEANERP_BRIDGE_TOKEN'), ENT_QUOTES, 'UTF-8');
+        $shopUrl = Tools::getShopDomainSsl(true, true);
+        $directEndpoint = htmlspecialchars($shopUrl . __PS_BASE_URI__ . 'modules/oceanerpbridge/label.php?token=' . (string) Configuration::get('OCEANERP_BRIDGE_TOKEN') . '&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}', ENT_QUOTES, 'UTF-8');
+        $frontEndpoint = htmlspecialchars($shopUrl . __PS_BASE_URI__ . 'module/oceanerpbridge/colissimolabel?token=' . (string) Configuration::get('OCEANERP_BRIDGE_TOKEN') . '&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}', ENT_QUOTES, 'UTF-8');
         return $output . '
             <form method="post">
                 <div class="panel">
@@ -57,6 +60,19 @@ class Oceanerpbridge extends Module
                         <input id="OCEANERP_BRIDGE_TOKEN" name="OCEANERP_BRIDGE_TOKEN" class="form-control" value="' . $token . '" />
                     </div>
                     <button type="submit" name="submitOceanerpBridge" class="btn btn-primary">Enregistrer</button>
+                </div>
+                <div class="panel">
+                    <h3>Endpoints etiquette Colissimo</h3>
+                    <p>OceanERP les tente automatiquement si le token est renseigne. Si votre boutique utilise une configuration particuliere, copiez une des URLs ci-dessous dans le champ URL etiquette Colissimo de la connexion PrestaShop.</p>
+                    <div class="form-group">
+                        <label>Endpoint direct</label>
+                        <input class="form-control" readonly value="' . $directEndpoint . '" />
+                    </div>
+                    <div class="form-group">
+                        <label>Endpoint front-controller</label>
+                        <input class="form-control" readonly value="' . $frontEndpoint . '" />
+                    </div>
+                    <p class="help-block">Le pont cherche dans les tables et dossiers contenant Colissimo, y compris les chemins, JSON, XML, contenu base64 PDF/ZIP/ZPL et fichiers locaux rattaches a la commande.</p>
                 </div>
             </form>';
     }

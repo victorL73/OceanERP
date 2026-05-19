@@ -121,7 +121,16 @@ Avec ce token, OceanERP tente automatiquement :
 {shopUrl}/index.php?fc=module&module=oceanerpbridge&controller=colissimolabel&token=...&id_order={orderId}
 ```
 
-Le pont lit uniquement les fichiers locaux de PrestaShop, cherche les PDF/ZIP/ZPL Colissimo rattaches a la commande et les renvoie a OceanERP. L'URL directe `/modules/oceanerpbridge/label.php` evite les problemes de routage du front-controller PrestaShop. Aucun fichier binaire n'est stocke dans PostgreSQL.
+Le pont lit uniquement les fichiers locaux de PrestaShop, cherche dans toutes les tables et tous les dossiers dont le nom contient `colissimo` ou `laposte`, extrait les chemins, JSON, XML, valeurs base64 PDF/ZIP/ZPL et fichiers locaux rattaches a la commande, puis les renvoie a OceanERP. L'URL directe `/modules/oceanerpbridge/label.php` evite les problemes de routage du front-controller PrestaShop. Aucun fichier binaire n'est stocke dans PostgreSQL.
+
+Apres une mise a jour du pont, reconstruire le zip puis reinstaller/mettre a jour le module PrestaShop :
+
+```powershell
+cd C:\Users\Xxvic\Documents\GitHub\OceanERP
+powershell -ExecutionPolicy Bypass -File .\deploy\prestashop\build-oceanerpbridge.ps1
+```
+
+Le fichier a charger dans PrestaShop est `deploy/prestashop/oceanerpbridge.zip`.
 
 Si le module ne propose qu'un bouton dans le back-office, ouvrir les outils developpeur du navigateur, generer l'etiquette dans PrestaShop, copier l'URL exacte qui telecharge le PDF/ZIP, puis remplacer l'identifiant de commande par `{externalOrderId}` dans le champ `URL etiquette Colissimo`. L'URL de la page `AdminColissimoAffranchissement` seule ne suffit generalement pas : elle affiche l'ecran du module mais ne telecharge pas l'etiquette.
 
