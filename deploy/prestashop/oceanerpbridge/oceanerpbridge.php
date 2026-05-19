@@ -10,7 +10,7 @@ class Oceanerpbridge extends Module
     {
         $this->name = 'oceanerpbridge';
         $this->tab = 'administration';
-        $this->version = '0.1.0';
+        $this->version = '0.1.1';
         $this->author = 'OceanERP';
         $this->need_instance = 0;
         $this->bootstrap = true;

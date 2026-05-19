@@ -466,7 +466,7 @@ public sealed class SalesOrderService(
         var content = await response.Content.ReadAsByteArrayAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var detail = content.Length == 0 ? string.Empty : Encoding.UTF8.GetString(content);
+            var detail = BuildHttpErrorDetail(response.StatusCode, mimeType, content);
             return Result<SalesOrderShipmentSlipFileDto>.Failure($"HTTP {(int)response.StatusCode} {TrimDetail(detail)}");
         }
 
@@ -957,6 +957,7 @@ public sealed class SalesOrderService(
 
         if (!string.IsNullOrWhiteSpace(bridgeToken))
         {
+            templates.Add("{shopUrl}/modules/oceanerpbridge/label.php?token={bridgeToken}&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}");
             templates.Add("{shopUrl}/module/oceanerpbridge/colissimolabel?token={bridgeToken}&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}");
             templates.Add("{shopUrl}/index.php?fc=module&module=oceanerpbridge&controller=colissimolabel&token={bridgeToken}&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}");
         }
@@ -1170,6 +1171,36 @@ public sealed class SalesOrderService(
            || reference.Contains("download", StringComparison.OrdinalIgnoreCase)
            || reference.Contains(".pdf", StringComparison.OrdinalIgnoreCase)
            || reference.Contains(".zip", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildHttpErrorDetail(HttpStatusCode statusCode, string? mimeType, byte[] content)
+    {
+        if (content.Length == 0)
+        {
+            return statusCode == HttpStatusCode.NotFound
+                ? "endpoint introuvable."
+                : string.Empty;
+        }
+
+        var normalizedMime = mimeType?.ToLowerInvariant() ?? string.Empty;
+        if (normalizedMime.Contains("html", StringComparison.Ordinal) || normalizedMime.Contains("text", StringComparison.Ordinal) || normalizedMime.Contains("json", StringComparison.Ordinal) || normalizedMime.Contains("xml", StringComparison.Ordinal))
+        {
+            var text = Encoding.UTF8.GetString(content);
+            var cleaned = WebUtility.HtmlDecode(Regex.Replace(text, "<[^>]+>", " "));
+            cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+            if (statusCode == HttpStatusCode.NotFound)
+            {
+                return string.IsNullOrWhiteSpace(cleaned)
+                    ? "endpoint introuvable."
+                    : $"endpoint introuvable ({TrimDetail(cleaned)}). Verifiez que le module OceanERP Bridge est installe et a jour dans PrestaShop.";
+            }
+
+            return cleaned;
+        }
+
+        return statusCode == HttpStatusCode.NotFound
+            ? "endpoint introuvable."
+            : "reponse non lisible.";
+    }
 
     private static string? ResolveLabelUrl(string reference, string shopRootUrl)
     {

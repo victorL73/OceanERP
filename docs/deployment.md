@@ -116,11 +116,12 @@ Si aucune ressource API ne contient l'etiquette, installer le pont PrestaShop fo
 Avec ce token, OceanERP tente automatiquement :
 
 ```text
+{shopUrl}/modules/oceanerpbridge/label.php?token=...&id_order={orderId}
 {shopUrl}/module/oceanerpbridge/colissimolabel?token=...&id_order={orderId}
 {shopUrl}/index.php?fc=module&module=oceanerpbridge&controller=colissimolabel&token=...&id_order={orderId}
 ```
 
-Le pont lit uniquement les fichiers locaux de PrestaShop, cherche les PDF/ZIP/ZPL Colissimo rattaches a la commande et les renvoie a OceanERP. Aucun fichier binaire n'est stocke dans PostgreSQL.
+Le pont lit uniquement les fichiers locaux de PrestaShop, cherche les PDF/ZIP/ZPL Colissimo rattaches a la commande et les renvoie a OceanERP. L'URL directe `/modules/oceanerpbridge/label.php` evite les problemes de routage du front-controller PrestaShop. Aucun fichier binaire n'est stocke dans PostgreSQL.
 
 Si le module ne propose qu'un bouton dans le back-office, ouvrir les outils developpeur du navigateur, generer l'etiquette dans PrestaShop, copier l'URL exacte qui telecharge le PDF/ZIP, puis remplacer l'identifiant de commande par `{externalOrderId}` dans le champ `URL etiquette Colissimo`. L'URL de la page `AdminColissimoAffranchissement` seule ne suffit generalement pas : elle affiche l'ecran du module mais ne telecharge pas l'etiquette.
 
