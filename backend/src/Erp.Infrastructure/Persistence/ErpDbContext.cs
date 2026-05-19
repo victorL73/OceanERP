@@ -89,6 +89,11 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<ApiRequestLog> ApiRequestLogs => Set<ApiRequestLog>();
     public DbSet<FlowceanWorkspace> FlowceanWorkspaces => Set<FlowceanWorkspace>();
     public DbSet<FlowceanWorkspaceEvent> FlowceanWorkspaceEvents => Set<FlowceanWorkspaceEvent>();
+    public DbSet<MeetingRoom> MeetingRooms => Set<MeetingRoom>();
+    public DbSet<MeetingParticipant> MeetingParticipants => Set<MeetingParticipant>();
+    public DbSet<MeetingSignal> MeetingSignals => Set<MeetingSignal>();
+    public DbSet<MeetingTranscript> MeetingTranscripts => Set<MeetingTranscript>();
+    public DbSet<MeetingChatMessage> MeetingChatMessages => Set<MeetingChatMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -674,6 +679,68 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
             entity.HasOne<FlowceanWorkspace>().WithMany().HasForeignKey(x => x.FlowceanWorkspaceId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<MeetingRoom>(entity =>
+        {
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.HasIndex(x => x.InviteToken).IsUnique();
+            entity.HasIndex(x => x.CalendarEventId);
+            entity.HasIndex(x => x.ScheduledStartAt);
+            entity.Property(x => x.Code).HasMaxLength(40);
+            entity.Property(x => x.Title).HasMaxLength(260);
+            entity.Property(x => x.InviteToken).HasMaxLength(120);
+            entity.HasOne<CalendarEvent>().WithMany().HasForeignKey(x => x.CalendarEventId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<MeetingParticipant>(entity =>
+        {
+            entity.HasIndex(x => new { x.MeetingRoomId, x.ClientId }).IsUnique();
+            entity.HasIndex(x => x.UserId);
+            entity.Property(x => x.ClientId).HasMaxLength(120);
+            entity.Property(x => x.DisplayName).HasMaxLength(180);
+            entity.Property(x => x.SourceLanguage).HasMaxLength(20);
+            entity.Property(x => x.TargetLanguage).HasMaxLength(20);
+            entity.Property(x => x.ConnectionState).HasMaxLength(40);
+            entity.HasOne<MeetingRoom>().WithMany().HasForeignKey(x => x.MeetingRoomId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<MeetingSignal>(entity =>
+        {
+            entity.HasIndex(x => new { x.MeetingRoomId, x.RecipientClientId, x.CreatedAt });
+            entity.Property(x => x.SenderClientId).HasMaxLength(120);
+            entity.Property(x => x.RecipientClientId).HasMaxLength(120);
+            entity.Property(x => x.SignalType).HasMaxLength(80);
+            entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            entity.HasOne<MeetingRoom>().WithMany().HasForeignKey(x => x.MeetingRoomId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingTranscript>(entity =>
+        {
+            entity.HasIndex(x => new { x.MeetingRoomId, x.CreatedAt });
+            entity.HasIndex(x => x.UserId);
+            entity.Property(x => x.ClientId).HasMaxLength(120);
+            entity.Property(x => x.SpeakerName).HasMaxLength(180);
+            entity.Property(x => x.SourceLanguage).HasMaxLength(20);
+            entity.Property(x => x.Text).HasMaxLength(20000);
+            entity.Property(x => x.TranslatedText).HasMaxLength(20000);
+            entity.HasOne<MeetingRoom>().WithMany().HasForeignKey(x => x.MeetingRoomId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<MeetingChatMessage>(entity =>
+        {
+            entity.HasIndex(x => new { x.MeetingRoomId, x.CreatedAt });
+            entity.HasIndex(x => x.UserId);
+            entity.Property(x => x.ClientId).HasMaxLength(120);
+            entity.Property(x => x.SenderName).HasMaxLength(180);
+            entity.Property(x => x.Message).HasMaxLength(10000);
+            entity.Property(x => x.FileName).HasMaxLength(260);
+            entity.Property(x => x.FileMimeType).HasMaxLength(120);
+            entity.Property(x => x.FileStoragePath).HasMaxLength(1024);
+            entity.HasOne<MeetingRoom>().WithMany().HasForeignKey(x => x.MeetingRoomId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
         });
     }
 

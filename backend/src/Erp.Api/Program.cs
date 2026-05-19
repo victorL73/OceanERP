@@ -98,6 +98,7 @@ var permissionCodes = new[]
     "prestashop.read", "prestashop.write",
     "service.read", "service.write",
     "calendar.read", "calendar.write",
+    "meet.read", "meet.write",
     "signatures.read", "signatures.write",
     "onlyoffice.read", "onlyoffice.write",
     "flowcean.read", "flowcean.write"

@@ -17,6 +17,8 @@ import type {
   InvoiceDocument,
   MailAccount,
   MailServerSettings,
+  MeetingDashboard,
+  MeetingRoomState,
   NotificationItem,
   OnlyOfficeConfig,
   PagedResult,
@@ -769,6 +771,62 @@ export class ApiClient {
 
   deleteCalendarEvent(eventId: string) {
     return this.request<void>(`/api/calendar/events/${eventId}`, { method: 'DELETE', auth: true });
+  }
+
+  meetingDashboard() {
+    return this.request<MeetingDashboard>('/api/meetings/dashboard', { auth: true });
+  }
+
+  meetingRoom(roomId: string, clientId?: string, since?: string) {
+    const query = new URLSearchParams();
+    if (clientId) {
+      query.set('clientId', clientId);
+    }
+    if (since) {
+      query.set('since', since);
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<MeetingRoomState>(`/api/meetings/rooms/${roomId}${suffix}`, { auth: true });
+  }
+
+  createMeetingRoom(payload: { title: string; scheduledStartAt?: string | null; calendarEventId?: string | null; clientId?: string | null; displayName?: string | null; sourceLanguage?: string; targetLanguage?: string; media?: { microphoneEnabled: boolean; cameraEnabled: boolean; screenEnabled: boolean; connectionState?: string | null } | null }) {
+    return this.request<MeetingRoomState>('/api/meetings/rooms', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  joinMeetingRoom(payload: { codeOrToken: string; clientId: string; displayName: string; sourceLanguage?: string; targetLanguage?: string; media?: { microphoneEnabled: boolean; cameraEnabled: boolean; screenEnabled: boolean; connectionState?: string | null } | null }) {
+    return this.request<MeetingRoomState>('/api/meetings/rooms/join', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  ensureMeetingInvite(roomId: string) {
+    return this.request<{ token: string }>(`/api/meetings/rooms/${roomId}/invite`, { method: 'POST', auth: true });
+  }
+
+  syncMeetingRoom(roomId: string, payload: { clientId: string; displayName: string; sourceLanguage?: string; targetLanguage?: string; media?: { microphoneEnabled: boolean; cameraEnabled: boolean; screenEnabled: boolean; connectionState?: string | null } | null; since?: string | null }) {
+    return this.request<MeetingRoomState>(`/api/meetings/rooms/${roomId}/sync`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  sendMeetingSignal(roomId: string, payload: { senderClientId: string; recipientClientId: string; signalType: string; payloadJson: string }) {
+    return this.request(`/api/meetings/rooms/${roomId}/signals`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  addMeetingTranscript(roomId: string, payload: { clientId: string; speakerName: string; text: string; sourceLanguage?: string; translatedText?: string | null; isFinal?: boolean }) {
+    return this.request(`/api/meetings/rooms/${roomId}/transcripts`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  addMeetingChatMessage(roomId: string, payload: { clientId: string; senderName: string; message: string; fileName?: string | null; fileMimeType?: string | null; fileBase64?: string | null }) {
+    return this.request(`/api/meetings/rooms/${roomId}/chat`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  leaveMeetingRoom(roomId: string, clientId: string) {
+    return this.request<void>(`/api/meetings/rooms/${roomId}/leave`, { method: 'POST', auth: true, body: JSON.stringify({ clientId }) });
+  }
+
+  deleteMeetingRoom(roomId: string) {
+    return this.request<void>(`/api/meetings/rooms/${roomId}`, { method: 'DELETE', auth: true });
+  }
+
+  async downloadMeetingAttachment(messageId: string, fileName: string) {
+    await this.download(`/api/meetings/chat/${messageId}/attachment`, fileName);
   }
 
   signatureRequests() {

@@ -6,6 +6,7 @@ using Erp.Application.Documents;
 using Erp.Application.Emails;
 using Erp.Application.Flowcean;
 using Erp.Application.Invoices;
+using Erp.Application.Meetings;
 using Erp.Application.Notifications;
 using Erp.Application.Prestashop;
 using Erp.Application.Products;
@@ -75,6 +76,7 @@ public static class DependencyInjection
         services.AddScoped<ISignatureService, SignatureService>();
         services.AddScoped<IOnlyOfficeService, OnlyOfficeService>();
         services.AddScoped<IFlowceanService, FlowceanService>();
+        services.AddScoped<IMeetingService, MeetingService>();
         services.AddHostedService<LowStockAlertWorker>();
 
         return services;

@@ -455,8 +455,8 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
     private async Task<ImportSummary> ImportServiceTicketsAsync(string apiBaseUrl, PrestashopConnection connection, CancellationToken cancellationToken)
     {
-        using var threadsDocument = await GetJsonAsync($"{apiBaseUrl}/customer_threads?display=full&sort=[date_upd_DESC]&limit=200&output_format=JSON", "customer_threads", cancellationToken);
-        var globalMessages = await GetOptionalPrestashopItemsAsync($"{apiBaseUrl}/customer_messages?display=full&sort=[date_add_DESC]&limit=300&output_format=JSON", "customer_messages", "customer_messages", cancellationToken);
+        using var threadsDocument = await GetJsonAsync($"{apiBaseUrl}/customer_threads?display=full&limit=500&output_format=JSON", "customer_threads", cancellationToken);
+        var globalMessages = await GetOptionalPrestashopItemsAsync($"{apiBaseUrl}/customer_messages?display=full&limit=1000&output_format=JSON", "customer_messages", "customer_messages", cancellationToken);
         var globalMessagesById = globalMessages
             .Select(item => new { Id = GetRequiredId(item), Item = item })
             .Where(x => !string.IsNullOrWhiteSpace(x.Id))

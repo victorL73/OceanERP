@@ -1,10 +1,11 @@
 import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, LayoutDashboard, LifeBuoy, List, ListTodo, LogOut, Mail, Minus, Moon, Package, Paperclip, Pencil, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import { NotionWorkspaceModule } from './components/NotionWorkspace';
+import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingRoomState, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
-type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'signatures' | 'flowcean';
+type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
   { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
@@ -18,6 +19,7 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
   { key: 'emails', label: 'Emails', icon: Mail, permission: 'emails.read' },
   { key: 'service', label: 'SAV', icon: LifeBuoy, permission: 'service.read' },
   { key: 'calendar', label: 'Agenda', icon: CalendarDays, permission: 'calendar.read' },
+  { key: 'meetings', label: 'Meet', icon: Video, permission: 'meet.read' },
   { key: 'signatures', label: 'Signatures', icon: FileSignature, permission: 'signatures.read' },
   { key: 'flowcean', label: 'Espace', icon: BriefcaseBusiness, permission: 'flowcean.read' },
   { key: 'drive', label: 'Drive', icon: Folder, permission: 'drive.read' },
@@ -38,13 +40,14 @@ const viewLabels: Record<ViewKey, string> = {
   prestashop: 'PrestaShop',
   service: 'SAV',
   calendar: 'Agenda',
+  meetings: 'Meet',
   signatures: 'Signatures',
   flowcean: 'Espace de travail',
   drive: 'Drive',
   notifications: 'Notifications'
 };
 
-const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'service', 'calendar', 'signatures', 'flowcean'];
+const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
 
 function readStoredChoice<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
@@ -162,6 +165,8 @@ export default function App() {
   const [serviceTickets, setServiceTickets] = useState<PagedResult<ServiceTicket> | null>(null);
   const [serviceAssignmentSettings, setServiceAssignmentSettings] = useState<ServiceTicketAssignmentSettings | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<PagedResult<CalendarEvent> | null>(null);
+  const [meetingDashboard, setMeetingDashboard] = useState<MeetingDashboard | null>(null);
+  const [meetingInitialRoomId, setMeetingInitialRoomId] = useState<string | null>(null);
   const [signatureRequests, setSignatureRequests] = useState<PagedResult<SignatureRequest> | null>(null);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
@@ -341,6 +346,9 @@ export default function App() {
       }
       if (target === 'calendar') {
         setCalendarEvents(await api.calendarEvents());
+      }
+      if (target === 'meetings') {
+        setMeetingDashboard(await api.meetingDashboard());
       }
       if (target === 'signatures') {
         const [nextSignatures, nextFiles, nextQuotes] = await Promise.all([
@@ -621,9 +629,27 @@ export default function App() {
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
         {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} onChanged={() => load('service')} />}
-        {view === 'calendar' && <Calendar events={calendarEvents?.items ?? []} onChanged={() => load('calendar')} />}
+        {view === 'calendar' && (
+          <Calendar
+            events={calendarEvents?.items ?? []}
+            onChanged={() => load('calendar')}
+            onOpenMeeting={(roomId) => {
+              setMeetingInitialRoomId(roomId);
+              setView('meetings');
+            }}
+          />
+        )}
+        {view === 'meetings' && (
+          <Meet
+            dashboard={meetingDashboard}
+            currentUser={currentUser}
+            initialRoomId={meetingInitialRoomId}
+            onInitialRoomOpened={() => setMeetingInitialRoomId(null)}
+            onChanged={() => load('meetings')}
+          />
+        )}
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} quotes={quotes?.items ?? []} onChanged={() => load('signatures')} />}
-        {view === 'flowcean' && <FlowceanWorkspaceModule />}
+        {view === 'flowcean' && <NotionWorkspaceModule />}
         {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
@@ -8054,15 +8080,20 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
 
 function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSession; onClose: () => void }) {
   const editorId = useMemo(() => `onlyoffice-editor-${session.file.id.replace(/[^a-z0-9]/gi, '')}`, [session.file.id]);
-  const frameHtml = useMemo(() => getOnlyOfficeFrameHtml(editorId, session.config), [editorId, session.config]);
+  const [frameHtml] = useState(() => getOnlyOfficeFrameHtml(editorId, session.config));
   const [status, setStatus] = useState('Chargement de l editeur ONLYOFFICE...');
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     let cancelled = false;
     setStatus('Connexion a ONLYOFFICE...');
     const readyFallbackTimer = window.setTimeout(() => {
       if (!cancelled) {
-        setStatus('');
+        setStatus((current) => current.startsWith('Erreur ONLYOFFICE') ? current : '');
       }
     }, 12000);
 
@@ -8083,7 +8114,7 @@ function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSessi
       } else if (data.type === 'error') {
         setStatus(data.message ? `Erreur ONLYOFFICE : ${data.message}` : 'Erreur ONLYOFFICE pendant l edition.');
       } else if (data.type === 'request-close') {
-        onClose();
+        onCloseRef.current();
       }
     };
 
@@ -8094,7 +8125,7 @@ function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSessi
       window.clearTimeout(readyFallbackTimer);
       window.removeEventListener('message', handleOnlyOfficeMessage);
     };
-  }, [editorId, frameHtml, onClose]);
+  }, [editorId]);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -8328,12 +8359,43 @@ type CalendarDraftState = {
   description: string;
   isPrivate: boolean;
   reminderMinutes: string;
+  createMeetingRoom: boolean;
+  meetingLanguage: string;
 };
 
 const calendarWeekDayLabels = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const calendarHours = Array.from({ length: 15 }, (_, index) => index + 7);
+const meetingLanguageOptions = [
+  { code: 'fr-FR', label: 'Francais' },
+  { code: 'en-US', label: 'Anglais' },
+  { code: 'es-ES', label: 'Espagnol' },
+  { code: 'de-DE', label: 'Allemand' },
+  { code: 'it-IT', label: 'Italien' },
+  { code: 'pt-PT', label: 'Portugais' }
+];
 
-function Calendar({ events, onChanged }: { events: CalendarEvent[]; onChanged: () => Promise<void> }) {
+const meetClientIdStorageKey = 'oceanerp.meet.clientId';
+
+function getMeetClientId() {
+  try {
+    const existing = localStorage.getItem(meetClientIdStorageKey);
+    if (existing) {
+      return existing;
+    }
+
+    const next = crypto.randomUUID();
+    localStorage.setItem(meetClientIdStorageKey, next);
+    return next;
+  } catch {
+    return `client-${Math.random().toString(16).slice(2)}`;
+  }
+}
+
+function defaultMeetingMedia() {
+  return { microphoneEnabled: false, cameraEnabled: false, screenEnabled: false, connectionState: 'online' };
+}
+
+function Calendar({ events, onChanged, onOpenMeeting }: { events: CalendarEvent[]; onChanged: () => Promise<void>; onOpenMeeting: (roomId: string) => void }) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
   const [cursorDate, setCursorDate] = useState(() => startOfCalendarDay(new Date()));
   const [calendarItems, setCalendarItems] = useState<CalendarEvent[]>(events);
@@ -8404,7 +8466,20 @@ function Calendar({ events, onChanged }: { events: CalendarEvent[]; onChanged: (
       return;
     }
 
-    await api.createCalendarEvent(calendarPayloadFromDraft(draft));
+    const created = await api.createCalendarEvent(calendarPayloadFromDraft(draft));
+    if (draft.createMeetingRoom) {
+      const roomState = await api.createMeetingRoom({
+        title: created.title,
+        scheduledStartAt: created.startsAt,
+        calendarEventId: created.id,
+        clientId: getMeetClientId(),
+        displayName: api.user?.displayName ?? 'Utilisateur',
+        sourceLanguage: draft.meetingLanguage,
+        targetLanguage: draft.meetingLanguage,
+        media: defaultMeetingMedia()
+      });
+      setMessage(`Salle Meet creee : ${roomState.room.code}`);
+    }
     setShowCreate(false);
     await reloadVisibleEvents();
   }
@@ -8596,8 +8671,15 @@ function Calendar({ events, onChanged }: { events: CalendarEvent[]; onChanged: (
                   <Panel title="Liens ERP">
                     {selected.links.map((link) => (
                       <article className="document-link-row" key={link.id}>
-                        <strong>{link.module}</strong>
-                        <span>{link.entityId}</span>
+                        <strong>{link.module === 'meeting' ? 'Meet' : link.module}</strong>
+                        {link.module === 'meeting' ? (
+                          <button className="secondary" type="button" onClick={() => onOpenMeeting(link.entityId)}>
+                            <Video size={15} />
+                            Ouvrir la salle
+                          </button>
+                        ) : (
+                          <span>{link.entityId}</span>
+                        )}
                       </article>
                     ))}
                   </Panel>
@@ -8619,6 +8701,508 @@ function Calendar({ events, onChanged }: { events: CalendarEvent[]; onChanged: (
       )}
     </>
   );
+}
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; [index: number]: { transcript: string } }> }) => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onChanged }: { dashboard: MeetingDashboard | null; currentUser: User | null; initialRoomId: string | null; onInitialRoomOpened: () => void; onChanged: () => Promise<void> }) {
+  const clientId = useMemo(getMeetClientId, []);
+  const displayName = currentUser?.displayName ?? currentUser?.email ?? 'Utilisateur';
+  const languages = dashboard?.languages.length ? dashboard.languages : meetingLanguageOptions;
+  const [rooms, setRooms] = useState(dashboard?.rooms ?? []);
+  const [roomState, setRoomState] = useState<MeetingRoomState | null>(null);
+  const [createTitle, setCreateTitle] = useState('Reunion');
+  const [scheduledStartAt, setScheduledStartAt] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [sourceLanguage, setSourceLanguage] = useState('fr-FR');
+  const [targetLanguage, setTargetLanguage] = useState('fr-FR');
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [screenEnabled, setScreenEnabled] = useState(false);
+  const [transcriptionEnabled, setTranscriptionEnabled] = useState(false);
+  const [translationEnabled, setTranslationEnabled] = useState(false);
+  const [backgroundMode, setBackgroundMode] = useState<'none' | 'blur' | 'ocean' | 'studio' | 'workshop'>('none');
+  const [chatMessage, setChatMessage] = useState('');
+  const [chatFile, setChatFile] = useState<File | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    setRooms(dashboard?.rooms ?? []);
+  }, [dashboard]);
+
+  useEffect(() => {
+    if (!initialRoomId) {
+      return;
+    }
+
+    api.meetingRoom(initialRoomId, clientId)
+      .then(setRoomState)
+      .then(onInitialRoomOpened)
+      .catch((err) => setMessage(err instanceof Error ? err.message : 'Salle Meet introuvable.'));
+  }, [clientId, initialRoomId, onInitialRoomOpened]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('meet');
+    if (!token) {
+      return;
+    }
+
+    api.joinMeetingRoom({
+      codeOrToken: token,
+      clientId,
+      displayName,
+      sourceLanguage,
+      targetLanguage,
+      media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
+    })
+      .then(setRoomState)
+      .then(() => {
+        params.delete('meet');
+        const query = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+      })
+      .catch((err) => setMessage(err instanceof Error ? err.message : 'Lien Meet invalide.'));
+  }, [cameraEnabled, clientId, displayName, microphoneEnabled, screenEnabled, sourceLanguage, targetLanguage]);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let alive = true;
+
+    if (!roomState || (!cameraEnabled && !microphoneEnabled)) {
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      return undefined;
+    }
+
+    navigator.mediaDevices?.getUserMedia({ video: cameraEnabled, audio: microphoneEnabled })
+      .then((nextStream) => {
+        if (!alive) {
+          nextStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        stream = nextStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = nextStream;
+        }
+      })
+      .catch(() => {
+        setMessage("Impossible d'acceder au micro ou a la camera.");
+        setCameraEnabled(false);
+        setMicrophoneEnabled(false);
+      });
+
+    return () => {
+      alive = false;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [cameraEnabled, microphoneEnabled, roomState?.room.id]);
+
+  useEffect(() => {
+    if (!roomState) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      void syncRoom(false);
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [cameraEnabled, clientId, displayName, microphoneEnabled, roomState?.room.id, screenEnabled, sourceLanguage, targetLanguage]);
+
+  useEffect(() => {
+    if (!roomState) {
+      return;
+    }
+
+    void syncRoom(false);
+  }, [cameraEnabled, microphoneEnabled, screenEnabled, sourceLanguage, targetLanguage]);
+
+  useEffect(() => {
+    if (!roomState || !transcriptionEnabled) {
+      return undefined;
+    }
+
+    const speechWindow = window as Window & { SpeechRecognition?: BrowserSpeechRecognitionConstructor; webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor };
+    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setMessage("La transcription vocale n'est pas disponible dans ce navigateur.");
+      setTranscriptionEnabled(false);
+      return undefined;
+    }
+
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = sourceLanguage;
+    recognition.onresult = (event) => {
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const text = result?.[0]?.transcript?.trim();
+        if (text && result.isFinal) {
+          void api.addMeetingTranscript(roomState.room.id, {
+            clientId,
+            speakerName: displayName,
+            text,
+            sourceLanguage,
+            translatedText: translationEnabled && targetLanguage !== sourceLanguage ? `[${targetLanguage}] ${text}` : null,
+            isFinal: true
+          }).then(() => syncRoom(false));
+        }
+      }
+    };
+    recognition.onerror = () => setMessage('Transcription interrompue.');
+    recognition.start();
+
+    return () => recognition.stop();
+  }, [clientId, displayName, roomState?.room.id, sourceLanguage, targetLanguage, transcriptionEnabled, translationEnabled]);
+
+  async function refreshDashboard() {
+    const next = await api.meetingDashboard();
+    setRooms(next.rooms);
+    await onChanged();
+  }
+
+  async function syncRoom(showErrors = true) {
+    if (!roomState) {
+      return;
+    }
+
+    try {
+      const next = await api.syncMeetingRoom(roomState.room.id, {
+        clientId,
+        displayName,
+        sourceLanguage,
+        targetLanguage,
+        media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
+      });
+      setRoomState(next);
+    } catch (err) {
+      if (showErrors) {
+        setMessage(err instanceof Error ? err.message : 'Synchronisation Meet impossible.');
+      }
+    }
+  }
+
+  async function createRoom(event: FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    const next = await api.createMeetingRoom({
+      title: createTitle,
+      scheduledStartAt: scheduledStartAt ? new Date(scheduledStartAt).toISOString() : null,
+      clientId,
+      displayName,
+      sourceLanguage,
+      targetLanguage,
+      media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
+    });
+    setRoomState(next);
+    await refreshDashboard();
+  }
+
+  async function joinRoom(event: FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    const next = await api.joinMeetingRoom({
+      codeOrToken: joinCode,
+      clientId,
+      displayName,
+      sourceLanguage,
+      targetLanguage,
+      media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
+    });
+    setRoomState(next);
+  }
+
+  async function openRoom(roomId: string) {
+    setMessage(null);
+    const next = await api.meetingRoom(roomId, clientId);
+    setRoomState(next);
+  }
+
+  async function copyInvite() {
+    if (!roomState) {
+      return;
+    }
+
+    const response = await api.ensureMeetingInvite(roomState.room.id);
+    const link = `${window.location.origin}${window.location.pathname}?meet=${response.token}`;
+    await navigator.clipboard?.writeText(link);
+    setMessage('Lien Meet copie.');
+    setRoomState({ ...roomState, room: { ...roomState.room, inviteToken: response.token } });
+  }
+
+  async function leaveRoom() {
+    if (!roomState) {
+      return;
+    }
+
+    await api.leaveMeetingRoom(roomState.room.id, clientId);
+    setRoomState(null);
+    setCameraEnabled(false);
+    setMicrophoneEnabled(false);
+    setScreenEnabled(false);
+    await refreshDashboard();
+  }
+
+  async function deleteRoom() {
+    if (!roomState || !window.confirm('Supprimer cette salle Meet ?')) {
+      return;
+    }
+
+    await api.deleteMeetingRoom(roomState.room.id);
+    setRoomState(null);
+    await refreshDashboard();
+  }
+
+  async function toggleScreenShare() {
+    if (screenEnabled) {
+      setScreenEnabled(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      setScreenEnabled(true);
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenEnabled(false));
+    } catch {
+      setMessage("Partage d'ecran annule.");
+    }
+  }
+
+  async function sendChat(event: FormEvent) {
+    event.preventDefault();
+    if (!roomState || (!chatMessage.trim() && !chatFile)) {
+      return;
+    }
+
+    const fileBase64 = chatFile ? await readFileAsDataUrl(chatFile) : null;
+    await api.addMeetingChatMessage(roomState.room.id, {
+      clientId,
+      senderName: displayName,
+      message: chatMessage,
+      fileName: chatFile?.name ?? null,
+      fileMimeType: chatFile?.type || null,
+      fileBase64
+    });
+    setChatMessage('');
+    setChatFile(null);
+    await syncRoom(false);
+  }
+
+  const activeParticipant = roomState?.participants.find((participant) => participant.clientId === clientId);
+
+  return (
+    <section className="meet-page">
+      {message && <div className="alert">{message}</div>}
+      <div className="meet-command-grid">
+        <Panel title="Nouvelle salle Meet">
+          <form className="meet-create-form" onSubmit={createRoom}>
+            <label>
+              Titre
+              <input value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} />
+            </label>
+            <label>
+              Date
+              <input type="datetime-local" value={scheduledStartAt} onChange={(event) => setScheduledStartAt(event.target.value)} />
+            </label>
+            <button className="primary" type="submit">
+              <Video size={16} />
+              Creer
+            </button>
+          </form>
+        </Panel>
+        <Panel title="Rejoindre">
+          <form className="meet-create-form" onSubmit={joinRoom}>
+            <label>
+              Code ou lien
+              <input value={joinCode} onChange={(event) => setJoinCode(event.target.value)} placeholder="MEET-123456" />
+            </label>
+            <button className="secondary" type="submit">
+              <Link2 size={16} />
+              Entrer
+            </button>
+          </form>
+        </Panel>
+      </div>
+
+      <section className="meet-layout">
+        <aside className="meet-rooms">
+          <h3>Salles</h3>
+          {rooms.map((room) => (
+            <button className={roomState?.room.id === room.id ? 'active' : ''} type="button" key={room.id} onClick={() => void openRoom(room.id)}>
+              <strong>{room.title}</strong>
+              <span>{room.code}</span>
+              <small>{room.scheduledStartAt ? formatOrderDate(room.scheduledStartAt) : 'Sans date'}</small>
+            </button>
+          ))}
+          {rooms.length === 0 && <p className="panel-note">Aucune salle Meet.</p>}
+        </aside>
+
+        {roomState ? (
+          <section className="meet-stage">
+            <header className="meet-stage-header">
+              <div>
+                <p className="eyebrow">Meet</p>
+                <h2>{roomState.room.title}</h2>
+                <span>{roomState.room.code}</span>
+              </div>
+              <div className="meet-actions">
+                <button className="secondary" type="button" onClick={() => navigator.clipboard?.writeText(roomState.room.code)}>
+                  <Copy size={15} />
+                  Code
+                </button>
+                <button className="secondary" type="button" onClick={() => void copyInvite()}>
+                  <Link2 size={15} />
+                  Inviter
+                </button>
+                <button className="danger" type="button" onClick={() => void leaveRoom()}>
+                  <PhoneOff size={15} />
+                  Quitter
+                </button>
+                <button className="danger" type="button" onClick={() => void deleteRoom()}>
+                  <Trash2 size={15} />
+                  Supprimer
+                </button>
+              </div>
+            </header>
+
+            <div className="meet-toolbar">
+              <button className={microphoneEnabled ? 'active' : ''} type="button" onClick={() => setMicrophoneEnabled((value) => !value)}>
+                {microphoneEnabled ? <Mic size={16} /> : <MicOff size={16} />}
+                Micro
+              </button>
+              <button className={cameraEnabled ? 'active' : ''} type="button" onClick={() => setCameraEnabled((value) => !value)}>
+                {cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />}
+                Camera
+              </button>
+              <button className={screenEnabled ? 'active' : ''} type="button" onClick={() => void toggleScreenShare()}>
+                <ScreenShare size={16} />
+                Ecran
+              </button>
+              <button className={transcriptionEnabled ? 'active' : ''} type="button" onClick={() => setTranscriptionEnabled((value) => !value)}>
+                <FileText size={16} />
+                Transcription
+              </button>
+              <button className={translationEnabled ? 'active' : ''} type="button" onClick={() => setTranslationEnabled((value) => !value)}>
+                <Languages size={16} />
+                Traduction
+              </button>
+              <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)} aria-label="Langue parlee">
+                {languages.map((language) => <option value={language.code} key={language.code}>{language.label}</option>)}
+              </select>
+              <select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)} aria-label="Langue cible">
+                {languages.map((language) => <option value={language.code} key={language.code}>{language.label}</option>)}
+              </select>
+              <select value={backgroundMode} onChange={(event) => setBackgroundMode(event.target.value as typeof backgroundMode)} aria-label="Fond virtuel">
+                <option value="none">Fond normal</option>
+                <option value="blur">Flou</option>
+                <option value="ocean">Ocean</option>
+                <option value="studio">Studio</option>
+                <option value="workshop">Atelier</option>
+              </select>
+            </div>
+
+            <div className="meet-content-grid">
+              <div className="meet-video-grid">
+                <article className={`meet-video-tile background-${backgroundMode}`}>
+                  {cameraEnabled ? <video ref={videoRef} autoPlay muted playsInline /> : <div className="meet-avatar">{displayName.slice(0, 2).toUpperCase()}</div>}
+                  <footer>
+                    <strong>{displayName}</strong>
+                    <span>{activeParticipant?.connectionState ?? 'online'}</span>
+                  </footer>
+                </article>
+                {roomState.participants.filter((participant) => participant.clientId !== clientId).map((participant) => (
+                  <article className="meet-video-tile remote" key={participant.id}>
+                    <div className="meet-avatar">{participant.displayName.slice(0, 2).toUpperCase()}</div>
+                    <footer>
+                      <strong>{participant.displayName}</strong>
+                      <span>{participant.microphoneEnabled ? 'Micro actif' : 'Micro coupe'} · {participant.cameraEnabled ? 'Camera active' : 'Camera coupee'}</span>
+                    </footer>
+                  </article>
+                ))}
+              </div>
+
+              <aside className="meet-side-panel">
+                <section>
+                  <h3>Participants</h3>
+                  {roomState.participants.map((participant) => (
+                    <div className="meet-participant" key={participant.id}>
+                      <strong>{participant.displayName}</strong>
+                      <span>{participant.sourceLanguage} · {participant.connectionState}</span>
+                    </div>
+                  ))}
+                </section>
+                <section>
+                  <h3>Chat</h3>
+                  <div className="meet-chat-list">
+                    {roomState.chatMessages.map((item) => (
+                      <article key={item.id}>
+                        <strong>{item.senderName}</strong>
+                        <p>{item.message}</p>
+                        {item.hasFile && item.fileName && (
+                          <button className="link-button" type="button" onClick={() => void api.downloadMeetingAttachment(item.id, item.fileName!)}>
+                            <Paperclip size={14} />
+                            {item.fileName}
+                          </button>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                  <form className="meet-chat-form" onSubmit={sendChat}>
+                    <textarea value={chatMessage} onChange={(event) => setChatMessage(event.target.value)} placeholder="Message" />
+                    <input type="file" onChange={(event) => setChatFile(event.target.files?.[0] ?? null)} />
+                    <button className="primary" type="submit">Envoyer</button>
+                  </form>
+                </section>
+              </aside>
+            </div>
+
+            <Panel title="Transcription">
+              <div className="meet-transcript-list">
+                {roomState.transcripts.map((item) => (
+                  <article key={item.id}>
+                    <span>{formatOrderDate(item.createdAt)}</span>
+                    <strong>{item.speakerName}</strong>
+                    <p>{item.text}</p>
+                    {item.translatedText && <small>{item.translatedText}</small>}
+                  </article>
+                ))}
+                {roomState.transcripts.length === 0 && <p className="panel-note">Aucune transcription.</p>}
+              </div>
+            </Panel>
+          </section>
+        ) : (
+          <section className="empty-state meet-empty">
+            <Video size={42} />
+            <strong>Selectionnez ou creez une salle Meet</strong>
+          </section>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function CalendarEventForm({ draft, setDraft, onSubmit, onCancel, submitLabel }: { draft: CalendarDraftState; setDraft: (next: CalendarDraftState) => void; onSubmit: (event: FormEvent) => void; onCancel: () => void; submitLabel: string }) {
@@ -8648,6 +9232,20 @@ function CalendarEventForm({ draft, setDraft, onSubmit, onCancel, submitLabel }:
         <input type="checkbox" checked={draft.isPrivate} onChange={(event) => setDraft({ ...draft, isPrivate: event.target.checked })} />
         Prive
       </label>
+      <label className="checkbox-line">
+        <input type="checkbox" checked={draft.createMeetingRoom} onChange={(event) => setDraft({ ...draft, createMeetingRoom: event.target.checked })} />
+        Salle Meet
+      </label>
+      {draft.createMeetingRoom && (
+        <label className="field">
+          Langue Meet
+          <select value={draft.meetingLanguage} onChange={(event) => setDraft({ ...draft, meetingLanguage: event.target.value })}>
+            {meetingLanguageOptions.map((language) => (
+              <option value={language.code} key={language.code}>{language.label}</option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="field full-field">
         Description
         <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
@@ -8675,7 +9273,9 @@ function createCalendarDraft(date: Date): CalendarDraftState {
     location: '',
     description: '',
     isPrivate: false,
-    reminderMinutes: '30'
+    reminderMinutes: '30',
+    createMeetingRoom: false,
+    meetingLanguage: 'fr-FR'
   };
 }
 
@@ -8690,7 +9290,9 @@ function createCalendarDraftFromEvent(event: CalendarEvent): CalendarDraftState 
     location: event.location ?? '',
     description: event.description ?? '',
     isPrivate: event.isPrivate,
-    reminderMinutes: reminder?.toString() ?? '30'
+    reminderMinutes: reminder?.toString() ?? '30',
+    createMeetingRoom: false,
+    meetingLanguage: 'fr-FR'
   };
 }
 

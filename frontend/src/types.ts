@@ -661,6 +661,95 @@ export type CalendarEvent = {
   links: CalendarEventLink[];
 };
 
+export type MeetingLanguage = {
+  code: string;
+  label: string;
+};
+
+export type MeetingRoom = {
+  id: string;
+  code: string;
+  title: string;
+  calendarEventId?: string;
+  inviteToken?: string;
+  scheduledStartAt?: string;
+  createdAt: string;
+  lastActivityAt: string;
+  isLocked: boolean;
+  createdByName?: string;
+};
+
+export type MeetingParticipant = {
+  id: string;
+  userId?: string;
+  clientId: string;
+  displayName: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  microphoneEnabled: boolean;
+  cameraEnabled: boolean;
+  screenEnabled: boolean;
+  connectionState: string;
+  joinedAt: string;
+  lastSeenAt: string;
+};
+
+export type MeetingSignal = {
+  id: string;
+  senderClientId: string;
+  recipientClientId: string;
+  signalType: string;
+  payloadJson: string;
+  createdAt: string;
+};
+
+export type MeetingTranscript = {
+  id: string;
+  userId?: string;
+  clientId: string;
+  speakerName: string;
+  sourceLanguage: string;
+  text: string;
+  translatedText?: string;
+  isFinal: boolean;
+  createdAt: string;
+};
+
+export type MeetingChatMessage = {
+  id: string;
+  userId?: string;
+  clientId: string;
+  senderName: string;
+  message: string;
+  fileName?: string;
+  fileMimeType?: string;
+  fileSize?: number;
+  hasFile: boolean;
+  createdAt: string;
+};
+
+export type MeetingDashboard = {
+  rooms: MeetingRoom[];
+  languages: MeetingLanguage[];
+  chatAttachmentMaxBytes: number;
+};
+
+export type MeetingMediaState = {
+  microphoneEnabled: boolean;
+  cameraEnabled: boolean;
+  screenEnabled: boolean;
+  connectionState?: string;
+};
+
+export type MeetingRoomState = {
+  room: MeetingRoom;
+  participants: MeetingParticipant[];
+  signals: MeetingSignal[];
+  transcripts: MeetingTranscript[];
+  chatMessages: MeetingChatMessage[];
+  serverTime: string;
+};
+
 export type SignatureRecipient = {
   id: string;
   email: string;

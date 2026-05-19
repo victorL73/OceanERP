@@ -56,7 +56,7 @@ public sealed class OnlyOfficeService(
         var documentUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/download?token={Uri.EscapeDataString(accessToken)}";
         var callbackUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/callback?token={Uri.EscapeDataString(accessToken)}";
         var permissions = new OnlyOfficeDocumentPermissionsDto(Edit: true, Download: true, Print: true);
-        var customization = new OnlyOfficeCustomizationDto(Autosave: true, Forcesave: true, Chat: false, Comments: true);
+        var customization = new OnlyOfficeCustomizationDto(Autosave: false, Forcesave: false, Chat: false, Comments: true);
         var document = new OnlyOfficeDocumentDto(fileType, key, item.Name, documentUrl, permissions);
         var editorConfig = new OnlyOfficeEditorConfigDto("edit", callbackUrl, new OnlyOfficeUserDto(userId, userName), customization);
         var jwtPayload = new
@@ -99,8 +99,10 @@ public sealed class OnlyOfficeService(
             return Result.Failure(tokenValidation.Error!);
         }
 
-        // ONLYOFFICE status 2/6 means the editor has a ready-to-save document URL.
-        if (request.Status is not (2 or 6))
+        // ONLYOFFICE status 2 means the document is ready to save at the end of the editing session.
+        // Autosave/forcesave callbacks are intentionally ignored to avoid changing the Drive version
+        // while the editor is still using the current document key/token.
+        if (request.Status != 2)
         {
             return Result.Success();
         }
