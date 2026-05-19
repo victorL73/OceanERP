@@ -845,6 +845,8 @@ export type OnlyOfficeConfig = {
   editorConfig: {
     mode: string;
     callbackUrl: string;
+    lang?: string;
+    region?: string;
     user: {
       id: string;
       name: string;

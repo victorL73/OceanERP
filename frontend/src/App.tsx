@@ -7498,7 +7498,11 @@ function isTextDriveFile(file: DriveItem) {
 }
 
 function isOfficeDriveFile(file: DriveItem) {
-  return /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv|txt)$/i.test(file.name);
+  return /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf)$/i.test(file.name);
+}
+
+function isSpreadsheetDriveFile(file: DriveItem) {
+  return /\.(xlsx?|ods)$/i.test(file.name);
 }
 
 function getOnlyOfficeEditorConfig(config: OnlyOfficeConfig) {
@@ -7537,18 +7541,62 @@ function getOnlyOfficeFrameHtml(editorId: string, config: OnlyOfficeConfig) {
       overflow: hidden;
       background: #f8fafc;
     }
+
+    #status {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: #f8fafc;
+      color: #334155;
+      font: 700 15px/1.4 Arial, sans-serif;
+      text-align: center;
+    }
+
+    #status.hidden {
+      display: none;
+    }
+
+    #status.error {
+      color: #991b1b;
+      background: #fff5f5;
+    }
   </style>
 </head>
 <body>
   <div id="placeholder"></div>
+  <div id="status">Connexion a ONLYOFFICE...</div>
   <script>
     (function () {
       var editorId = ${stringifyForOnlyOfficeFrame(editorId)};
       var scriptUrl = ${stringifyForOnlyOfficeFrame(scriptUrl)};
       var config = ${stringifyForOnlyOfficeFrame(editorConfig)};
-      var parentWindow = window.parent;
+      var parentWindow = window.opener && !window.opener.closed ? window.opener : (window.parent !== window ? window.parent : null);
+      var editorInstance = null;
+
+      function setStatus(message, isError) {
+        var status = document.getElementById('status');
+        if (!status) {
+          return;
+        }
+
+        if (!message) {
+          status.className = 'hidden';
+          status.textContent = '';
+          return;
+        }
+
+        status.className = isError ? 'error' : '';
+        status.textContent = message;
+      }
 
       function post(type, message) {
+        if (!parentWindow) {
+          return;
+        }
+
         parentWindow.postMessage({
           source: 'oceanerp.onlyoffice',
           editorId: editorId,
@@ -7568,9 +7616,20 @@ function getOnlyOfficeFrameHtml(editorId: string, config: OnlyOfficeConfig) {
       }
 
       window.onerror = function (message, source, line, column, error) {
+        setStatus(error && error.message ? error.message : String(message || 'Erreur JavaScript ONLYOFFICE.'), true);
         post('error', error && error.message ? error.message : String(message || 'Erreur JavaScript ONLYOFFICE.'));
         return false;
       };
+
+      window.addEventListener('beforeunload', function () {
+        try {
+          if (editorInstance && typeof editorInstance.destroyEditor === 'function') {
+            editorInstance.destroyEditor();
+          }
+        } catch (error) {
+          // Fermeture de fenetre: on evite de bloquer l'utilisateur pour une erreur de nettoyage ONLYOFFICE.
+        }
+      });
 
       var script = document.createElement('script');
       script.src = scriptUrl;
@@ -7584,15 +7643,18 @@ function getOnlyOfficeFrameHtml(editorId: string, config: OnlyOfficeConfig) {
           var originalEvents = config.events || {};
           config.events = Object.assign({}, originalEvents, {
             onAppReady: function () {
+              setStatus('Chargement du document dans ONLYOFFICE...', false);
               post('loaded');
               callOriginal(originalEvents.onAppReady, arguments);
             },
             onDocumentReady: function () {
+              setStatus('', false);
               post('ready');
               callOriginal(originalEvents.onDocumentReady, arguments);
             },
             onError: function (event) {
               var raw = event && event.data ? JSON.stringify(event.data) : '';
+              setStatus(raw || 'Erreur ONLYOFFICE pendant l edition.', true);
               post('error', raw || 'Erreur ONLYOFFICE pendant l edition.');
               callOriginal(originalEvents.onError, arguments);
             },
@@ -7602,12 +7664,15 @@ function getOnlyOfficeFrameHtml(editorId: string, config: OnlyOfficeConfig) {
             }
           });
 
-          window.oceanErpOnlyOfficeEditor = new window.DocsAPI.DocEditor('placeholder', config);
+          editorInstance = new window.DocsAPI.DocEditor('placeholder', config);
+          window.oceanErpOnlyOfficeEditor = editorInstance;
         } catch (error) {
+          setStatus(error && error.message ? error.message : String(error), true);
           post('error', error && error.message ? error.message : String(error));
         }
       };
       script.onerror = function () {
+        setStatus('Chargement ONLYOFFICE impossible depuis ' + scriptUrl + '.', true);
         post('error', 'Chargement ONLYOFFICE impossible depuis ' + scriptUrl + '.');
       };
       document.head.appendChild(script);
@@ -7615,6 +7680,25 @@ function getOnlyOfficeFrameHtml(editorId: string, config: OnlyOfficeConfig) {
   </script>
 </body>
 </html>`;
+}
+
+function buildOnlyOfficeEditorId(file: DriveItem, suffix = '') {
+  return `onlyoffice-editor-${file.id.replace(/[^a-z0-9]/gi, '')}${suffix}`;
+}
+
+function openOnlyOfficeDetachedWindow(file: DriveItem, config: OnlyOfficeConfig) {
+  const editorId = buildOnlyOfficeEditorId(file, `-${Date.now()}`);
+  const opened = window.open('', `oceanerp-onlyoffice-${file.id}`, 'popup,width=1600,height=980,resizable,scrollbars');
+  if (!opened) {
+    return false;
+  }
+
+  opened.document.open();
+  opened.document.write(getOnlyOfficeFrameHtml(editorId, config));
+  opened.document.close();
+  opened.document.title = `ONLYOFFICE - ${file.name}`;
+  opened.focus();
+  return true;
 }
 
 function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
@@ -7972,6 +8056,15 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
     setMessage(null);
     try {
       const config = await api.onlyOfficeConfig(file.id);
+      if (isSpreadsheetDriveFile(file) && openOnlyOfficeDetachedWindow(file, config)) {
+        setMessage("Tableur ouvert dans une fenetre separee. Cette isolation evite qu'un fichier Excel lourd bloque l'ERP.");
+        return;
+      }
+
+      if (isSpreadsheetDriveFile(file)) {
+        setMessage("Le navigateur a bloque la fenetre separee. Ouverture integree en secours, mais un fichier Excel lourd peut rester lent.");
+      }
+
       setOfficeSession({ file, config });
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Ouverture ONLYOFFICE impossible');
@@ -8217,7 +8310,7 @@ function Drive({ folders, files, onChanged }: { folders: DriveFolder[]; files: D
 }
 
 function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSession; onClose: () => void }) {
-  const editorId = useMemo(() => `onlyoffice-editor-${session.file.id.replace(/[^a-z0-9]/gi, '')}`, [session.file.id]);
+  const editorId = useMemo(() => buildOnlyOfficeEditorId(session.file), [session.file.id]);
   const [frameHtml] = useState(() => getOnlyOfficeFrameHtml(editorId, session.config));
   const [status, setStatus] = useState('Chargement de l editeur ONLYOFFICE...');
   const onCloseRef = useRef(onClose);
@@ -8273,9 +8366,23 @@ function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSessi
             <p className="eyebrow">ONLYOFFICE</p>
             <h2 id="onlyoffice-title">{session.file.name}</h2>
           </div>
-          <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
-            <X size={18} />
-          </button>
+          <div className="modal-actions">
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => {
+                if (!openOnlyOfficeDetachedWindow(session.file, session.config)) {
+                  setStatus("Le navigateur a bloque l'ouverture dans une fenetre separee.");
+                }
+              }}
+            >
+              <FileText size={15} />
+              Fenetre separee
+            </button>
+            <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
         </header>
         <div className="onlyoffice-frame">
           {status && <div className="onlyoffice-status">{status}</div>}

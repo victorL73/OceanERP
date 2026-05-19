@@ -163,7 +163,10 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     public async Task OnlyOfficeConfig_UsesSignedDocumentUrl()
     {
         using var client = await CreateAuthenticatedClientAsync();
-        var file = await UploadDriveFileAsync(client);
+        var file = await UploadDriveFileAsync(
+            client,
+            "onlyoffice.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 
         var config = await client.GetFromJsonAsync<OnlyOfficeConfigDto>($"/api/onlyoffice/files/{file.Id}/config");
         Assert.NotNull(config);
@@ -233,12 +236,12 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         return (await response.Content.ReadFromJsonAsync<ProductDto>())!;
     }
 
-    private static async Task<DriveItemDto> UploadDriveFileAsync(HttpClient client)
+    private static async Task<DriveItemDto> UploadDriveFileAsync(HttpClient client, string fileName = "signature.txt", string mimeType = "text/plain")
     {
         using var form = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("Document a signer"));
-        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-        form.Add(fileContent, "file", "signature.txt");
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(mimeType);
+        form.Add(fileContent, "file", fileName);
 
         var uploadResponse = await client.PostAsync("/api/drive/files", form);
         uploadResponse.EnsureSuccessStatusCode();

@@ -275,6 +275,24 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url === 'about:blank') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 1600,
+          height: 980,
+          minWidth: 1100,
+          minHeight: 720,
+          title: 'OceanERP - ONLYOFFICE',
+          icon: iconPath,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false
+          }
+        }
+      };
+    }
+
     shell.openExternal(url);
     return { action: 'deny' };
   });

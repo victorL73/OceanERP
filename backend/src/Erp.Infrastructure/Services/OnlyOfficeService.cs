@@ -18,8 +18,8 @@ public sealed class OnlyOfficeService(
     IConfiguration configuration,
     ICurrentUserService currentUser) : IOnlyOfficeService
 {
-    private static readonly HashSet<string> WordFileTypes = new(StringComparer.OrdinalIgnoreCase) { "doc", "docx", "odt", "rtf", "txt" };
-    private static readonly HashSet<string> CellFileTypes = new(StringComparer.OrdinalIgnoreCase) { "xls", "xlsx", "ods", "csv" };
+    private static readonly HashSet<string> WordFileTypes = new(StringComparer.OrdinalIgnoreCase) { "doc", "docx", "odt", "rtf" };
+    private static readonly HashSet<string> CellFileTypes = new(StringComparer.OrdinalIgnoreCase) { "xls", "xlsx", "ods" };
     private static readonly HashSet<string> SlideFileTypes = new(StringComparer.OrdinalIgnoreCase) { "ppt", "pptx", "odp" };
     private static readonly JsonSerializerOptions JwtJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -56,7 +56,11 @@ public sealed class OnlyOfficeService(
         var documentUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/download?token={Uri.EscapeDataString(accessToken)}";
         var callbackUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/callback?token={Uri.EscapeDataString(accessToken)}";
         var permissions = new OnlyOfficeDocumentPermissionsDto(Edit: true, Download: true, Print: true);
-        var customization = new OnlyOfficeCustomizationDto(Autosave: false, Forcesave: false, Chat: false, Comments: true);
+        var customization = new OnlyOfficeCustomizationDto(
+            Autosave: false,
+            Forcesave: false,
+            Chat: false,
+            Comments: !string.Equals(documentType, "cell", StringComparison.OrdinalIgnoreCase));
         var document = new OnlyOfficeDocumentDto(fileType, key, item.Name, documentUrl, permissions);
         var editorConfig = new OnlyOfficeEditorConfigDto("edit", callbackUrl, new OnlyOfficeUserDto(userId, userName), customization);
         var jwtPayload = new
