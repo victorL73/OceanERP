@@ -1,6 +1,6 @@
 import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, type ReactNode, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, Box, BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, Clock, Download, FileSignature, FileText, Folder, Forward, Grid2X2, Image as ImageIcon, KeyRound, LayoutDashboard, LifeBuoy, List, LogOut, Mail, Package, Paperclip, Pencil, Plus, Printer, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Store, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, LayoutDashboard, LifeBuoy, List, ListTodo, LogOut, Mail, Minus, Moon, Package, Paperclip, Pencil, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
 import type { AuditLog, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
@@ -9308,10 +9308,10 @@ function DocumentLinksPanel({ module, entityId }: { module: 'customers' | 'produ
   );
 }
 
-type FlowceanBlockType = 'paragraph' | 'h1' | 'h2' | 'todo' | 'bullet' | 'callout' | 'code';
+type FlowceanBlockType = 'paragraph' | 'h1' | 'h2' | 'h3' | 'todo' | 'bullet' | 'numbered' | 'quote' | 'callout' | 'code' | 'divider';
 type FlowceanPageKind = 'document' | 'database';
 type FlowceanDatabaseView = 'table' | 'board' | 'calendar' | 'gantt';
-type FlowceanPropertyType = 'text' | 'select' | 'date' | 'checkbox' | 'number';
+type FlowceanPropertyType = 'text' | 'select' | 'date' | 'checkbox' | 'number' | 'email' | 'url';
 type FlowceanCellValue = string | number | boolean | null;
 
 type FlowceanBlock = {
@@ -9360,6 +9360,28 @@ type FlowceanState = {
   meta: Record<string, unknown>;
 };
 
+type FlowceanTemplateDefinition = {
+  key: string;
+  title: string;
+  badge: string;
+  description: string;
+  create: () => FlowceanPage;
+};
+
+type FlowceanSearchHit = {
+  page: FlowceanPage;
+  excerpt: string;
+};
+
+type FlowceanShare = {
+  id: string;
+  email: string;
+  role: 'lecture' | 'edition';
+};
+
+const FLOWCEAN_CACHE_PREFIX = 'oceanerp.flowcean.cache';
+const FLOWCEAN_ICON_OPTIONS = ['OE', 'FL', 'DOC', 'DB', 'CRM', 'SAV', 'EUR', 'OK', '!', '#'];
+
 function FlowceanWorkspaceModule() {
   const [workspaces, setWorkspaces] = useState<FlowceanWorkspaceSummary[]>([]);
   const [workspace, setWorkspace] = useState<FlowceanWorkspace | null>(null);
@@ -9370,7 +9392,16 @@ function FlowceanWorkspaceModule() {
   const [status, setStatus] = useState('Chargement...');
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [globalQuery, setGlobalQuery] = useState('');
+  const [showNewMenu, setShowNewMenu] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<'details' | 'activity'>('details');
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareRole, setShareRole] = useState<'lecture' | 'edition'>('lecture');
+  const importInputRef = useRef<HTMLInputElement>(null);
   const lastSerialized = useRef('');
+  const templates = useMemo(() => flowceanTemplateDefinitions(), []);
 
   useEffect(() => {
     loadWorkspaces().catch((err) => setError(err instanceof Error ? err.message : 'Chargement impossible'));
@@ -9393,6 +9424,7 @@ function FlowceanWorkspaceModule() {
         setWorkspace(saved);
         setWorkspaces((items) => items.map((item) => item.slug === saved.slug ? saved : item));
         lastSerialized.current = saved.dataJson;
+        writeFlowceanCache(saved.slug, serialized);
         setDirty(false);
         setStatus('Enregistre');
       } catch (err) {
@@ -9415,13 +9447,40 @@ function FlowceanWorkspaceModule() {
   async function openWorkspace(slug: string) {
     setError(null);
     setStatus('Chargement...');
-    const nextWorkspace = await api.flowceanWorkspace(slug);
-    const parsed = parseFlowceanState(nextWorkspace);
-    setWorkspace(nextWorkspace);
-    setState(parsed);
-    lastSerialized.current = JSON.stringify(parsed);
-    setDirty(false);
-    setStatus('Pret');
+    try {
+      const nextWorkspace = await api.flowceanWorkspace(slug);
+      const parsed = parseFlowceanState(nextWorkspace);
+      setWorkspace(nextWorkspace);
+      setState(parsed);
+      lastSerialized.current = JSON.stringify(parsed);
+      writeFlowceanCache(nextWorkspace.slug, lastSerialized.current);
+      setDirty(false);
+      setStatus('Pret');
+    } catch (err) {
+      const cached = readFlowceanCache(slug);
+      if (!cached) {
+        throw err;
+      }
+
+      const summary = workspaces.find((item) => item.slug === slug);
+      const fallbackWorkspace: FlowceanWorkspace = {
+        id: summary?.id ?? slug,
+        slug,
+        name: summary?.name ?? slug,
+        version: summary?.version ?? 1,
+        isPersonal: summary?.isPersonal ?? false,
+        createdAt: summary?.createdAt ?? new Date().toISOString(),
+        updatedAt: summary?.updatedAt,
+        dataJson: cached
+      };
+      const parsed = parseFlowceanState(fallbackWorkspace);
+      setWorkspace(fallbackWorkspace);
+      setState(parsed);
+      lastSerialized.current = JSON.stringify(parsed);
+      setDirty(true);
+      setStatus('Cache local');
+      setError('Connexion serveur indisponible, reprise depuis le cache local.');
+    }
   }
 
   async function createWorkspace(event: FormEvent) {
@@ -9463,49 +9522,52 @@ function FlowceanWorkspaceModule() {
     return state.pages.find((page) => page.id === state.ui.activePageId) ?? state.pages.find((page) => !page.deletedAt) ?? null;
   }
 
-  function createPage(kind: FlowceanPageKind) {
+  function createPage(kind: FlowceanPageKind, parentId: string | null = null, template?: FlowceanPage) {
     updateFlowcean((draft) => {
-      const id = createFlowceanId('page');
-      draft.pages.unshift({
-        id,
-        parentId: null,
-        title: kind === 'database' ? 'Nouvelle base' : 'Nouvelle page',
-        icon: kind === 'database' ? 'DB' : 'PG',
-        favorite: false,
-        expanded: true,
-        kind,
-        updatedAt: Date.now(),
-        deletedAt: null,
-        blocks: kind === 'document' ? [{ id: createFlowceanId('block'), type: 'paragraph', text: '', checked: null }] : [],
-        database: kind === 'database' ? createDefaultFlowceanDatabase() : null
-      });
-      draft.ui.activePageId = id;
+      const pageToInsert = template ? cloneFlowceanPage(template) : createEmptyFlowceanPage(kind, parentId);
+      pageToInsert.parentId = parentId;
+      pageToInsert.updatedAt = Date.now();
+      if (parentId) {
+        const parent = draft.pages.find((item) => item.id === parentId);
+        if (parent) {
+          parent.expanded = true;
+        }
+      }
+
+      draft.pages.unshift(pageToInsert);
+      draft.ui.activePageId = pageToInsert.id;
     });
+    setShowNewMenu(false);
   }
 
   function createTemplate() {
+    const template = templates[0];
+    if (template) {
+      const page = template.create();
+      createPage(page.kind, null, page);
+    }
+  }
+
+  function createFromTemplate(template: FlowceanTemplateDefinition) {
+    const page = template.create();
+    createPage(page.kind, null, page);
+    setShowTemplates(false);
+  }
+
+  function duplicatePage(pageId: string) {
     updateFlowcean((draft) => {
-      const id = createFlowceanId('page');
-      draft.pages.unshift({
-        id,
-        parentId: null,
-        title: 'Compte rendu',
-        icon: 'CR',
-        favorite: true,
-        expanded: true,
-        kind: 'document',
-        updatedAt: Date.now(),
-        deletedAt: null,
-        blocks: [
-          { id: createFlowceanId('block'), type: 'h1', text: 'Compte rendu', checked: null },
-          { id: createFlowceanId('block'), type: 'h2', text: 'Decisions', checked: null },
-          { id: createFlowceanId('block'), type: 'bullet', text: '', checked: null },
-          { id: createFlowceanId('block'), type: 'h2', text: 'Actions', checked: null },
-          { id: createFlowceanId('block'), type: 'todo', text: '', checked: false }
-        ],
-        database: null
-      });
-      draft.ui.activePageId = id;
+      const page = draft.pages.find((item) => item.id === pageId);
+      if (!page) {
+        return;
+      }
+
+      const clone = cloneFlowceanPage(page);
+      clone.title = `${page.title} copie`;
+      clone.favorite = false;
+      clone.deletedAt = null;
+      clone.updatedAt = Date.now();
+      draft.pages.unshift(clone);
+      draft.ui.activePageId = clone.id;
     });
   }
 
@@ -9526,6 +9588,11 @@ function FlowceanWorkspaceModule() {
       }
 
       page.deletedAt = Date.now();
+      draft.pages
+        .filter((item) => item.parentId === pageId)
+        .forEach((child) => {
+          child.deletedAt = Date.now();
+        });
       if (draft.ui.activePageId === pageId) {
         draft.ui.activePageId = draft.pages.find((item) => !item.deletedAt)?.id ?? null;
       }
@@ -9539,6 +9606,40 @@ function FlowceanWorkspaceModule() {
         page.deletedAt = null;
         draft.ui.activePageId = page.id;
       }
+    });
+  }
+
+  function toggleExpanded(pageId: string) {
+    updateFlowcean((draft) => {
+      const page = draft.pages.find((item) => item.id === pageId);
+      if (page) {
+        page.expanded = !page.expanded;
+      }
+    });
+  }
+
+  function openPage(pageId: string) {
+    updateFlowcean((draft) => {
+      draft.ui.activePageId = pageId;
+    });
+    setShowGlobalSearch(false);
+  }
+
+  function updatePageIcon(pageId: string) {
+    updateFlowcean((draft) => {
+      const page = draft.pages.find((item) => item.id === pageId);
+      if (!page) {
+        return;
+      }
+
+      const currentIndex = FLOWCEAN_ICON_OPTIONS.indexOf(page.icon);
+      page.icon = FLOWCEAN_ICON_OPTIONS[(currentIndex + 1) % FLOWCEAN_ICON_OPTIONS.length] ?? 'OE';
+    });
+  }
+
+  function toggleTheme() {
+    updateFlowcean((draft) => {
+      draft.workspace.theme = draft.workspace.theme === 'dark' ? 'light' : 'dark';
     });
   }
 
@@ -9558,99 +9659,284 @@ function FlowceanWorkspaceModule() {
     URL.revokeObjectURL(url);
   }
 
+  async function importWorkspace(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !workspace) {
+      return;
+    }
+
+    setError(null);
+    try {
+      const text = await file.text();
+      const imported = normalizeImportedFlowceanState(text, workspace.name, workspace.slug);
+      setState(imported);
+      setDirty(true);
+      setStatus('Import pret a enregistrer');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Import impossible');
+    }
+  }
+
+  function inviteCollaborator(event: FormEvent) {
+    event.preventDefault();
+    const email = shareEmail.trim().toLowerCase();
+    if (!email) {
+      return;
+    }
+
+    updateFlowcean((draft) => {
+      const shares = flowceanShares(draft);
+      if (shares.some((share) => share.email.toLowerCase() === email)) {
+        draft.meta.flowceanShares = shares.map((share) => share.email.toLowerCase() === email ? { ...share, role: shareRole } : share);
+      } else {
+        draft.meta.flowceanShares = [...shares, { id: createFlowceanId('share'), email, role: shareRole }];
+      }
+    });
+    setShareEmail('');
+    setShareRole('lecture');
+  }
+
+  function removeCollaborator(shareId: string) {
+    updateFlowcean((draft) => {
+      draft.meta.flowceanShares = flowceanShares(draft).filter((share) => share.id !== shareId);
+    });
+  }
+
   const page = activePage();
   const pages = state?.pages ?? [];
+  const shares = state ? flowceanShares(state) : [];
   const visiblePages = pages
     .filter((item) => showTrash ? Boolean(item.deletedAt) : !item.deletedAt)
     .filter((item) => !query.trim() || item.title.toLowerCase().includes(query.trim().toLowerCase()) || item.blocks.some((block) => block.text.toLowerCase().includes(query.trim().toLowerCase())));
   const favoritePages = pages.filter((item) => item.favorite && !item.deletedAt);
   const recentPages = [...pages].filter((item) => !item.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5);
+  const searchHits = flowceanSearchHits(pages, globalQuery);
+  const breadcrumbs = page ? flowceanBreadcrumbs(pages, page) : [];
 
   return (
-    <section className="flowcean-shell">
-      <div className="flowcean-toolbar">
-        <div>
-          <strong>{workspace?.name ?? 'Flowcean'}</strong>
-          <span>{status}</span>
-        </div>
-        <select value={workspace?.slug ?? ''} onChange={(event) => openWorkspace(event.target.value)}>
-          {workspaces.map((item) => <option key={item.id} value={item.slug}>{item.name}</option>)}
-        </select>
-        <form className="flowcean-new-workspace" onSubmit={createWorkspace}>
-          <input value={newWorkspaceName} onChange={(event) => setNewWorkspaceName(event.target.value)} placeholder="Nouvel espace" />
-          <button type="submit" className="secondary"><Plus size={16} /> Creer</button>
-        </form>
-        <button type="button" className="secondary" onClick={exportWorkspace}><Download size={16} /> Export JSON</button>
-      </div>
-      {error && <div className="alert">{error}</div>}
-      <div className="flowcean-layout">
+    <section className={state?.workspace.theme === 'dark' ? 'flowcean-shell flowcean-dark' : 'flowcean-shell'}>
+      <div className="flowcean-app">
         <aside className="flowcean-sidebar">
+          <div className="flowcean-brand">
+            <button className="flowcean-brand-badge" type="button" onClick={() => page && updatePageIcon(page.id)}>{page?.icon ?? 'FL'}</button>
+            <div>
+              <span>Workspace</span>
+              <strong>{workspace?.name ?? 'Flowcean'}</strong>
+            </div>
+          </div>
+
+          <button className="primary flowcean-new-button" type="button" onClick={() => setShowNewMenu((value) => !value)}>
+            <Plus size={17} />
+            Nouveau
+          </button>
+          {showNewMenu && (
+            <div className="flowcean-new-menu">
+              <button type="button" onClick={() => createPage('document')}><FilePlus2 size={16} /> Page</button>
+              <button type="button" onClick={() => createPage('database')}><Table2 size={16} /> Tableau</button>
+              <button type="button" onClick={() => setShowTemplates(true)}><BookOpen size={16} /> Modele</button>
+            </div>
+          )}
+
+          <div className="flowcean-quick-actions">
+            <button type="button" onClick={() => setShowGlobalSearch(true)}><Search size={15} /> Rechercher</button>
+            <button type="button" onClick={() => setShowTemplates(true)}><BookOpen size={15} /> Modeles</button>
+            <button type="button" onClick={() => importInputRef.current?.click()}><Upload size={15} /> Importer</button>
+            <button type="button" onClick={exportWorkspace}><Download size={15} /> Exporter</button>
+          </div>
+
           <div className="search flowcean-search">
             <Search size={16} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher une page" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher dans l'espace" />
           </div>
-          <div className="flowcean-actions">
-            <button type="button" onClick={() => createPage('document')}><Plus size={16} /> Page</button>
-            <button type="button" onClick={() => createPage('database')}><Grid2X2 size={16} /> Table</button>
-            <button type="button" onClick={createTemplate}><FileText size={16} /> Modele</button>
+
+          <div className="flowcean-sidebar-scroll">
+            <FlowceanMiniSection title="Favoris" pages={favoritePages} activeId={page?.id ?? null} onOpen={openPage} />
+            <FlowceanTreeSection
+              title={showTrash ? 'Corbeille' : 'Espace'}
+              pages={visiblePages}
+              allPages={pages}
+              activeId={page?.id ?? null}
+              onOpen={openPage}
+              onCreateChild={(id) => createPage('document', id)}
+              onToggleExpanded={toggleExpanded}
+            />
+            <FlowceanMiniSection title="Recents" pages={recentPages} activeId={page?.id ?? null} onOpen={openPage} />
           </div>
-          <FlowceanPageSection title="Favoris" pages={favoritePages} activeId={page?.id ?? null} onOpen={(id) => updateFlowcean((draft) => { draft.ui.activePageId = id; })} />
-          <FlowceanPageSection title="Recents" pages={recentPages} activeId={page?.id ?? null} onOpen={(id) => updateFlowcean((draft) => { draft.ui.activePageId = id; })} />
-          <div className="flowcean-section-title">
-            <span>{showTrash ? 'Corbeille' : 'Pages'}</span>
-            <button type="button" onClick={() => setShowTrash((value) => !value)}>{showTrash ? 'Pages' : 'Corbeille'}</button>
-          </div>
-          <div className="flowcean-page-list">
-            {visiblePages.map((item) => (
-              <button key={item.id} type="button" className={page?.id === item.id ? 'active' : ''} onClick={() => updateFlowcean((draft) => { draft.ui.activePageId = item.id; })}>
-                <span className="flowcean-page-icon">{item.icon}</span>
-                <span>{item.title}</span>
-              </button>
-            ))}
-            {visiblePages.length === 0 && <span className="muted">Aucune page</span>}
+
+          <div className="flowcean-sidebar-footer">
+            <span className={dirty ? 'flowcean-save-state dirty' : 'flowcean-save-state'}>{dirty ? 'Modifications en attente' : status}</span>
+            <button type="button" onClick={() => setShowTrash((value) => !value)}>{showTrash ? 'Voir les pages' : 'Corbeille'}</button>
           </div>
         </aside>
 
-        <main className="flowcean-editor">
-          {!page && <EmptyState icon={BriefcaseBusiness} title="Aucune page" />}
-          {page && (
-            <>
-              <div className="flowcean-page-head">
-                <input
-                  value={page.title}
-                  onChange={(event) => updateFlowcean((draft) => {
-                    const target = draft.pages.find((item) => item.id === page.id);
-                    if (target) {
-                      target.title = event.target.value;
-                    }
-                  })}
-                />
-                <div>
-                  <button type="button" className="secondary" onClick={() => toggleFavorite(page.id)}>{page.favorite ? 'Retirer favori' : 'Favori'}</button>
-                  {page.deletedAt ? (
-                    <button type="button" className="secondary" onClick={() => restorePage(page.id)}>Restaurer</button>
-                  ) : (
-                    <button type="button" className="danger" onClick={() => trashPage(page.id)}><Trash2 size={16} /> Corbeille</button>
-                  )}
+        <main className="flowcean-main">
+          <header className="flowcean-topbar">
+            <div className="flowcean-breadcrumbs">
+              {breadcrumbs.map((crumb, index) => (
+                <button key={crumb.id} type="button" onClick={() => openPage(crumb.id)}>
+                  {index > 0 && <ChevronRight size={13} />}
+                  {crumb.title}
+                </button>
+              ))}
+            </div>
+            <div className="flowcean-topbar-actions">
+              <select value={workspace?.slug ?? ''} onChange={(event) => openWorkspace(event.target.value)}>
+                {workspaces.map((item) => <option key={item.id} value={item.slug}>{item.name}</option>)}
+              </select>
+              <form className="flowcean-new-workspace" onSubmit={createWorkspace}>
+                <input value={newWorkspaceName} onChange={(event) => setNewWorkspaceName(event.target.value)} placeholder="Nouvel espace" />
+                <button type="submit" className="secondary"><Plus size={15} /> Creer</button>
+              </form>
+              <button type="button" className="secondary" onClick={toggleTheme}>
+                {state?.workspace.theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                Theme
+              </button>
+            </div>
+          </header>
+
+          {error && <div className="alert">{error}</div>}
+
+          <section className="flowcean-status-bar">
+            <span className="pill">{page?.kind === 'database' ? 'Tableau' : 'Page'}</span>
+            <span>{page ? `Mis a jour ${formatFlowceanDate(page.updatedAt)}` : 'Aucune page active'}</span>
+            <span className="flowcean-presence"><UserRound size={14} /> Vous seul en direct</span>
+          </section>
+
+          <section className="flowcean-page-surface">
+            {!page && <EmptyState icon={BriefcaseBusiness} title="Aucune page" />}
+            {page && (
+              <>
+                <div className="flowcean-page-hero">
+                  <button className="flowcean-hero-icon" type="button" onClick={() => updatePageIcon(page.id)}>{page.icon}</button>
+                  <div>
+                    <p>Workspace OceanERP</p>
+                    <input
+                      value={page.title}
+                      onChange={(event) => updateFlowcean((draft) => {
+                        const target = draft.pages.find((item) => item.id === page.id);
+                        if (target) {
+                          target.title = event.target.value;
+                        }
+                      })}
+                      placeholder="Titre de la page"
+                    />
+                  </div>
+                  <div className="flowcean-page-actions">
+                    <button type="button" className="secondary" onClick={() => toggleFavorite(page.id)}><Star size={15} /> {page.favorite ? 'Favori' : 'Favori'}</button>
+                    <button type="button" className="secondary" onClick={() => duplicatePage(page.id)}><Copy size={15} /> Dupliquer</button>
+                    {page.deletedAt ? (
+                      <button type="button" className="secondary" onClick={() => restorePage(page.id)}>Restaurer</button>
+                    ) : (
+                      <button type="button" className="danger" onClick={() => trashPage(page.id)}><Trash2 size={15} /> Corbeille</button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {page.kind === 'database' && page.database ? (
-                <FlowceanDatabaseEditor page={page} updateFlowcean={updateFlowcean} />
-              ) : (
-                <FlowceanDocumentEditor page={page} updateFlowcean={updateFlowcean} />
-              )}
-            </>
-          )}
+
+                {page.kind === 'database' && page.database ? (
+                  <FlowceanDatabaseEditor page={page} updateFlowcean={updateFlowcean} />
+                ) : (
+                  <FlowceanDocumentEditor page={page} updateFlowcean={updateFlowcean} />
+                )}
+              </>
+            )}
+          </section>
         </main>
 
         <aside className="flowcean-inspector">
-          <strong>Inspecteur</strong>
-          <div className="flowcean-fact"><span>Pages</span><strong>{pages.filter((item) => !item.deletedAt).length}</strong></div>
-          <div className="flowcean-fact"><span>Corbeille</span><strong>{pages.filter((item) => item.deletedAt).length}</strong></div>
-          <div className="flowcean-fact"><span>Version</span><strong>{workspace?.version ?? '-'}</strong></div>
-          <div className="flowcean-fact"><span>Page active</span><strong>{page?.kind === 'database' ? 'Base' : 'Document'}</strong></div>
+          <div className="flowcean-inspector-tabs">
+            <button type="button" className={inspectorTab === 'details' ? 'active' : ''} onClick={() => setInspectorTab('details')}>Details</button>
+            <button type="button" className={inspectorTab === 'activity' ? 'active' : ''} onClick={() => setInspectorTab('activity')}>Activite</button>
+          </div>
+          {inspectorTab === 'details' ? (
+            <>
+              <strong>Inspecteur</strong>
+              <div className="flowcean-fact"><span>Pages</span><strong>{pages.filter((item) => !item.deletedAt).length}</strong></div>
+              <div className="flowcean-fact"><span>Corbeille</span><strong>{pages.filter((item) => item.deletedAt).length}</strong></div>
+              <div className="flowcean-fact"><span>Version</span><strong>{workspace?.version ?? '-'}</strong></div>
+              <div className="flowcean-fact"><span>Page active</span><strong>{page?.kind === 'database' ? 'Tableau' : 'Document'}</strong></div>
+              <div className="flowcean-fact"><span>Blocs</span><strong>{page?.blocks.length ?? 0}</strong></div>
+              <form className="flowcean-share-form" onSubmit={inviteCollaborator}>
+                <strong>Partage</strong>
+                <input type="email" value={shareEmail} onChange={(event) => setShareEmail(event.target.value)} placeholder="email@entreprise.fr" />
+                <select value={shareRole} onChange={(event) => setShareRole(event.target.value as 'lecture' | 'edition')}>
+                  <option value="lecture">Lecture</option>
+                  <option value="edition">Edition</option>
+                </select>
+                <button type="submit" className="secondary"><Plus size={15} /> Inviter</button>
+              </form>
+              <div className="flowcean-share-list">
+                {shares.map((share) => (
+                  <article key={share.id}>
+                    <span>{share.email}</span>
+                    <small>{share.role}</small>
+                    <button type="button" className="icon-only danger" onClick={() => removeCollaborator(share.id)}><Trash2 size={14} /></button>
+                  </article>
+                ))}
+                {shares.length === 0 && <small className="muted">Aucun collaborateur invite.</small>}
+              </div>
+            </>
+          ) : (
+            <div className="flowcean-activity">
+              <strong>Activite locale</strong>
+              <span>{status}</span>
+              <span>{workspace?.updatedAt ? `Derniere sauvegarde ${formatOrderDate(workspace.updatedAt)}` : 'Pas encore sauvegarde'}</span>
+            </div>
+          )}
         </aside>
       </div>
+      <input ref={importInputRef} type="file" accept="application/json" hidden onChange={importWorkspace} />
+      {showTemplates && (
+        <div className="modal-backdrop-ui" onClick={() => setShowTemplates(false)}>
+          <section className="modal-card flowcean-template-modal" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <p className="eyebrow">Modeles</p>
+                <h2>Demarrer depuis un modele</h2>
+              </div>
+              <button className="icon-only secondary" type="button" onClick={() => setShowTemplates(false)}><X size={18} /></button>
+            </header>
+            <div className="flowcean-template-grid">
+              {templates.map((template) => (
+                <button key={template.key} type="button" onClick={() => createFromTemplate(template)}>
+                  <span>{template.badge}</span>
+                  <strong>{template.title}</strong>
+                  <small>{template.description}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+      {showGlobalSearch && (
+        <div className="modal-backdrop-ui" onClick={() => setShowGlobalSearch(false)}>
+          <section className="modal-card flowcean-search-modal" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <p className="eyebrow">Recherche globale</p>
+                <h2>Trouver une page ou un contenu</h2>
+              </div>
+              <button className="icon-only secondary" type="button" onClick={() => setShowGlobalSearch(false)}><X size={18} /></button>
+            </header>
+            <div className="search">
+              <Search size={16} />
+              <input autoFocus value={globalQuery} onChange={(event) => setGlobalQuery(event.target.value)} placeholder="Page, bloc, tableau..." />
+            </div>
+            <div className="flowcean-search-results">
+              {searchHits.map((hit) => (
+                <button key={hit.page.id} type="button" onClick={() => openPage(hit.page.id)}>
+                  <span className="flowcean-page-icon">{hit.page.icon}</span>
+                  <div>
+                    <strong>{hit.page.title}</strong>
+                    <small>{hit.excerpt || (hit.page.kind === 'database' ? 'Tableau' : 'Page')}</small>
+                  </div>
+                </button>
+              ))}
+              {searchHits.length === 0 && <EmptyState icon={Search} title="Aucun resultat" />}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -9675,7 +9961,118 @@ function FlowceanPageSection({ title, pages, activeId, onOpen }: { title: string
   );
 }
 
+function FlowceanMiniSection({ title, pages, activeId, onOpen }: { title: string; pages: FlowceanPage[]; activeId: string | null; onOpen: (id: string) => void }) {
+  if (pages.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="flowcean-nav-section">
+      <div className="flowcean-section-title"><span>{title}</span></div>
+      <div className="flowcean-page-list compact">
+        {pages.map((page) => (
+          <button key={page.id} type="button" className={activeId === page.id ? 'active' : ''} onClick={() => onOpen(page.id)}>
+            <span className="flowcean-page-icon">{page.icon}</span>
+            <span>{page.title}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FlowceanTreeSection({
+  title,
+  pages,
+  allPages,
+  activeId,
+  onOpen,
+  onCreateChild,
+  onToggleExpanded
+}: {
+  title: string;
+  pages: FlowceanPage[];
+  allPages: FlowceanPage[];
+  activeId: string | null;
+  onOpen: (id: string) => void;
+  onCreateChild: (id: string) => void;
+  onToggleExpanded: (id: string) => void;
+}) {
+  const roots = pages.filter((page) => !page.parentId || !allPages.some((candidate) => candidate.id === page.parentId));
+
+  return (
+    <section className="flowcean-nav-section">
+      <div className="flowcean-section-title"><span>{title}</span></div>
+      <div className="flowcean-page-list flowcean-tree">
+        {roots.map((page) => (
+          <FlowceanTreeNode
+            key={page.id}
+            page={page}
+            pages={pages}
+            depth={0}
+            activeId={activeId}
+            onOpen={onOpen}
+            onCreateChild={onCreateChild}
+            onToggleExpanded={onToggleExpanded}
+          />
+        ))}
+        {roots.length === 0 && <span className="muted">Aucune page</span>}
+      </div>
+    </section>
+  );
+}
+
+function FlowceanTreeNode({
+  page,
+  pages,
+  depth,
+  activeId,
+  onOpen,
+  onCreateChild,
+  onToggleExpanded
+}: {
+  page: FlowceanPage;
+  pages: FlowceanPage[];
+  depth: number;
+  activeId: string | null;
+  onOpen: (id: string) => void;
+  onCreateChild: (id: string) => void;
+  onToggleExpanded: (id: string) => void;
+}) {
+  const children = pages.filter((item) => item.parentId === page.id);
+  return (
+    <>
+      <div className="flowcean-tree-row" style={{ paddingLeft: depth * 14 }}>
+        <button className="flowcean-tree-toggle" type="button" onClick={() => onToggleExpanded(page.id)} disabled={children.length === 0}>
+          {children.length > 0 ? (page.expanded ? <ChevronRight className="expanded" size={13} /> : <ChevronRight size={13} />) : <span />}
+        </button>
+        <button type="button" className={activeId === page.id ? 'active' : ''} onClick={() => onOpen(page.id)}>
+          <span className="flowcean-page-icon">{page.icon}</span>
+          <span>{page.title}</span>
+        </button>
+        <button className="flowcean-tree-add" type="button" title="Ajouter une sous-page" onClick={() => onCreateChild(page.id)}>
+          <Plus size={13} />
+        </button>
+      </div>
+      {page.expanded && children.map((child) => (
+        <FlowceanTreeNode
+          key={child.id}
+          page={child}
+          pages={pages}
+          depth={depth + 1}
+          activeId={activeId}
+          onOpen={onOpen}
+          onCreateChild={onCreateChild}
+          onToggleExpanded={onToggleExpanded}
+        />
+      ))}
+    </>
+  );
+}
+
 function FlowceanDocumentEditor({ page, updateFlowcean }: { page: FlowceanPage; updateFlowcean: (mutator: (draft: FlowceanState) => void) => void }) {
+  const blockDefinitions = flowceanBlockDefinitions();
+
   function updateBlock(blockId: string, patch: Partial<FlowceanBlock>) {
     updateFlowcean((draft) => {
       const targetPage = draft.pages.find((item) => item.id === page.id);
@@ -9689,7 +10086,19 @@ function FlowceanDocumentEditor({ page, updateFlowcean }: { page: FlowceanPage; 
   function addBlock(type: FlowceanBlockType) {
     updateFlowcean((draft) => {
       const targetPage = draft.pages.find((item) => item.id === page.id);
-      targetPage?.blocks.push({ id: createFlowceanId('block'), type, text: '', checked: type === 'todo' ? false : null });
+      targetPage?.blocks.push(createFlowceanBlock(type));
+    });
+  }
+
+  function insertBlockAfter(blockId: string, type: FlowceanBlockType = 'paragraph') {
+    updateFlowcean((draft) => {
+      const targetPage = draft.pages.find((item) => item.id === page.id);
+      if (!targetPage) {
+        return;
+      }
+
+      const index = targetPage.blocks.findIndex((block) => block.id === blockId);
+      targetPage.blocks.splice(index >= 0 ? index + 1 : targetPage.blocks.length, 0, createFlowceanBlock(type));
     });
   }
 
@@ -9702,29 +10111,100 @@ function FlowceanDocumentEditor({ page, updateFlowcean }: { page: FlowceanPage; 
     });
   }
 
+  function moveBlock(blockId: string, direction: -1 | 1) {
+    updateFlowcean((draft) => {
+      const targetPage = draft.pages.find((item) => item.id === page.id);
+      if (!targetPage) {
+        return;
+      }
+
+      const index = targetPage.blocks.findIndex((block) => block.id === blockId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= targetPage.blocks.length) {
+        return;
+      }
+
+      const [block] = targetPage.blocks.splice(index, 1);
+      targetPage.blocks.splice(nextIndex, 0, block);
+    });
+  }
+
+  function duplicateBlock(blockId: string) {
+    updateFlowcean((draft) => {
+      const targetPage = draft.pages.find((item) => item.id === page.id);
+      if (!targetPage) {
+        return;
+      }
+
+      const index = targetPage.blocks.findIndex((block) => block.id === blockId);
+      const block = targetPage.blocks[index];
+      if (!block) {
+        return;
+      }
+
+      targetPage.blocks.splice(index + 1, 0, { ...block, id: createFlowceanId('block') });
+    });
+  }
+
+  function applySlashCommand(blockId: string, type: FlowceanBlockType) {
+    updateBlock(blockId, { type, text: '', checked: type === 'todo' ? false : null });
+  }
+
   return (
     <div className="flowcean-document">
       <div className="flowcean-block-toolbar">
-        {(['paragraph', 'h1', 'h2', 'todo', 'bullet', 'callout', 'code'] as FlowceanBlockType[]).map((type) => (
-          <button key={type} type="button" onClick={() => addBlock(type)}><Plus size={14} /> {flowceanBlockLabel(type)}</button>
+        {blockDefinitions.map(({ type, label, icon: Icon }) => (
+          <button key={type} type="button" onClick={() => addBlock(type)}>
+            <Icon size={14} />
+            {label}
+          </button>
         ))}
       </div>
-      {page.blocks.map((block) => (
-        <div key={block.id} className={`flowcean-block ${block.type}`}>
-          <select value={block.type} onChange={(event) => updateBlock(block.id, { type: event.target.value as FlowceanBlockType })}>
-            <option value="paragraph">Texte</option>
-            <option value="h1">Titre 1</option>
-            <option value="h2">Titre 2</option>
-            <option value="todo">Todo</option>
-            <option value="bullet">Liste</option>
-            <option value="callout">Encart</option>
-            <option value="code">Code</option>
-          </select>
-          {block.type === 'todo' && <input type="checkbox" checked={Boolean(block.checked)} onChange={(event) => updateBlock(block.id, { checked: event.target.checked })} />}
-          <textarea value={block.text} onChange={(event) => updateBlock(block.id, { text: event.target.value })} placeholder="Ecrire..." />
-          <button type="button" className="icon-only danger" onClick={() => removeBlock(block.id)}><Trash2 size={16} /></button>
-        </div>
-      ))}
+      {page.blocks.map((block, index) => {
+        const definition = blockDefinitions.find((item) => item.type === block.type) ?? blockDefinitions[0];
+        const Icon = definition.icon;
+        const slashOpen = block.text.trim().startsWith('/');
+        return (
+          <div key={block.id} className={`flowcean-block ${block.type}`}>
+            <div className="flowcean-block-handle">
+              <Icon size={15} />
+              <button type="button" onClick={() => moveBlock(block.id, -1)} disabled={index === 0}><ChevronLeft size={14} /></button>
+              <button type="button" onClick={() => moveBlock(block.id, 1)} disabled={index === page.blocks.length - 1}><ChevronRight size={14} /></button>
+            </div>
+            <select value={block.type} onChange={(event) => updateBlock(block.id, { type: event.target.value as FlowceanBlockType, checked: event.target.value === 'todo' ? Boolean(block.checked) : null })}>
+              {blockDefinitions.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
+            </select>
+            {block.type === 'todo' && <input className="flowcean-check" type="checkbox" checked={Boolean(block.checked)} onChange={(event) => updateBlock(block.id, { checked: event.target.checked })} />}
+            {block.type === 'divider' ? (
+              <button type="button" className="flowcean-divider-block" onClick={() => insertBlockAfter(block.id)}>Ajouter un bloc dessous</button>
+            ) : (
+              <div className="flowcean-block-content">
+                <textarea
+                  value={block.text}
+                  onChange={(event) => updateBlock(block.id, { text: event.target.value })}
+                  placeholder={block.type === 'code' ? 'Coller du code...' : 'Ecrire, ou taper / pour une commande...'}
+                />
+                {slashOpen && (
+                  <div className="flowcean-slash-menu">
+                    {blockDefinitions.map(({ type, label, description, icon: SlashIcon }) => (
+                      <button key={type} type="button" onClick={() => applySlashCommand(block.id, type)}>
+                        <SlashIcon size={15} />
+                        <span>{label}</span>
+                        <small>{description}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flowcean-block-actions">
+              <button type="button" className="icon-only secondary" onClick={() => insertBlockAfter(block.id)} title="Ajouter dessous"><Plus size={15} /></button>
+              <button type="button" className="icon-only secondary" onClick={() => duplicateBlock(block.id)} title="Dupliquer"><Copy size={15} /></button>
+              <button type="button" className="icon-only danger" onClick={() => removeBlock(block.id)} title="Supprimer"><Trash2 size={15} /></button>
+            </div>
+          </div>
+        );
+      })}
       {page.blocks.length === 0 && <EmptyState icon={FileText} title="Page vide" />}
     </div>
   );
@@ -9736,6 +10216,9 @@ function FlowceanDatabaseEditor({ page, updateFlowcean }: { page: FlowceanPage; 
   const statusProperty = database.properties.find((property) => property.type === 'select') ?? database.properties[1];
   const dateProperty = database.properties.find((property) => property.type === 'date');
   const effortProperty = database.properties.find((property) => property.type === 'number');
+  const [newPropertyName, setNewPropertyName] = useState('');
+  const [newPropertyType, setNewPropertyType] = useState<FlowceanPropertyType>('text');
+  const viewIcons: Record<FlowceanDatabaseView, typeof Box> = { table: Table2, board: KanbanSquare, calendar: CalendarDays, gantt: Clock };
 
   function mutateDatabase(mutator: (database: FlowceanDatabase) => void) {
     updateFlowcean((draft) => {
@@ -9762,7 +10245,7 @@ function FlowceanDatabaseEditor({ page, updateFlowcean }: { page: FlowceanPage; 
 
   function addRow() {
     mutateDatabase((draft) => {
-      const cells = Object.fromEntries(draft.properties.map((property) => [property.id, property.type === 'number' ? 0 : property.type === 'checkbox' ? false : '']));
+      const cells = Object.fromEntries(draft.properties.map((property) => [property.id, flowceanDefaultCellValue(property.type)]));
       draft.rows.unshift({ id: createFlowceanId('row'), cells });
     });
   }
@@ -9773,15 +10256,91 @@ function FlowceanDatabaseEditor({ page, updateFlowcean }: { page: FlowceanPage; 
     });
   }
 
+  function addProperty(event: FormEvent) {
+    event.preventDefault();
+    const name = newPropertyName.trim();
+    if (!name) {
+      return;
+    }
+
+    mutateDatabase((draft) => {
+      const property: FlowceanProperty = {
+        id: createFlowceanId('prop'),
+        name,
+        type: newPropertyType,
+        options: newPropertyType === 'select' ? ['A faire', 'En cours', 'Termine'] : []
+      };
+      draft.properties.push(property);
+      draft.rows.forEach((row) => {
+        row.cells[property.id] = flowceanDefaultCellValue(property.type);
+      });
+    });
+    setNewPropertyName('');
+    setNewPropertyType('text');
+  }
+
+  function updateProperty(propertyId: string, patch: Partial<FlowceanProperty>) {
+    mutateDatabase((draft) => {
+      const property = draft.properties.find((item) => item.id === propertyId);
+      if (property) {
+        Object.assign(property, patch);
+      }
+    });
+  }
+
+  function removeProperty(propertyId: string) {
+    mutateDatabase((draft) => {
+      if (draft.properties.length <= 1) {
+        return;
+      }
+
+      draft.properties = draft.properties.filter((property) => property.id !== propertyId);
+      draft.rows.forEach((row) => {
+        delete row.cells[propertyId];
+      });
+    });
+  }
+
   return (
     <div className="flowcean-database">
       <div className="flowcean-view-tabs">
         {(['table', 'board', 'calendar', 'gantt'] as FlowceanDatabaseView[]).map((view) => (
           <button key={view} type="button" className={database.activeView === view ? 'active' : ''} onClick={() => mutateDatabase((draft) => { draft.activeView = view; })}>
+            {(() => {
+              const Icon = viewIcons[view];
+              return <Icon size={15} />;
+            })()}
             {flowceanViewLabel(view)}
           </button>
         ))}
         <button type="button" className="secondary" onClick={addRow}><Plus size={16} /> Ligne</button>
+      </div>
+      <div className="flowcean-properties">
+        <div className="flowcean-property-list">
+          {database.properties.map((property) => (
+            <article key={property.id}>
+              <input value={property.name} onChange={(event) => updateProperty(property.id, { name: event.target.value })} />
+              <select value={property.type} onChange={(event) => updateProperty(property.id, { type: event.target.value as FlowceanPropertyType, options: event.target.value === 'select' && property.options.length === 0 ? ['A faire', 'En cours', 'Termine'] : property.options })}>
+                {(['text', 'select', 'date', 'checkbox', 'number', 'email', 'url'] as FlowceanPropertyType[]).map((type) => (
+                  <option key={type} value={type}>{flowceanPropertyLabel(type)}</option>
+                ))}
+              </select>
+              {property.type === 'select' && (
+                <input value={property.options.join(', ')} onChange={(event) => updateProperty(property.id, { options: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="Options separees par virgules" />
+              )}
+              <button type="button" className="icon-only danger" onClick={() => removeProperty(property.id)} disabled={database.properties.length <= 1}><Trash2 size={15} /></button>
+            </article>
+          ))}
+        </div>
+        <form className="flowcean-add-property" onSubmit={addProperty}>
+          <input value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} placeholder="Nouvelle propriete" />
+          <select value={newPropertyType} onChange={(event) => setNewPropertyType(event.target.value as FlowceanPropertyType)}>
+            {(['text', 'select', 'date', 'checkbox', 'number', 'email', 'url'] as FlowceanPropertyType[]).map((type) => (
+              <option key={type} value={type}>{flowceanPropertyLabel(type)}</option>
+            ))}
+          </select>
+          <button type="submit" className="secondary"><Plus size={15} /> Ajouter</button>
+        </form>
       </div>
       {database.activeView === 'table' && (
         <div className="flowcean-db-table">
@@ -9810,7 +10369,7 @@ function FlowceanDatabaseEditor({ page, updateFlowcean }: { page: FlowceanPage; 
           {(statusProperty?.options?.length ? statusProperty.options : ['A faire', 'En cours', 'Termine']).map((status) => (
             <section key={status}>
               <h3>{status}</h3>
-              {database.rows.filter((row) => String(row.cells[statusProperty.id] ?? '') === status).map((row) => (
+              {database.rows.filter((row) => statusProperty ? String(row.cells[statusProperty.id] ?? '') === status : true).map((row) => (
                 <article key={row.id}>
                   <strong>{String(row.cells[titleProperty.id] ?? 'Sans titre')}</strong>
                   {dateProperty && <span>{String(row.cells[dateProperty.id] ?? '')}</span>}
@@ -9862,7 +10421,13 @@ function renderFlowceanCell(row: FlowceanRow, property: FlowceanProperty, onChan
     return <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(String(event.target.checked))} />;
   }
 
-  return <input type={property.type === 'date' ? 'date' : property.type === 'number' ? 'number' : 'text'} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} />;
+  return (
+    <input
+      type={property.type === 'date' ? 'date' : property.type === 'number' ? 'number' : property.type === 'email' ? 'email' : property.type === 'url' ? 'url' : 'text'}
+      value={String(value ?? '')}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
 }
 
 function parseFlowceanState(workspace: FlowceanWorkspace): FlowceanState {
@@ -9924,13 +10489,275 @@ function createDefaultFlowceanDatabase(): FlowceanDatabase {
   };
 }
 
+function flowceanTemplateDefinitions(): FlowceanTemplateDefinition[] {
+  return [
+    {
+      key: 'project',
+      title: 'Pilotage projet',
+      badge: 'PRJ',
+      description: 'Objectifs, decisions, todo et planning de suivi.',
+      create: () => ({
+        ...createEmptyFlowceanPage('document', null),
+        title: 'Pilotage projet',
+        icon: 'PRJ',
+        favorite: true,
+        blocks: [
+          createFlowceanBlock('h1', 'Pilotage projet'),
+          createFlowceanBlock('callout', 'Objectif : decrire le resultat attendu, le responsable et la date cible.'),
+          createFlowceanBlock('h2', 'Decisions'),
+          createFlowceanBlock('bullet', 'Decision importante a suivre'),
+          createFlowceanBlock('h2', 'Actions'),
+          createFlowceanBlock('todo', 'Action a attribuer'),
+          createFlowceanBlock('todo', 'Point de controle')
+        ]
+      })
+    },
+    {
+      key: 'meeting',
+      title: 'Compte rendu',
+      badge: 'CR',
+      description: 'Reunion, participants, decisions et prochaines etapes.',
+      create: () => ({
+        ...createEmptyFlowceanPage('document', null),
+        title: 'Compte rendu',
+        icon: 'CR',
+        blocks: [
+          createFlowceanBlock('h1', 'Compte rendu'),
+          createFlowceanBlock('paragraph', 'Date, participants et contexte.'),
+          createFlowceanBlock('h2', 'Points abordes'),
+          createFlowceanBlock('bullet', ''),
+          createFlowceanBlock('h2', 'A faire'),
+          createFlowceanBlock('todo', '')
+        ]
+      })
+    },
+    {
+      key: 'crm',
+      title: 'Suivi commercial',
+      badge: 'CRM',
+      description: 'Tableau des opportunites avec vues table, cartes, calendrier et Gantt.',
+      create: () => ({
+        ...createEmptyFlowceanPage('database', null),
+        title: 'Suivi commercial',
+        icon: 'CRM',
+        database: {
+          activeView: 'board',
+          properties: [
+            { id: 'prop-name', name: 'Opportunite', type: 'text', options: [] },
+            { id: 'prop-status', name: 'Statut', type: 'select', options: ['A qualifier', 'Devis', 'Gagne', 'Perdu'] },
+            { id: 'prop-owner', name: 'Responsable', type: 'text', options: [] },
+            { id: 'prop-date', name: 'Relance', type: 'date', options: [] },
+            { id: 'prop-amount', name: 'Montant', type: 'number', options: [] }
+          ],
+          rows: [
+            { id: createFlowceanId('row'), cells: { 'prop-name': 'Nouveau prospect', 'prop-status': 'A qualifier', 'prop-owner': '', 'prop-date': '', 'prop-amount': 0 } },
+            { id: createFlowceanId('row'), cells: { 'prop-name': 'Devis a relancer', 'prop-status': 'Devis', 'prop-owner': '', 'prop-date': '', 'prop-amount': 0 } }
+          ]
+        }
+      })
+    },
+    {
+      key: 'operations',
+      title: 'Plan operationnel',
+      badge: 'OPS',
+      description: 'Base de donnees pour taches, priorites, dates et charge.',
+      create: () => ({
+        ...createEmptyFlowceanPage('database', null),
+        title: 'Plan operationnel',
+        icon: 'OPS',
+        database: createDefaultFlowceanDatabase()
+      })
+    }
+  ];
+}
+
+function createEmptyFlowceanPage(kind: FlowceanPageKind, parentId: string | null): FlowceanPage {
+  const now = Date.now();
+  return {
+    id: createFlowceanId('page'),
+    parentId,
+    title: kind === 'database' ? 'Nouveau tableau' : 'Nouvelle page',
+    icon: kind === 'database' ? 'DB' : 'DOC',
+    favorite: false,
+    expanded: true,
+    kind,
+    updatedAt: now,
+    deletedAt: null,
+    blocks: kind === 'database' ? [] : [createFlowceanBlock('paragraph', '')],
+    database: kind === 'database' ? createDefaultFlowceanDatabase() : null
+  };
+}
+
+function createFlowceanBlock(type: FlowceanBlockType, text = ''): FlowceanBlock {
+  return { id: createFlowceanId('block'), type, text, checked: type === 'todo' ? false : null };
+}
+
+function cloneFlowceanPage(page: FlowceanPage): FlowceanPage {
+  const cloned = cloneFlowceanState({ workspace: { name: '', theme: 'light' }, pages: [page], ui: { activePageId: page.id }, meta: {} }).pages[0];
+  return rekeyFlowceanPage(cloned);
+}
+
+function rekeyFlowceanPage(page: FlowceanPage): FlowceanPage {
+  const oldId = page.id;
+  const nextId = createFlowceanId('page');
+  page.id = nextId;
+  page.parentId = page.parentId === oldId ? null : page.parentId;
+  page.blocks = page.blocks.map((block) => ({ ...block, id: createFlowceanId('block') }));
+  if (page.database) {
+    const propertyMap = new Map<string, string>();
+    page.database.properties = page.database.properties.map((property) => {
+      const nextPropertyId = createFlowceanId('prop');
+      propertyMap.set(property.id, nextPropertyId);
+      return { ...property, id: nextPropertyId };
+    });
+    page.database.rows = page.database.rows.map((row) => {
+      const cells = Object.fromEntries(Object.entries(row.cells).map(([propertyId, value]) => [propertyMap.get(propertyId) ?? propertyId, value]));
+      return { ...row, id: createFlowceanId('row'), cells };
+    });
+  }
+  return page;
+}
+
+function normalizeImportedFlowceanState(text: string, workspaceName: string, workspaceSlug: string): FlowceanState {
+  const parsed = JSON.parse(text) as Partial<FlowceanState>;
+  if (!Array.isArray(parsed.pages)) {
+    throw new Error('Le fichier importe ne contient pas de pages Flowcean.');
+  }
+
+  const pages = parsed.pages.map((page) => ({
+    id: page.id || createFlowceanId('page'),
+    parentId: page.parentId ?? null,
+    title: page.title || 'Sans titre',
+    icon: page.icon || (page.kind === 'database' ? 'DB' : 'DOC'),
+    favorite: Boolean(page.favorite),
+    expanded: page.expanded ?? true,
+    kind: page.kind === 'database' ? 'database' : 'document',
+    updatedAt: Number(page.updatedAt || Date.now()),
+    deletedAt: page.deletedAt ?? null,
+    blocks: Array.isArray(page.blocks) ? page.blocks.map((block) => ({ id: block.id || createFlowceanId('block'), type: flowceanValidBlockType(block.type), text: block.text ?? '', checked: block.checked ?? null })) : [],
+    database: page.database ?? null
+  } satisfies FlowceanPage));
+
+  return {
+    workspace: { name: parsed.workspace?.name || workspaceName, theme: parsed.workspace?.theme === 'dark' ? 'dark' : 'light' },
+    pages,
+    ui: { activePageId: pages.some((page) => page.id === parsed.ui?.activePageId) ? parsed.ui?.activePageId ?? pages[0]?.id ?? null : pages[0]?.id ?? null },
+    meta: { ...(parsed.meta ?? {}), workspaceSlug, importedAt: new Date().toISOString() }
+  };
+}
+
+function flowceanValidBlockType(value: unknown): FlowceanBlockType {
+  const types: FlowceanBlockType[] = ['paragraph', 'h1', 'h2', 'h3', 'todo', 'bullet', 'numbered', 'quote', 'callout', 'code', 'divider'];
+  return types.includes(value as FlowceanBlockType) ? value as FlowceanBlockType : 'paragraph';
+}
+
+function flowceanCacheKey(slug: string) {
+  return `${FLOWCEAN_CACHE_PREFIX}.${slug}`;
+}
+
+function readFlowceanCache(slug: string) {
+  try {
+    return localStorage.getItem(flowceanCacheKey(slug));
+  } catch {
+    return null;
+  }
+}
+
+function writeFlowceanCache(slug: string, dataJson: string) {
+  try {
+    localStorage.setItem(flowceanCacheKey(slug), dataJson);
+  } catch {
+    // Le cache local est un confort, jamais un pre-requis.
+  }
+}
+
+function flowceanShares(state: FlowceanState): FlowceanShare[] {
+  const value = state.meta.flowceanShares;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => item as Partial<FlowceanShare>)
+    .filter((item): item is FlowceanShare => Boolean(item.id && item.email && (item.role === 'lecture' || item.role === 'edition')));
+}
+
+function flowceanBreadcrumbs(pages: FlowceanPage[], page: FlowceanPage) {
+  const byId = new Map(pages.map((item) => [item.id, item]));
+  const chain: FlowceanPage[] = [];
+  let cursor: FlowceanPage | undefined = page;
+  while (cursor) {
+    chain.unshift(cursor);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+  }
+  return chain;
+}
+
+function flowceanSearchHits(pages: FlowceanPage[], query: string): FlowceanSearchHit[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return pages.filter((page) => !page.deletedAt).slice(0, 12).map((page) => ({ page, excerpt: page.kind === 'database' ? 'Tableau' : page.blocks[0]?.text ?? 'Page' }));
+  }
+
+  return pages
+    .filter((page) => !page.deletedAt)
+    .map((page) => {
+      const blockExcerpt = page.blocks.find((block) => block.text.toLowerCase().includes(normalizedQuery))?.text;
+      const rowExcerpt = page.database?.rows
+        .flatMap((row) => Object.values(row.cells).map((value) => String(value ?? '')))
+        .find((value) => value.toLowerCase().includes(normalizedQuery));
+      const haystack = [page.title, blockExcerpt, rowExcerpt].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(normalizedQuery) ? { page, excerpt: blockExcerpt ?? rowExcerpt ?? page.title } : null;
+    })
+    .filter((hit): hit is FlowceanSearchHit => Boolean(hit))
+    .slice(0, 20);
+}
+
+function formatFlowceanDate(timestamp: number) {
+  if (!timestamp) {
+    return '-';
+  }
+
+  return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp));
+}
+
+function flowceanDefaultCellValue(type: FlowceanPropertyType): FlowceanCellValue {
+  if (type === 'number') {
+    return 0;
+  }
+  if (type === 'checkbox') {
+    return false;
+  }
+  return '';
+}
+
+function flowceanPropertyLabel(type: FlowceanPropertyType) {
+  return ({ text: 'Texte', select: 'Select', date: 'Date', checkbox: 'Case', number: 'Nombre', email: 'Email', url: 'URL' } satisfies Record<FlowceanPropertyType, string>)[type];
+}
+
+function flowceanBlockDefinitions(): Array<{ type: FlowceanBlockType; label: string; description: string; icon: typeof Box }> {
+  return [
+    { type: 'paragraph', label: 'Texte', description: 'Un bloc de texte simple', icon: FileText },
+    { type: 'h1', label: 'Titre 1', description: 'Grand titre de section', icon: BookOpen },
+    { type: 'h2', label: 'Titre 2', description: 'Sous-section', icon: BookOpen },
+    { type: 'h3', label: 'Titre 3', description: 'Petit titre', icon: BookOpen },
+    { type: 'todo', label: 'Todo', description: 'Case a cocher', icon: CheckSquare },
+    { type: 'bullet', label: 'Liste', description: 'Liste a puces', icon: ListTodo },
+    { type: 'numbered', label: 'Numerotee', description: 'Liste numerotee', icon: ListTodo },
+    { type: 'quote', label: 'Citation', description: 'Citation mise en avant', icon: QuoteIcon },
+    { type: 'callout', label: 'Encart', description: 'Bloc important', icon: FolderTree },
+    { type: 'code', label: 'Code', description: 'Bloc technique', icon: Code2 },
+    { type: 'divider', label: 'Separateur', description: 'Ligne de separation', icon: Minus }
+  ];
+}
+
 function createFlowceanId(prefix: string) {
   const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
   return `${prefix}-${random}`;
 }
 
 function flowceanBlockLabel(type: FlowceanBlockType) {
-  return ({ paragraph: 'Texte', h1: 'Titre 1', h2: 'Titre 2', todo: 'Todo', bullet: 'Liste', callout: 'Encart', code: 'Code' } satisfies Record<FlowceanBlockType, string>)[type];
+  return ({ paragraph: 'Texte', h1: 'Titre 1', h2: 'Titre 2', h3: 'Titre 3', todo: 'Todo', bullet: 'Liste', numbered: 'Numerotee', quote: 'Citation', callout: 'Encart', code: 'Code', divider: 'Separateur' } satisfies Record<FlowceanBlockType, string>)[type];
 }
 
 function flowceanViewLabel(view: FlowceanDatabaseView) {
