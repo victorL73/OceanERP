@@ -5261,6 +5261,10 @@ button.drive-main {
   background: #f8fafc;
 }
 
+.meet-media-warning {
+  margin: 12px 18px 0;
+}
+
 .meet-toolbar button,
 .meet-toolbar select {
   min-height: 38px;

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, ipcMain, session, desktopCapturer } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const log = require('electron-log');
@@ -11,6 +11,40 @@ const defaultSettings = {
 let mainWindow;
 let tray;
 let updateCheckInProgress = false;
+
+function configuredServerOrigins() {
+  const origins = new Set([
+    'http://localhost:8080',
+    'http://127.0.0.1:8080'
+  ]);
+
+  let savedServerUrl = '';
+  try {
+    const filePath = path.join(app.getPath('userData'), 'settings.json');
+    if (fs.existsSync(filePath)) {
+      savedServerUrl = JSON.parse(fs.readFileSync(filePath, 'utf8'))?.serverUrl || '';
+    }
+  } catch {
+    savedServerUrl = '';
+  }
+
+  for (const candidate of [process.env.OCEANERP_WEB_URL, defaultSettings.serverUrl, savedServerUrl]) {
+    try {
+      if (candidate) {
+        const parsed = new URL(candidate);
+        if (parsed.protocol === 'http:') {
+          origins.add(parsed.origin);
+        }
+      }
+    } catch {
+      // Ignore invalid optional origins.
+    }
+  }
+
+  return [...origins];
+}
+
+app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', configuredServerOrigins().join(','));
 
 function readPackagedServerUrl() {
   const candidates = [
@@ -258,6 +292,65 @@ function isAllowedAppNavigation(targetUrl) {
   }
 }
 
+function isTrustedPermissionUrl(targetUrl) {
+  if (!targetUrl || targetUrl === 'about:blank' || targetUrl.startsWith('data:text/html')) {
+    return true;
+  }
+
+  try {
+    const target = new URL(targetUrl);
+    const settings = readSettings();
+    if (!settings.serverUrl) {
+      return ['http:', 'https:'].includes(target.protocol);
+    }
+
+    const server = new URL(settings.serverUrl);
+    return target.origin === server.origin;
+  } catch {
+    return false;
+  }
+}
+
+function configureMediaPermissions() {
+  const allowedPermissions = new Set([
+    'media',
+    'microphone',
+    'camera',
+    'display-capture',
+    'notifications',
+    'clipboard-read',
+    'clipboard-sanitized-write'
+  ]);
+
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = details.requestingUrl || details.embeddingOrigin || webContents.getURL();
+    callback(allowedPermissions.has(permission) && isTrustedPermissionUrl(requestingUrl));
+  });
+
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    const requestingUrl = requestingOrigin || webContents.getURL();
+    return allowedPermissions.has(permission) && isTrustedPermissionUrl(requestingUrl);
+  });
+
+  if (typeof session.defaultSession.setDisplayMediaRequestHandler === 'function') {
+    session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
+        const source = sources.find((item) => item.name.toLowerCase().includes('screen')) || sources[0];
+        if (!source) {
+          callback({});
+          return;
+        }
+
+        callback({ video: source, audio: 'loopback' });
+      } catch (error) {
+        log.warn('OceanERP display media request failed', error);
+        callback({});
+      }
+    }, { useSystemPicker: true });
+  }
+}
+
 function createWindow() {
   const iconPath = getIconPath();
   mainWindow = new BrowserWindow({
@@ -431,6 +524,7 @@ ipcMain.on('notify', (_, payload) => {
 
 app.whenReady().then(() => {
   configureAutoUpdater();
+  configureMediaPermissions();
   createMenu();
   createWindow();
   createTray();

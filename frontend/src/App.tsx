@@ -9003,6 +9003,8 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   const clientId = useMemo(getMeetClientId, []);
   const displayName = currentUser?.displayName ?? currentUser?.email ?? 'Utilisateur';
   const languages = dashboard?.languages.length ? dashboard.languages : meetingLanguageOptions;
+  const canUseMediaDevices = Boolean(navigator.mediaDevices?.getUserMedia);
+  const canUseDisplayMedia = Boolean(navigator.mediaDevices?.getDisplayMedia);
   const [rooms, setRooms] = useState(dashboard?.rooms ?? []);
   const [roomState, setRoomState] = useState<MeetingRoomState | null>(null);
   const [createTitle, setCreateTitle] = useState('Reunion');
@@ -9020,6 +9022,9 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   const [chatFile, setChatFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     setRooms(dashboard?.rooms ?? []);
@@ -9068,10 +9073,25 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
       return undefined;
     }
 
-    navigator.mediaDevices?.getUserMedia({ video: cameraEnabled, audio: microphoneEnabled })
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage("Micro et camera indisponibles. Ouvrez l'ERP en HTTPS ou avec l'application Windows autorisee.");
+      setCameraEnabled(false);
+      setMicrophoneEnabled(false);
+      return undefined;
+    }
+
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+
+    navigator.mediaDevices.getUserMedia({
+      video: cameraEnabled ? { facingMode: 'user' } : false,
+      audio: microphoneEnabled ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false
+    })
       .then((nextStream) => {
         if (!alive) {
           nextStream.getTracks().forEach((track) => track.stop());
@@ -9079,12 +9099,14 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
         }
 
         stream = nextStream;
+        localStreamRef.current = nextStream;
         if (videoRef.current) {
           videoRef.current.srcObject = nextStream;
+          void videoRef.current.play().catch(() => undefined);
         }
       })
-      .catch(() => {
-        setMessage("Impossible d'acceder au micro ou a la camera.");
+      .catch((error) => {
+        setMessage(formatMeetMediaError(error, "Impossible d'acceder au micro ou a la camera."));
         setCameraEnabled(false);
         setMicrophoneEnabled(false);
       });
@@ -9092,8 +9114,25 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     return () => {
       alive = false;
       stream?.getTracks().forEach((track) => track.stop());
+      if (localStreamRef.current === stream) {
+        localStreamRef.current = null;
+      }
     };
   }, [cameraEnabled, microphoneEnabled, roomState?.room.id]);
+
+  useEffect(() => () => {
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  useEffect(() => {
+    if (!screenEnabled || !screenVideoRef.current || !screenStreamRef.current) {
+      return;
+    }
+
+    screenVideoRef.current.srcObject = screenStreamRef.current;
+    void screenVideoRef.current.play().catch(() => undefined);
+  }, [screenEnabled]);
 
   useEffect(() => {
     if (!roomState) {
@@ -9224,8 +9263,8 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
 
     const response = await api.ensureMeetingInvite(roomState.room.id);
     const link = `${window.location.origin}${window.location.pathname}?meet=${response.token}`;
-    await navigator.clipboard?.writeText(link);
-    setMessage('Lien Meet copie.');
+    const copied = await copyTextToClipboard(link);
+    setMessage(copied ? 'Lien Meet copie.' : `Lien Meet : ${link}`);
     setRoomState({ ...roomState, room: { ...roomState.room, inviteToken: response.token } });
   }
 
@@ -9238,7 +9277,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     setRoomState(null);
     setCameraEnabled(false);
     setMicrophoneEnabled(false);
-    setScreenEnabled(false);
+    stopScreenShare();
     await refreshDashboard();
   }
 
@@ -9254,17 +9293,32 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
 
   async function toggleScreenShare() {
     if (screenEnabled) {
-      setScreenEnabled(false);
+      stopScreenShare();
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setMessage("Le partage d'ecran n'est pas disponible. Utilisez l'application Windows a jour ou ouvrez l'ERP en HTTPS.");
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      screenStreamRef.current = stream;
       setScreenEnabled(true);
-      stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenEnabled(false));
-    } catch {
-      setMessage("Partage d'ecran annule.");
+      stream.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare, { once: true });
+    } catch (error) {
+      setMessage(formatMeetMediaError(error, "Partage d'ecran annule ou refuse."));
     }
+  }
+
+  function stopScreenShare() {
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
+    if (screenVideoRef.current) {
+      screenVideoRef.current.srcObject = null;
+    }
+    setScreenEnabled(false);
   }
 
   async function sendChat(event: FormEvent) {
@@ -9345,7 +9399,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                 <span>{roomState.room.code}</span>
               </div>
               <div className="meet-actions">
-                <button className="secondary" type="button" onClick={() => navigator.clipboard?.writeText(roomState.room.code)}>
+                <button className="secondary" type="button" onClick={() => void copyTextToClipboard(roomState.room.code).then((copied) => setMessage(copied ? 'Code Meet copie.' : `Code Meet : ${roomState.room.code}`))}>
                   <Copy size={15} />
                   Code
                 </button>
@@ -9365,15 +9419,15 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
             </header>
 
             <div className="meet-toolbar">
-              <button className={microphoneEnabled ? 'active' : ''} type="button" onClick={() => setMicrophoneEnabled((value) => !value)}>
+              <button className={microphoneEnabled ? 'active' : ''} type="button" disabled={!canUseMediaDevices} title={!canUseMediaDevices ? "Micro indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => setMicrophoneEnabled((value) => !value)}>
                 {microphoneEnabled ? <Mic size={16} /> : <MicOff size={16} />}
                 Micro
               </button>
-              <button className={cameraEnabled ? 'active' : ''} type="button" onClick={() => setCameraEnabled((value) => !value)}>
+              <button className={cameraEnabled ? 'active' : ''} type="button" disabled={!canUseMediaDevices} title={!canUseMediaDevices ? "Camera indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => setCameraEnabled((value) => !value)}>
                 {cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />}
                 Camera
               </button>
-              <button className={screenEnabled ? 'active' : ''} type="button" onClick={() => void toggleScreenShare()}>
+              <button className={screenEnabled ? 'active' : ''} type="button" disabled={!canUseDisplayMedia} title={!canUseDisplayMedia ? "Partage d'ecran indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => void toggleScreenShare()}>
                 <ScreenShare size={16} />
                 Ecran
               </button>
@@ -9399,6 +9453,11 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                 <option value="workshop">Atelier</option>
               </select>
             </div>
+            {(!canUseMediaDevices || !canUseDisplayMedia) && (
+              <div className="alert meet-media-warning">
+                Camera, micro ou partage d'ecran indisponible dans ce contexte. Utilisez l'application Windows mise a jour, ou servez l'ERP en HTTPS pour le navigateur.
+              </div>
+            )}
 
             <div className="meet-content-grid">
               <div className="meet-video-grid">
@@ -9409,6 +9468,15 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                     <span>{activeParticipant?.connectionState ?? 'online'}</span>
                   </footer>
                 </article>
+                {screenEnabled && (
+                  <article className="meet-video-tile meet-screen-share">
+                    <video ref={screenVideoRef} autoPlay muted playsInline />
+                    <footer>
+                      <strong>Partage d'ecran</strong>
+                      <span>actif</span>
+                    </footer>
+                  </article>
+                )}
                 {roomState.participants.filter((participant) => participant.clientId !== clientId).map((participant) => (
                   <article className="meet-video-tile remote" key={participant.id}>
                     <div className="meet-avatar">{participant.displayName.slice(0, 2).toUpperCase()}</div>
@@ -9487,6 +9555,52 @@ function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+async function copyTextToClipboard(value: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Fallback below for HTTP/Electron contexts where navigator.clipboard can be blocked.
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand('copy');
+  } finally {
+    textarea.remove();
+  }
+}
+
+function formatMeetMediaError(error: unknown, fallback: string) {
+  if (!window.isSecureContext) {
+    return `${fallback} L'acces navigateur au micro, a la camera et au partage d'ecran demande HTTPS ou l'application Windows autorisee.`;
+  }
+
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError') {
+      return `${fallback} Permission refusee par Windows ou par le navigateur.`;
+    }
+    if (error.name === 'NotFoundError') {
+      return `${fallback} Aucun peripherique compatible n'a ete trouve.`;
+    }
+    if (error.name === 'NotReadableError') {
+      return `${fallback} Le peripherique est deja utilise par une autre application.`;
+    }
+  }
+
+  return fallback;
 }
 
 function CalendarEventForm({ draft, setDraft, canCreateMeetingRoom, onSubmit, onCancel, submitLabel }: { draft: CalendarDraftState; setDraft: (next: CalendarDraftState) => void; canCreateMeetingRoom: boolean; onSubmit: (event: FormEvent) => void; onCancel: () => void; submitLabel: string }) {
