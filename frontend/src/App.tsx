@@ -558,23 +558,25 @@ export default function App() {
         </button>
       </aside>
 
-      <main className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">ERP modulaire</p>
-            <h1>{viewLabels[view]}</h1>
-          </div>
-          <div className="top-actions">
-            <div className="search">
-              <Search size={16} />
-              <input aria-label="Recherche" placeholder="Rechercher" />
+      <main className={view === 'flowcean' ? 'workspace workspace-flowcean' : 'workspace'}>
+        {view !== 'flowcean' && (
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">ERP modulaire</p>
+              <h1>{viewLabels[view]}</h1>
             </div>
-            <button className="icon-button" title="Notifications" onClick={() => setView('notifications')}>
-              <Bell size={18} />
-              {notifications.some((item) => !item.isRead) && <span className="dot" />}
-            </button>
-          </div>
-        </header>
+            <div className="top-actions">
+              <div className="search">
+                <Search size={16} />
+                <input aria-label="Recherche" placeholder="Rechercher" />
+              </div>
+              <button className="icon-button" title="Notifications" onClick={() => setView('notifications')}>
+                <Bell size={18} />
+                {notifications.some((item) => !item.isRead) && <span className="dot" />}
+              </button>
+            </div>
+          </header>
+        )}
 
         {error && <div className="alert">{error}</div>}
         {loading && <div className="loading">Chargement...</div>}
@@ -9815,13 +9817,13 @@ function FlowceanWorkspaceModule() {
   const breadcrumbs = page ? flowceanBreadcrumbs(pages, page) : [];
 
   return (
-    <section className={state?.workspace.theme === 'dark' ? 'flowcean-shell flowcean-dark' : 'flowcean-shell'}>
+    <section className="flowcean-shell flowcean-dark">
       <div className="flowcean-app">
         <aside className="flowcean-sidebar">
           <div className="flowcean-brand">
             <button className="flowcean-brand-badge" type="button" onClick={() => page && updatePageIcon(page.id)}>{page?.icon ?? 'FL'}</button>
             <div>
-              <span>Workspace</span>
+              <span>Partage · Super-utilisateur</span>
               <strong>{workspace?.name ?? 'Flowcean'}</strong>
             </div>
           </div>
@@ -9950,12 +9952,21 @@ function FlowceanWorkspaceModule() {
           </div>
           {inspectorTab === 'details' ? (
             <>
-              <strong>Inspecteur</strong>
-              <div className="flowcean-fact"><span>Pages</span><strong>{pages.filter((item) => !item.deletedAt).length}</strong></div>
-              <div className="flowcean-fact"><span>Corbeille</span><strong>{pages.filter((item) => item.deletedAt).length}</strong></div>
-              <div className="flowcean-fact"><span>Version</span><strong>{workspace?.version ?? '-'}</strong></div>
-              <div className="flowcean-fact"><span>Page active</span><strong>{page?.kind === 'database' ? 'Tableau' : 'Document'}</strong></div>
-              <div className="flowcean-fact"><span>Blocs</span><strong>{page?.blocks.length ?? 0}</strong></div>
+              <strong>Resume</strong>
+              <div className="flowcean-fact-grid">
+                <div className="flowcean-fact"><span>Pages</span><strong>{pages.filter((item) => !item.deletedAt).length}</strong></div>
+                <div className="flowcean-fact"><span>Corbeille</span><strong>{pages.filter((item) => item.deletedAt).length}</strong></div>
+                <div className="flowcean-fact"><span>Version</span><strong>{workspace?.version ?? '-'}</strong></div>
+                <div className="flowcean-fact"><span>Blocs</span><strong>{page?.blocks.length ?? 0}</strong></div>
+              </div>
+              <div className="flowcean-quick-panel">
+                <strong>Actions rapides</strong>
+                <p>Dupliquez, exportez ou faites evoluer votre espace local en quelques clics.</p>
+                <button type="button" onClick={() => page && duplicatePage(page.id)}>Dupliquer la page</button>
+                <button type="button" onClick={() => createTemplate()}>Ajouter page, Word, Excel ou tableau</button>
+                <button type="button" onClick={exportWorkspace}>Exporter le workspace</button>
+                {page && <button type="button" onClick={() => trashPage(page.id)}>Envoyer a la corbeille</button>}
+              </div>
               <form className="flowcean-share-form" onSubmit={inviteCollaborator}>
                 <strong>Partage</strong>
                 <input type="email" value={shareEmail} onChange={(event) => setShareEmail(event.target.value)} placeholder="email@entreprise.fr" />

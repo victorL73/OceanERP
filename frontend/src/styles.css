@@ -146,6 +146,12 @@ button {
   overflow: auto;
 }
 
+.workspace-flowcean {
+  padding: 0;
+  overflow: hidden;
+  background: #07111f;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -3785,6 +3791,392 @@ button.drive-main {
 .flowcean-search-results button {
   border-color: #dbe3ef;
   background: #fff;
+}
+
+.workspace-flowcean .alert,
+.workspace-flowcean .loading {
+  margin: 14px;
+}
+
+.workspace-flowcean .flowcean-shell {
+  height: 100vh;
+}
+
+.workspace-flowcean .flowcean-app {
+  grid-template-columns: 320px minmax(620px, 1fr) 286px;
+  height: 100vh;
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 22% 0%, rgba(42, 118, 164, 0.22), transparent 34%),
+    linear-gradient(135deg, #07111f 0%, #0f1c2e 54%, #0b1525 100%);
+  box-shadow: none;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-sidebar {
+  gap: 12px;
+  border-right: 1px solid rgba(132, 166, 206, 0.18);
+  background: #081426;
+  padding: 18px;
+}
+
+.workspace-flowcean .flowcean-brand {
+  grid-template-columns: 40px minmax(0, 1fr);
+  padding-bottom: 6px;
+}
+
+.workspace-flowcean .flowcean-brand-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #22c7a3, #4f8df7);
+}
+
+.workspace-flowcean .flowcean-brand span {
+  color: #93a7c3;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.workspace-flowcean .flowcean-brand strong {
+  color: #f8fbff;
+  font-size: 16px;
+}
+
+.workspace-flowcean .flowcean-new-button {
+  min-height: 44px;
+  border-radius: 999px;
+  background: #5aa1ff;
+  color: #ffffff;
+  box-shadow: 0 16px 34px rgba(51, 128, 236, 0.24);
+}
+
+.workspace-flowcean .flowcean-quick-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.workspace-flowcean .flowcean-quick-actions button,
+.workspace-flowcean .flowcean-sidebar-footer button,
+.workspace-flowcean .flowcean-new-menu button {
+  border-color: rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  background: #0c1b31;
+  color: #e8f1ff;
+  font-size: 12px;
+}
+
+.workspace-flowcean .flowcean-new-menu {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: #0b182b;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-search {
+  min-height: 38px;
+  border-color: rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  background: #0c1b31;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-search input {
+  color: #edf6ff;
+}
+
+.workspace-flowcean .flowcean-section-title {
+  color: #91a6c4;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.workspace-flowcean .flowcean-page-list.compact button,
+.workspace-flowcean .flowcean-tree-row > button:nth-child(2) {
+  min-height: 40px;
+  border-color: transparent;
+  border-radius: 12px;
+  color: #dbeafe;
+}
+
+.workspace-flowcean .flowcean-page-list.compact button.active,
+.workspace-flowcean .flowcean-tree-row > button.active {
+  border-color: rgba(83, 144, 255, 0.52);
+  background: rgba(74, 131, 218, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.workspace-flowcean .flowcean-page-icon {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
+  color: #fbfdff;
+}
+
+.workspace-flowcean .flowcean-sidebar-footer {
+  border-top-color: rgba(132, 166, 206, 0.18);
+}
+
+.workspace-flowcean .flowcean-save-state {
+  color: #9fb4d1;
+}
+
+.workspace-flowcean .flowcean-save-state.dirty {
+  color: #fbbf24;
+}
+
+.workspace-flowcean .flowcean-main {
+  background: rgba(12, 25, 43, 0.82);
+}
+
+.workspace-flowcean .flowcean-topbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-bottom-color: rgba(132, 166, 206, 0.18);
+  background: rgba(8, 20, 38, 0.86);
+  padding: 16px 22px;
+}
+
+.workspace-flowcean .flowcean-breadcrumbs button,
+.workspace-flowcean .flowcean-topbar-actions button.secondary {
+  min-height: 34px;
+  border: 1px solid rgba(115, 154, 214, 0.28);
+  border-radius: 999px;
+  background: #0d1d34;
+  color: #dcecff;
+  padding: 0 12px;
+}
+
+.workspace-flowcean .flowcean-topbar select,
+.workspace-flowcean .flowcean-new-workspace input {
+  min-height: 34px;
+  border-color: rgba(115, 154, 214, 0.28);
+  border-radius: 999px;
+  background: #0d1d34;
+  color: #eaf3ff;
+}
+
+.workspace-flowcean .flowcean-status-bar {
+  border-bottom-color: rgba(132, 166, 206, 0.18);
+  background: #0c1a2e;
+  color: #9db3d0;
+}
+
+.workspace-flowcean .flowcean-status-bar .pill,
+.workspace-flowcean .flowcean-presence {
+  border-color: rgba(115, 154, 214, 0.25);
+  background: #0f213a;
+  color: #e9f4ff;
+}
+
+.workspace-flowcean .flowcean-page-surface {
+  padding: 0;
+}
+
+.workspace-flowcean .flowcean-page-hero {
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  margin: 0;
+  border-bottom: 1px solid rgba(132, 166, 206, 0.18);
+  background:
+    linear-gradient(180deg, rgba(169, 201, 226, 0.46), rgba(18, 53, 70, 0.62)),
+    #142438;
+  padding: 28px 30px;
+}
+
+.workspace-flowcean .flowcean-hero-icon {
+  width: 62px;
+  height: 62px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #121c31, #1d2f4d);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
+  color: #ff6b45;
+}
+
+.workspace-flowcean .flowcean-page-hero p {
+  color: #b7c7de;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.workspace-flowcean .flowcean-page-hero input {
+  color: #ffffff;
+  font-size: clamp(28px, 3vw, 38px);
+  line-height: 1.1;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.18);
+}
+
+.workspace-flowcean .flowcean-page-actions .secondary,
+.workspace-flowcean .flowcean-page-actions .danger {
+  min-height: 34px;
+  border-radius: 999px;
+  background: #07172b;
+  color: #edf6ff;
+}
+
+.workspace-flowcean .flowcean-document,
+.workspace-flowcean .flowcean-database {
+  padding: 26px 30px 34px;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block-toolbar {
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block-toolbar button,
+.workspace-flowcean .flowcean-app .flowcean-view-tabs button,
+.workspace-flowcean .flowcean-add-property button {
+  min-height: 36px;
+  border-color: rgba(115, 154, 214, 0.22);
+  border-radius: 999px;
+  background: #10213a;
+  color: #f1f7ff;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block-toolbar button:first-child {
+  background: #5aa1ff;
+  color: #ffffff;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block {
+  grid-template-columns: 32px 128px 28px minmax(0, 1fr) 96px;
+  border-color: transparent;
+  background: transparent;
+  padding: 7px 4px;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block:hover {
+  border-color: rgba(115, 154, 214, 0.18);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.workspace-flowcean .flowcean-block-handle {
+  color: #7fa5d9;
+}
+
+.workspace-flowcean .flowcean-block-handle button,
+.workspace-flowcean .flowcean-block-actions button {
+  border-color: rgba(115, 154, 214, 0.18);
+  background: #0e1f37;
+  color: #dbeafe;
+}
+
+.workspace-flowcean .flowcean-block select {
+  min-height: 34px;
+  border-color: rgba(115, 154, 214, 0.22);
+  border-radius: 10px;
+  background: #0e1f37;
+  color: #f5fbff;
+  font-weight: 800;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block textarea {
+  min-height: 42px;
+  border-radius: 10px;
+  color: #f8fbff;
+  font-size: 15px;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block textarea::placeholder {
+  color: #7f96b6;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block textarea:focus {
+  border-color: rgba(90, 161, 255, 0.48);
+  background: #10213a;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block.h1 textarea {
+  min-height: 72px;
+  font-size: 34px;
+  line-height: 1.15;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block.h2 textarea {
+  font-size: 24px;
+  line-height: 1.22;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block.h3 textarea {
+  font-size: 19px;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-block.callout {
+  border-color: rgba(94, 234, 212, 0.22);
+  background: rgba(45, 212, 191, 0.08);
+}
+
+.workspace-flowcean .flowcean-slash-menu,
+.workspace-flowcean .flowcean-properties,
+.workspace-flowcean .flowcean-db-table,
+.workspace-flowcean .flowcean-board section,
+.workspace-flowcean .flowcean-calendar-view article,
+.workspace-flowcean .flowcean-gantt-row,
+.workspace-flowcean .flowcean-board article {
+  border-color: rgba(132, 166, 206, 0.2);
+  background: #0f1f36;
+  color: #f2f8ff;
+}
+
+.workspace-flowcean .flowcean-db-table th,
+.workspace-flowcean .flowcean-db-table td {
+  border-color: rgba(132, 166, 206, 0.18);
+  background: #0f1f36;
+  color: #f2f8ff;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-inspector {
+  gap: 14px;
+  border-left-color: rgba(132, 166, 206, 0.18);
+  background: #081426;
+}
+
+.workspace-flowcean .flowcean-inspector-tabs {
+  display: none;
+}
+
+.workspace-flowcean .flowcean-app .flowcean-fact,
+.workspace-flowcean .flowcean-activity,
+.workspace-flowcean .flowcean-share-form,
+.workspace-flowcean .flowcean-share-list,
+.workspace-flowcean .flowcean-quick-panel {
+  border-color: rgba(132, 166, 206, 0.2);
+  border-radius: 14px;
+  background: #10213a;
+  color: #f6fbff;
+}
+
+.workspace-flowcean .flowcean-fact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.workspace-flowcean .flowcean-fact strong {
+  font-size: 20px;
+}
+
+.workspace-flowcean .flowcean-quick-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.workspace-flowcean .flowcean-quick-panel p {
+  margin: 0;
+  color: #a9b9d0;
+  line-height: 1.45;
+}
+
+.workspace-flowcean .flowcean-quick-panel button {
+  min-height: 34px;
+  border: 1px solid rgba(132, 166, 206, 0.2);
+  border-radius: 999px;
+  background: #0c1b31;
+  color: #f3f8ff;
+  font-weight: 800;
 }
 
 @media (max-width: 1180px) {
