@@ -151,6 +151,14 @@ const blockTools: Array<{ type: NotionBlockType; label: string; description: str
   { type: 'divider', label: 'Separateur', description: 'Ligne de separation', icon: MoreHorizontal },
 ];
 
+function blockTool(type: NotionBlockType) {
+  return blockTools.find((tool) => tool.type === type) ?? blockTools[0];
+}
+
+function nextBlockType(type: NotionBlockType): NotionBlockType {
+  return type === 'bullet' || type === 'numbered' || type === 'todo' ? type : 'paragraph';
+}
+
 const propertyTypes: NotionPropertyType[] = ['text', 'select', 'status', 'date', 'checkbox', 'number', 'email', 'url'];
 
 export function NotionWorkspaceModule() {
@@ -495,7 +503,7 @@ export function NotionWorkspaceModule() {
   }
 
   return (
-    <section className="notion-shell">
+    <section className={`notion-shell notion-theme-${state.workspace.theme}`}>
       <aside className="notion-sidebar">
         <div className="notion-workspace-card">
           <button type="button" className="notion-workspace-icon" onClick={() => activePage && updatePage(activePage.id, { icon: promptIcon(activePage.icon) })}>
@@ -592,6 +600,12 @@ export function NotionWorkspaceModule() {
             ))}
           </div>
           <div className="notion-topbar-actions">
+            <button
+              type="button"
+              onClick={() => mutate((draft) => { draft.workspace.theme = draft.workspace.theme === 'focus' ? 'light' : 'focus'; }, 'Theme modifie')}
+            >
+              Theme {state.workspace.theme === 'focus' ? 'clair' : 'focus'}
+            </button>
             <select value={workspace?.slug ?? ''} onChange={(event) => void openWorkspace(event.target.value)}>
               {workspaces.map((item) => (
                 <option key={item.id} value={item.slug}>{item.name}</option>
@@ -790,6 +804,8 @@ function NotionBlockEditor({
   setSlashBlockId: (id: string | null) => void;
   mutate: (mutator: (draft: NotionWorkspaceState) => void, activityLabel?: string) => void;
 }) {
+  const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
+
   function updateBlock(blockId: string, patch: Partial<NotionBlock>, label?: string) {
     mutate((draft) => {
       const targetPage = draft.pages.find((item) => item.id === page.id);
@@ -827,6 +843,27 @@ function NotionBlockEditor({
       }
       const [block] = targetPage.blocks.splice(index, 1);
       targetPage.blocks.splice(nextIndex, 0, block);
+      targetPage.updatedAt = Date.now();
+    }, 'Bloc deplace');
+  }
+
+  function moveBlockTo(blockId: string, targetBlockId: string) {
+    if (blockId === targetBlockId) {
+      return;
+    }
+
+    mutate((draft) => {
+      const targetPage = draft.pages.find((item) => item.id === page.id);
+      if (!targetPage) {
+        return;
+      }
+      const from = targetPage.blocks.findIndex((block) => block.id === blockId);
+      const to = targetPage.blocks.findIndex((block) => block.id === targetBlockId);
+      if (from < 0 || to < 0) {
+        return;
+      }
+      const [block] = targetPage.blocks.splice(from, 1);
+      targetPage.blocks.splice(to, 0, block);
       targetPage.updatedAt = Date.now();
     }, 'Bloc deplace');
   }
@@ -872,47 +909,68 @@ function NotionBlockEditor({
 
   return (
     <div className="notion-editor">
-      {page.blocks.map((block, index) => (
-        <div key={block.id} className={`notion-block notion-block-${block.type}`}>
-          <div className="notion-block-handle">
-            <GripVertical size={15} />
-            <button type="button" onClick={() => insertAfter(block.id)}><Plus size={14} /></button>
-          </div>
-
-          <select value={block.type} onChange={(event) => applySlash(block.id, event.target.value as NotionBlockType)}>
-            {blockTools.map((tool) => (
-              <option key={tool.type} value={tool.type}>{tool.label}</option>
-            ))}
-          </select>
-
-          <BlockInput
-            block={block}
-            index={index}
-            onChange={(patch) => updateBlock(block.id, patch)}
-            onEnter={() => insertAfter(block.id)}
-            onSlash={() => setSlashBlockId(block.id)}
-          />
-
-          {slashBlockId === block.id && (
-            <div className="notion-slash-menu">
-              {blockTools.map((tool) => (
-                <button key={tool.type} type="button" onClick={() => applySlash(block.id, tool.type)}>
-                  <tool.icon size={16} />
-                  <span>{tool.label}</span>
-                  <small>{tool.description}</small>
-                </button>
-              ))}
+      {page.blocks.map((block, index) => {
+        const tool = blockTool(block.type);
+        const ToolIcon = tool.icon;
+        return (
+          <div
+            key={block.id}
+            className={`notion-block notion-block-${block.type}${draggedBlockId === block.id ? ' dragging' : ''}`}
+            draggable
+            onDragStart={() => setDraggedBlockId(block.id)}
+            onDragEnd={() => setDraggedBlockId(null)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (draggedBlockId) {
+                moveBlockTo(draggedBlockId, block.id);
+              }
+              setDraggedBlockId(null);
+            }}
+          >
+            <div className="notion-block-handle">
+              <GripVertical size={15} />
+              <button type="button" onClick={() => insertAfter(block.id)}><Plus size={14} /></button>
             </div>
-          )}
 
-          <div className="notion-block-actions">
-            <button type="button" onClick={() => moveBlock(block.id, -1)} disabled={index === 0}>↑</button>
-            <button type="button" onClick={() => moveBlock(block.id, 1)} disabled={index === page.blocks.length - 1}>↓</button>
-            <button type="button" onClick={() => duplicateBlock(block.id)}><Copy size={14} /></button>
-            <button type="button" onClick={() => deleteBlock(block.id)}><Trash2 size={14} /></button>
+            <button
+              type="button"
+              className="notion-block-type"
+              onClick={() => setSlashBlockId(block.id)}
+              title={`Transformer en ${tool.label}`}
+            >
+              <ToolIcon size={15} />
+            </button>
+
+            <BlockInput
+              block={block}
+              index={index}
+              onChange={(patch) => updateBlock(block.id, patch)}
+              onEnter={() => insertAfter(block.id, nextBlockType(block.type))}
+              onSlash={() => setSlashBlockId(block.id)}
+            />
+
+            {slashBlockId === block.id && (
+              <div className="notion-slash-menu">
+                {blockTools.map((tool) => (
+                  <button key={tool.type} type="button" onClick={() => applySlash(block.id, tool.type)}>
+                    <tool.icon size={16} />
+                    <span>{tool.label}</span>
+                    <small>{tool.description}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="notion-block-actions">
+              <button type="button" onClick={() => moveBlock(block.id, -1)} disabled={index === 0}>↑</button>
+              <button type="button" onClick={() => moveBlock(block.id, 1)} disabled={index === page.blocks.length - 1}>↓</button>
+              <button type="button" onClick={() => duplicateBlock(block.id)}><Copy size={14} /></button>
+              <button type="button" onClick={() => deleteBlock(block.id)}><Trash2 size={14} /></button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -979,14 +1037,27 @@ function BlockInput({
   }
 
   const placeholder = index === 0 ? 'Tapez / pour ajouter un bloc...' : 'Continuer...';
+  const prefix = block.type === 'bullet'
+    ? '-'
+    : block.type === 'numbered'
+      ? `${index + 1}.`
+      : block.type === 'quote'
+        ? 'Citation'
+        : block.type === 'callout'
+          ? 'Info'
+          : '';
+
   return (
-    <textarea
-      value={block.text}
-      onKeyDown={handleKeyDown}
-      onChange={(event) => onChange({ text: event.target.value })}
-      placeholder={placeholder}
-      rows={block.type === 'code' ? 5 : Math.max(1, Math.min(8, block.text.split('\n').length))}
-    />
+    <div className={`notion-text-frame notion-text-${block.type}`}>
+      {prefix && <span>{prefix}</span>}
+      <textarea
+        value={block.text}
+        onKeyDown={handleKeyDown}
+        onChange={(event) => onChange({ text: event.target.value })}
+        placeholder={placeholder}
+        rows={block.type === 'code' ? 5 : Math.max(1, Math.min(12, block.text.split('\n').length))}
+      />
+    </div>
   );
 }
 
