@@ -9,6 +9,10 @@ namespace Erp.Infrastructure.Pdf;
 
 public sealed class QuotePdfService : IQuotePdfService
 {
+    private const string PrimaryColor = "#0B3D4A";
+    private const string AccentColor = "#F05A24";
+    private const string SoftBackground = "#F3FAFC";
+
     public byte[] Generate(Quote quote, QuotePdfSettings settings, byte[]? logoBytes)
     {
         QuestPDF.Settings.License = LicenseType.Community;
@@ -17,55 +21,86 @@ public sealed class QuotePdfService : IQuotePdfService
         {
             container.Page(page =>
             {
-                page.Margin(40);
                 page.Size(PageSizes.A4);
-                page.DefaultTextStyle(x => x.FontSize(10));
+                page.Margin(42);
+                page.DefaultTextStyle(x => x.FontSize(10).FontColor("#14212B"));
 
-                page.Header().Row(row =>
+                page.Header().Column(header =>
                 {
-                    row.RelativeItem().Column(column =>
+                    header.Item().Row(row =>
                     {
-                        if (logoBytes is { Length: > 0 })
+                        row.RelativeItem().Height(82).AlignMiddle().Column(column =>
                         {
-                            column.Item().Height(55).Width(140).Image(logoBytes).FitArea();
-                        }
+                            if (logoBytes is { Length: > 0 })
+                            {
+                                column.Item().Height(72).Width(210).Image(logoBytes).FitArea();
+                            }
+                            else
+                            {
+                                column.Item().Text(settings.CompanyName).FontSize(24).Bold().FontColor(PrimaryColor);
+                            }
+                        });
 
-                        column.Item().PaddingTop(8).Text(settings.CompanyName).FontSize(20).Bold();
-                        foreach (var line in CompanyLines(settings))
+                        row.ConstantItem(260).AlignRight().Column(column =>
                         {
-                            column.Item().Text(line).FontSize(9).FontColor(Colors.Grey.Darken2);
-                        }
+                            column.Item().Text("DEVIS").FontSize(26).Bold().FontColor(PrimaryColor);
+                            column.Item().PaddingTop(4).Text("PROPOSITION COMMERCIALE").FontSize(12).Bold().FontColor(AccentColor);
+                            column.Item().PaddingTop(10).Text($"Document genere par {settings.CompanyName}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                        });
                     });
 
-                    row.ConstantItem(190).AlignRight().Column(column =>
-                    {
-                        column.Item().Text($"Devis {quote.Number}").FontSize(18).Bold();
-                        column.Item().Text($"Emission: {quote.IssueDate:dd/MM/yyyy}");
-                        column.Item().Text($"Valide jusqu'au: {quote.ValidUntil:dd/MM/yyyy}");
-                    });
+                    header.Item().PaddingTop(14).BorderBottom(1.2f).BorderColor(PrimaryColor);
                 });
 
-                page.Content().PaddingVertical(25).Column(content =>
+                page.Content().PaddingTop(20).Column(content =>
                 {
-                    content.Item().PaddingBottom(18).Border(1).BorderColor(Colors.Grey.Lighten2).Padding(12).Column(column =>
+                    content.Spacing(22);
+
+                    content.Item().AlignRight().Width(265).Background(SoftBackground).Border(1).BorderColor(Colors.Grey.Lighten2).Padding(16).Column(column =>
                     {
-                        column.Item().Text("Client").FontSize(9).FontColor(Colors.Grey.Darken2).Bold();
-                        column.Item().Text(ClientName(quote.Customer, quote.CustomerId)).FontSize(13).Bold();
-                        foreach (var line in CustomerLines(quote.Customer))
+                        column.Spacing(9);
+                        InfoRow(column, "Numero", quote.Number, true);
+                        InfoRow(column, "Date", quote.IssueDate.ToString("dd/MM/yyyy"));
+                        InfoRow(column, "Valable", quote.ValidUntil.ToString("dd/MM/yyyy"));
+                        InfoRow(column, "Statut", StatusLabel(quote.Status));
+                    });
+
+                    content.Item().Row(row =>
+                    {
+                        row.RelativeItem().Element(InfoCard).Column(column =>
                         {
-                            column.Item().Text(line).FontSize(9).FontColor(Colors.Grey.Darken2);
-                        }
+                            column.Spacing(6);
+                            column.Item().Text("VENDEUR").FontSize(10).Bold().FontColor(PrimaryColor);
+                            column.Item().PaddingTop(8).Text(settings.CompanyName).Bold();
+                            foreach (var line in CompanyLines(settings))
+                            {
+                                column.Item().Text(line).FontSize(9);
+                            }
+                        });
+
+                        row.ConstantItem(34);
+
+                        row.RelativeItem().Element(InfoCard).Column(column =>
+                        {
+                            column.Spacing(6);
+                            column.Item().Text("CLIENT").FontSize(10).Bold().FontColor(PrimaryColor);
+                            column.Item().PaddingTop(8).Text(ClientName(quote.Customer, quote.CustomerId)).Bold();
+                            foreach (var line in CustomerLines(quote.Customer))
+                            {
+                                column.Item().Text(line).FontSize(9);
+                            }
+                        });
                     });
 
                     content.Item().Table(table =>
                     {
                         table.ColumnsDefinition(columns =>
                         {
-                            columns.RelativeColumn(4);
-                            columns.RelativeColumn();
-                            columns.RelativeColumn();
-                            columns.RelativeColumn();
-                            columns.RelativeColumn();
+                            columns.RelativeColumn(5);
+                            columns.RelativeColumn(0.9f);
+                            columns.RelativeColumn(1.35f);
+                            columns.RelativeColumn(1.5f);
+                            columns.RelativeColumn(1.55f);
                         });
 
                         table.Header(header =>
@@ -73,39 +108,70 @@ public sealed class QuotePdfService : IQuotePdfService
                             header.Cell().Element(HeaderCell).Text("Designation");
                             header.Cell().Element(HeaderCell).AlignRight().Text("Qte");
                             header.Cell().Element(HeaderCell).AlignRight().Text("PU HT");
-                            header.Cell().Element(HeaderCell).AlignRight().Text("TVA");
+                            header.Cell().Element(HeaderCell).AlignRight().Text("Total HT");
                             header.Cell().Element(HeaderCell).AlignRight().Text("Total TTC");
                         });
 
+                        var index = 0;
                         foreach (var line in quote.Lines)
                         {
-                            table.Cell().Element(BodyCell).Text(line.Description);
-                            table.Cell().Element(BodyCell).AlignRight().Text(line.Quantity.ToString("0.###"));
-                            table.Cell().Element(BodyCell).AlignRight().Text($"{line.UnitPrice:0.00} {quote.Currency}");
-                            table.Cell().Element(BodyCell).AlignRight().Text($"{line.VatRate:0.##}%");
-                            table.Cell().Element(BodyCell).AlignRight().Text($"{line.LineTotal:0.00} {quote.Currency}");
+                            table.Cell().Element(cell => BodyCell(cell, index)).Text(line.Description);
+                            table.Cell().Element(cell => BodyCell(cell, index)).AlignRight().Text(line.Quantity.ToString("0.###"));
+                            table.Cell().Element(cell => BodyCell(cell, index)).AlignRight().Text(FormatMoney(line.UnitPrice, quote.Currency));
+                            table.Cell().Element(cell => BodyCell(cell, index)).AlignRight().Text(FormatMoney(line.LineNetTotal, quote.Currency));
+                            table.Cell().Element(cell => BodyCell(cell, index)).AlignRight().Text(FormatMoney(line.LineTotal, quote.Currency)).Bold();
+                            index++;
                         }
 
-                        static IContainer HeaderCell(IContainer cell) => cell.Background(Colors.Grey.Lighten3).BorderBottom(1).BorderColor(Colors.Grey.Medium).PaddingVertical(7).PaddingHorizontal(4);
-                        static IContainer BodyCell(IContainer cell) => cell.BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).PaddingVertical(6).PaddingHorizontal(4);
+                        static IContainer HeaderCell(IContainer cell) => cell
+                            .Background(PrimaryColor)
+                            .PaddingVertical(8)
+                            .PaddingHorizontal(7)
+                            .DefaultTextStyle(x => x.FontColor(Colors.White).Bold());
+
+                        static IContainer BodyCell(IContainer cell, int rowIndex) => cell
+                            .Background(rowIndex % 2 == 0 ? Colors.Grey.Lighten5 : Colors.White)
+                            .BorderBottom(0.5f)
+                            .BorderColor(Colors.Grey.Lighten2)
+                            .PaddingVertical(8)
+                            .PaddingHorizontal(7);
                     });
 
-                    content.Item().PaddingTop(18).AlignRight().Width(220).Column(column =>
+                    content.Item().Row(row =>
                     {
-                        TotalLine(column, "Total HT", quote.Subtotal, quote.Currency, false);
-                        TotalLine(column, "TVA", quote.VatTotal, quote.Currency, false);
-                        TotalLine(column, "Total TTC", quote.Total, quote.Currency, true);
-                    });
+                        row.RelativeItem().Column(column =>
+                        {
+                            column.Spacing(12);
+                            column.Item().Text("Conditions de reglement").FontSize(10).Bold().FontColor(Colors.Grey.Darken1);
+                            column.Item().Text(string.IsNullOrWhiteSpace(settings.LegalText) ? "A definir" : settings.LegalText).FontSize(9).FontColor(Colors.Grey.Darken2);
 
-                    if (!string.IsNullOrWhiteSpace(settings.LegalText))
-                    {
-                        content.Item().PaddingTop(24).Text(settings.LegalText).FontSize(8).FontColor(Colors.Grey.Darken2);
-                    }
+                            if (ShouldShowSignatureBox(quote))
+                            {
+                                column.Item().Width(300).Border(1).BorderColor(Colors.Teal.Lighten1).Padding(14).Column(signature =>
+                                {
+                                    signature.Spacing(5);
+                                    signature.Item().Text("Signe electroniquement").FontSize(9).Bold().FontColor(PrimaryColor);
+                                    signature.Item().Text(ClientName(quote.Customer, quote.CustomerId)).FontSize(9);
+                                    signature.Item().Text(SignatureDate(quote)).FontSize(8).FontColor(Colors.Grey.Darken1);
+                                });
+                            }
+                        });
+
+                        row.ConstantItem(50);
+
+                        row.ConstantItem(260).Background(SoftBackground).Border(1).BorderColor(Colors.Grey.Lighten2).Padding(18).Column(column =>
+                        {
+                            column.Spacing(12);
+                            TotalLine(column, "Total HT", quote.Subtotal, quote.Currency, false);
+                            TotalLine(column, "TVA", quote.VatTotal, quote.Currency, false);
+                            TotalLine(column, "Total TTC", quote.Total, quote.Currency, true);
+                        });
+                    });
                 });
 
                 page.Footer().Column(column =>
                 {
-                    column.Item().Text(settings.FooterText ?? "Merci pour votre confiance.").FontSize(8).FontColor(Colors.Grey.Darken2);
+                    column.Item().BorderTop(0.5f).BorderColor(Colors.Grey.Lighten2).PaddingTop(10).AlignCenter().Text(settings.FooterText ?? $"{settings.CompanyName} - Devis genere par OceanERP").FontSize(8).FontColor(Colors.Grey.Darken1);
                     column.Item().AlignCenter().Text(text =>
                     {
                         text.Span("Page ");
@@ -116,6 +182,22 @@ public sealed class QuotePdfService : IQuotePdfService
                 });
             });
         }).GeneratePdf();
+    }
+
+    private static IContainer InfoCard(IContainer container)
+        => container.MinHeight(132).Border(1).BorderColor(Colors.Grey.Lighten2).Padding(16);
+
+    private static void InfoRow(ColumnDescriptor column, string label, string value, bool important = false)
+    {
+        column.Item().Row(row =>
+        {
+            row.ConstantItem(80).Text(label).Bold().FontColor(PrimaryColor);
+            var text = row.RelativeItem().AlignRight().Text(value);
+            if (important)
+            {
+                text.Bold().FontSize(14).FontColor(PrimaryColor);
+            }
+        });
     }
 
     private static IReadOnlyList<string> CompanyLines(QuotePdfSettings settings)
@@ -217,15 +299,43 @@ public sealed class QuotePdfService : IQuotePdfService
             ? null
             : value.Trim();
 
+    private static string StatusLabel(QuoteStatus status)
+        => status switch
+        {
+            QuoteStatus.Draft => "Brouillon",
+            QuoteStatus.Sent => "Envoye",
+            QuoteStatus.Signed => "Signe",
+            QuoteStatus.Refused => "Refuse",
+            QuoteStatus.Expired => "Expire",
+            QuoteStatus.ConvertedToOrder => "Transforme en commande",
+            _ => status.ToString()
+        };
+
+    private static bool ShouldShowSignatureBox(Quote quote)
+        => quote.Status is QuoteStatus.Signed or QuoteStatus.ConvertedToOrder;
+
+    private static string SignatureDate(Quote quote)
+    {
+        var signedAt = quote.StatusHistory
+            .Where(x => x.Status is QuoteStatus.Signed or QuoteStatus.ConvertedToOrder)
+            .OrderByDescending(x => x.ChangedAt)
+            .Select(x => (DateTimeOffset?)x.ChangedAt)
+            .FirstOrDefault();
+        return signedAt is null ? "Signature electronique OceanERP" : signedAt.Value.ToString("dd/MM/yyyy HH:mm");
+    }
+
+    private static string FormatMoney(decimal amount, string currency)
+        => $"{amount:0.00} {currency}";
+
     private static void TotalLine(ColumnDescriptor column, string label, decimal amount, string currency, bool important)
     {
         column.Item().Row(row =>
         {
-            row.RelativeItem().Text(label).Bold();
-            var text = row.RelativeItem().AlignRight().Text($"{amount:0.00} {currency}");
+            row.RelativeItem().Text(label).FontSize(important ? 14 : 10).Bold().FontColor(important ? PrimaryColor : "#14212B");
+            var text = row.RelativeItem().AlignRight().Text(FormatMoney(amount, currency));
             if (important)
             {
-                text.Bold().FontSize(13);
+                text.Bold().FontSize(14).FontColor(AccentColor);
             }
         });
     }

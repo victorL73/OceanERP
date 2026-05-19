@@ -340,7 +340,8 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             if (!await db.SignedDocuments.AnyAsync(x => x.SignatureRequestId == signatureRequest.Id, cancellationToken))
             {
                 var certificateBytes = GenerateSignatureCertificatePdf(signatureRequest, driveItem, recipient, evidence, signatureImage, signatureImageSha256);
-                await using var certificateStream = new MemoryStream(certificateBytes);
+                var signedDocumentBytes = await BuildSignedDocumentPdfAsync(driveItem, certificateBytes, cancellationToken);
+                await using var certificateStream = new MemoryStream(signedDocumentBytes);
                 var signedFileName = $"signed-{Path.GetFileNameWithoutExtension(driveItem.Name)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.pdf";
                 var stored = await fileStorageService.SaveAsync("signatures", signedFileName, certificateStream, cancellationToken);
                 db.SignedDocuments.Add(new SignedDocument
@@ -357,6 +358,48 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
 
         await db.SaveChangesAsync(cancellationToken);
         return Result<SignatureRequestDto>.Success(await MapAsync(signatureRequest, BuildRelativeSigningUrl, cancellationToken));
+    }
+
+    private async Task<byte[]> BuildSignedDocumentPdfAsync(DriveItem driveItem, byte[] certificateBytes, CancellationToken cancellationToken)
+    {
+        if (!driveItem.MimeType.Contains("pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return certificateBytes;
+        }
+
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "oceanerp-signatures", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        var sourcePath = Path.Combine(temporaryDirectory, "source.pdf");
+        var certificatePath = Path.Combine(temporaryDirectory, "certificate.pdf");
+        var outputPath = Path.Combine(temporaryDirectory, "signed.pdf");
+
+        try
+        {
+            await using (var source = await fileStorageService.OpenReadAsync(driveItem.StoragePath, cancellationToken))
+            await using (var target = File.Create(sourcePath))
+            {
+                await source.CopyToAsync(target, cancellationToken);
+            }
+
+            await File.WriteAllBytesAsync(certificatePath, certificateBytes, cancellationToken);
+            DocumentOperation.LoadFile(sourcePath).MergeFile(certificatePath).Save(outputPath);
+            return await File.ReadAllBytesAsync(outputPath, cancellationToken);
+        }
+        catch
+        {
+            return certificateBytes;
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(temporaryDirectory, true);
+            }
+            catch
+            {
+                // Temporary cleanup should not block signature completion.
+            }
+        }
     }
 
     private async Task<SignatureRecipient?> FindRecipientByTokenAsync(string token, CancellationToken cancellationToken)
@@ -485,75 +528,70 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
     {
         QuestPDF.Settings.License = LicenseType.Community;
         var signedAt = recipient.SignedAt ?? DateTimeOffset.UtcNow;
+        const string primaryColor = "#0B3D4A";
+        const string softBackground = "#F3FAFC";
 
         return Document.Create(container =>
         {
             container.Page(page =>
             {
-                page.Margin(40);
                 page.Size(PageSizes.A4);
-                page.DefaultTextStyle(x => x.FontSize(10));
+                page.Margin(46);
+                page.DefaultTextStyle(x => x.FontSize(10).FontColor("#14212B"));
 
-                page.Header().Row(row =>
+                page.Header().Column(header =>
                 {
-                    row.RelativeItem().Column(column =>
-                    {
-                        column.Item().Text("OceanERP").FontSize(22).Bold();
-                        column.Item().Text("Certificat de signature electronique interne").FontSize(13).FontColor(Colors.Teal.Darken2);
-                    });
-                    row.ConstantItem(170).AlignRight().Column(column =>
-                    {
-                        column.Item().Text($"Date: {signedAt:dd/MM/yyyy HH:mm}").Bold();
-                        column.Item().Text($"Demande: {request.Id}");
-                    });
+                    header.Item().Text("Certificat OceanSign").FontSize(24).Bold().FontColor("#071D22");
+                    header.Item().PaddingTop(8).PaddingLeft(24).Text("Ce certificat atteste la validation electronique du document PDF joint dans ce dossier.").FontSize(10).FontColor(Colors.Grey.Darken1);
+                    header.Item().PaddingTop(18).BorderBottom(1).BorderColor(Colors.Grey.Lighten2);
                 });
 
-                page.Content().PaddingVertical(24).Column(column =>
+                page.Content().PaddingTop(28).Column(column =>
                 {
-                    column.Spacing(16);
-                    column.Item().Border(1).BorderColor(Colors.Teal.Lighten2).Background(Colors.Teal.Lighten5).Padding(14).Text(
-                        "Ce document constitue une preuve interne de signature. Il trace l'accord donne via un lien securise OceanERP et ne pretend pas etre une signature qualifiee eIDAS.").FontSize(10);
+                    column.Spacing(24);
 
-                    column.Item().Row(row =>
+                    column.Item().PaddingHorizontal(10).Column(facts =>
                     {
-                        row.RelativeItem().Element(Card).Column(card =>
+                        facts.Spacing(14);
+                        CertificateFact(facts, "Document", driveItem.Name);
+                        CertificateFact(facts, "Signataire", recipient.Name ?? recipient.Email);
+                        CertificateFact(facts, "Email", recipient.Email);
+                        CertificateFact(facts, "Date de signature", signedAt.ToString("dd/MM/yyyy HH:mm"));
+                        CertificateFact(facts, "Empreinte signature", signatureImageSha256 ?? "Signature par clic");
+                        CertificateFact(facts, "Empreinte PDF original", evidence.DocumentSha256);
+                        CertificateFact(facts, "Mode", evidence.SignatureMode ?? "Click");
+                        CertificateFact(facts, "Adresse IP", evidence.IpAddress ?? "-");
+                    });
+
+                    column.Item().Border(1).BorderColor(Colors.Teal.Lighten1).Background(softBackground).Padding(22).Row(row =>
+                    {
+                        row.ConstantItem(260).Column(signature =>
                         {
-                            card.Item().Text("Document").FontSize(9).FontColor(Colors.Grey.Darken2).Bold();
-                            card.Item().Text(driveItem.Name).FontSize(13).Bold();
-                            card.Item().Text($"Empreinte SHA-256: {evidence.DocumentSha256}").FontSize(8).FontColor(Colors.Grey.Darken1);
+                            signature.Item().Text("Signature client").FontSize(11).Bold().FontColor(primaryColor);
+                            if (signatureImage is { Length: > 0 })
+                            {
+                                signature.Item().PaddingTop(12).Height(76).Background(Colors.White).Image(signatureImage).FitArea();
+                            }
+                            else
+                            {
+                                signature.Item().PaddingTop(18).Background(Colors.White).Padding(18).Text($"Signe par clic par {recipient.Name ?? recipient.Email}.").FontSize(11);
+                            }
                         });
 
-                        row.RelativeItem().Element(Card).Column(card =>
+                        row.RelativeItem().PaddingLeft(28).AlignMiddle().Column(note =>
                         {
-                            card.Item().Text("Signataire").FontSize(9).FontColor(Colors.Grey.Darken2).Bold();
-                            card.Item().Text(recipient.Name ?? recipient.Email).FontSize(13).Bold();
-                            card.Item().Text(recipient.Email).FontSize(9).FontColor(Colors.Grey.Darken1);
+                            note.Spacing(10);
+                            note.Item().Text("Validation realisee depuis le lien public securise OceanERP.").FontSize(10);
+                            note.Item().Text("Cette preuve interne trace l'accord donne par le signataire. Elle ne pretend pas etre une signature qualifiee eIDAS.").FontSize(9).FontColor(Colors.Grey.Darken1);
+                            note.Item().Text($"Conditions acceptees: {(evidence.ConditionsAccepted ? "Oui" : "Non")}").FontSize(9).FontColor(Colors.Grey.Darken1);
                         });
                     });
 
-                    column.Item().Element(Card).Column(card =>
+                    column.Item().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(12).Column(trace =>
                     {
-                        card.Spacing(6);
-                        card.Item().Text("Preuve").FontSize(12).Bold();
-                        Fact(card, "Action", evidence.Action);
-                        Fact(card, "Mode", evidence.SignatureMode ?? "Click");
-                        Fact(card, "Conditions acceptees", evidence.ConditionsAccepted ? "Oui" : "Non");
-                        Fact(card, "IP", evidence.IpAddress ?? "-");
-                        Fact(card, "Navigateur", evidence.UserAgent ?? "-");
-                        Fact(card, "Empreinte image signature", signatureImageSha256 ?? "-");
-                    });
-
-                    column.Item().Element(Card).Column(card =>
-                    {
-                        card.Item().Text("Signature").FontSize(12).Bold();
-                        if (signatureImage is { Length: > 0 })
-                        {
-                            card.Item().Height(90).Width(260).Image(signatureImage).FitArea();
-                        }
-                        else
-                        {
-                            card.Item().PaddingTop(10).Text($"Signe par clic par {recipient.Name ?? recipient.Email}.").FontSize(11);
-                        }
+                        trace.Item().Text("Tracabilite technique").FontSize(11).Bold().FontColor(primaryColor);
+                        trace.Item().PaddingTop(8).Text(evidence.UserAgent ?? "-").FontSize(8).FontColor(Colors.Grey.Darken1);
+                        trace.Item().PaddingTop(4).Text($"Demande: {request.Id}").FontSize(8).FontColor(Colors.Grey.Darken1);
                     });
                 });
 
@@ -567,14 +605,11 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             });
         }).GeneratePdf();
 
-        static IContainer Card(IContainer container)
-            => container.Border(1).BorderColor(Colors.Grey.Lighten2).Padding(12);
-
-        static void Fact(ColumnDescriptor column, string label, string value)
+        static void CertificateFact(ColumnDescriptor column, string label, string value)
         {
             column.Item().Row(row =>
             {
-                row.ConstantItem(145).Text(label).FontColor(Colors.Grey.Darken2).Bold();
+                row.ConstantItem(160).Text(label).FontColor("#00524C").Bold();
                 row.RelativeItem().Text(value);
             });
         }
