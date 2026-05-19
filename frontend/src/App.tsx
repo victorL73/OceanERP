@@ -632,6 +632,7 @@ export default function App() {
         {view === 'calendar' && (
           <Calendar
             events={calendarEvents?.items ?? []}
+            canCreateMeetingRoom={hasPermission(currentUser, 'meet.write')}
             onChanged={() => load('calendar')}
             onOpenMeeting={(roomId) => {
               setMeetingInitialRoomId(roomId);
@@ -8395,7 +8396,7 @@ function defaultMeetingMedia() {
   return { microphoneEnabled: false, cameraEnabled: false, screenEnabled: false, connectionState: 'online' };
 }
 
-function Calendar({ events, onChanged, onOpenMeeting }: { events: CalendarEvent[]; onChanged: () => Promise<void>; onOpenMeeting: (roomId: string) => void }) {
+function Calendar({ events, canCreateMeetingRoom, onChanged, onOpenMeeting }: { events: CalendarEvent[]; canCreateMeetingRoom: boolean; onChanged: () => Promise<void>; onOpenMeeting: (roomId: string) => void }) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
   const [cursorDate, setCursorDate] = useState(() => startOfCalendarDay(new Date()));
   const [calendarItems, setCalendarItems] = useState<CalendarEvent[]>(events);
@@ -8496,8 +8497,24 @@ function Calendar({ events, onChanged, onOpenMeeting }: { events: CalendarEvent[
       return;
     }
 
+    const alreadyHasMeetingRoom = selected.links.some((link) => link.module === 'meeting');
     const updated = await api.updateCalendarEvent(selected.id, calendarPayloadFromDraft(draft));
-    setSelected(updated);
+    if (draft.createMeetingRoom && !alreadyHasMeetingRoom && canCreateMeetingRoom) {
+      const roomState = await api.createMeetingRoom({
+        title: updated.title,
+        scheduledStartAt: updated.startsAt,
+        calendarEventId: updated.id,
+        clientId: getMeetClientId(),
+        displayName: api.user?.displayName ?? 'Utilisateur',
+        sourceLanguage: draft.meetingLanguage,
+        targetLanguage: draft.meetingLanguage,
+        media: defaultMeetingMedia()
+      });
+      setMessage(`Salle Meet ajoutee : ${roomState.room.code}`);
+      setSelected(null);
+    } else {
+      setSelected(updated);
+    }
     setEditing(false);
     await reloadVisibleEvents();
   }
@@ -8638,7 +8655,7 @@ function Calendar({ events, onChanged, onOpenMeeting }: { events: CalendarEvent[
                 <X size={18} />
               </button>
             </header>
-            <CalendarEventForm draft={draft} setDraft={setDraft} onSubmit={create} onCancel={() => setShowCreate(false)} submitLabel="Ajouter" />
+            <CalendarEventForm draft={draft} setDraft={setDraft} canCreateMeetingRoom={canCreateMeetingRoom} onSubmit={create} onCancel={() => setShowCreate(false)} submitLabel="Ajouter" />
           </section>
         </div>
       )}
@@ -8656,7 +8673,7 @@ function Calendar({ events, onChanged, onOpenMeeting }: { events: CalendarEvent[
               </button>
             </header>
             {editing ? (
-              <CalendarEventForm draft={draft} setDraft={setDraft} onSubmit={update} onCancel={() => setEditing(false)} submitLabel="Enregistrer" />
+              <CalendarEventForm draft={draft} setDraft={setDraft} canCreateMeetingRoom={canCreateMeetingRoom || selected.links.some((link) => link.module === 'meeting')} onSubmit={update} onCancel={() => setEditing(false)} submitLabel="Enregistrer" />
             ) : (
               <>
                 <div className="detail-grid">
@@ -9205,7 +9222,7 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-function CalendarEventForm({ draft, setDraft, onSubmit, onCancel, submitLabel }: { draft: CalendarDraftState; setDraft: (next: CalendarDraftState) => void; onSubmit: (event: FormEvent) => void; onCancel: () => void; submitLabel: string }) {
+function CalendarEventForm({ draft, setDraft, canCreateMeetingRoom, onSubmit, onCancel, submitLabel }: { draft: CalendarDraftState; setDraft: (next: CalendarDraftState) => void; canCreateMeetingRoom: boolean; onSubmit: (event: FormEvent) => void; onCancel: () => void; submitLabel: string }) {
   return (
     <form className="form-grid calendar-event-form" onSubmit={onSubmit}>
       <label className="field full-field">
@@ -9232,20 +9249,37 @@ function CalendarEventForm({ draft, setDraft, onSubmit, onCancel, submitLabel }:
         <input type="checkbox" checked={draft.isPrivate} onChange={(event) => setDraft({ ...draft, isPrivate: event.target.checked })} />
         Prive
       </label>
-      <label className="checkbox-line">
-        <input type="checkbox" checked={draft.createMeetingRoom} onChange={(event) => setDraft({ ...draft, createMeetingRoom: event.target.checked })} />
-        Salle Meet
-      </label>
-      {draft.createMeetingRoom && (
-        <label className="field">
-          Langue Meet
-          <select value={draft.meetingLanguage} onChange={(event) => setDraft({ ...draft, meetingLanguage: event.target.value })}>
-            {meetingLanguageOptions.map((language) => (
-              <option value={language.code} key={language.code}>{language.label}</option>
-            ))}
-          </select>
+      <section className="calendar-meeting-card full-field">
+        <div className="calendar-meeting-intro">
+          <span className="calendar-meeting-icon"><Video size={18} /></span>
+          <div>
+            <strong>Reunion Meet</strong>
+            <p>Creer une salle de reunion liee a cet evenement et accessible depuis l'agenda.</p>
+          </div>
+        </div>
+        <label className="checkbox-line">
+          <input
+            type="checkbox"
+            checked={draft.createMeetingRoom}
+            disabled={!canCreateMeetingRoom && !draft.createMeetingRoom}
+            onChange={(event) => setDraft({ ...draft, createMeetingRoom: event.target.checked })}
+          />
+          Ajouter une salle Meet
         </label>
-      )}
+        {!canCreateMeetingRoom && !draft.createMeetingRoom && (
+          <p className="panel-note">Votre role n'a pas encore la permission meet.write. Un administrateur peut l'ajouter dans Parametres &gt; Utilisateurs/Roles.</p>
+        )}
+        {draft.createMeetingRoom && (
+          <label className="field">
+            Langue de la reunion
+            <select value={draft.meetingLanguage} onChange={(event) => setDraft({ ...draft, meetingLanguage: event.target.value })}>
+              {meetingLanguageOptions.map((language) => (
+                <option value={language.code} key={language.code}>{language.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </section>
       <label className="field full-field">
         Description
         <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
@@ -9291,7 +9325,7 @@ function createCalendarDraftFromEvent(event: CalendarEvent): CalendarDraftState 
     description: event.description ?? '',
     isPrivate: event.isPrivate,
     reminderMinutes: reminder?.toString() ?? '30',
-    createMeetingRoom: false,
+    createMeetingRoom: event.links.some((link) => link.module === 'meeting'),
     meetingLanguage: 'fr-FR'
   };
 }

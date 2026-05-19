@@ -2810,6 +2810,43 @@ th {
   min-height: 120px;
 }
 
+.calendar-meeting-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8fafc;
+}
+
+.calendar-meeting-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.calendar-meeting-intro strong {
+  display: block;
+  color: #0f172a;
+}
+
+.calendar-meeting-intro p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.calendar-meeting-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
 .drive-row,
 .notification {
   display: flex;

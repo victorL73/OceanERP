@@ -83,6 +83,26 @@ public static class DataSeeder
             }
         }
 
+        var meetRead = await db.Permissions.FirstAsync(x => x.Code == "meet.read", cancellationToken);
+        var meetWrite = await db.Permissions.FirstAsync(x => x.Code == "meet.write", cancellationToken);
+        var rolesWithCalendarAccess = await db.Roles
+            .Include(x => x.Permissions)
+            .Where(x => x.Name != adminRole.Name && x.Permissions.Any(permission => permission.Code.StartsWith("calendar.")))
+            .ToListAsync(cancellationToken);
+
+        foreach (var role in rolesWithCalendarAccess)
+        {
+            if (role.Permissions.Any(x => x.Code == "calendar.read") && !role.Permissions.Any(x => x.Code == meetRead.Code))
+            {
+                role.Permissions.Add(meetRead);
+            }
+
+            if (role.Permissions.Any(x => x.Code == "calendar.write") && !role.Permissions.Any(x => x.Code == meetWrite.Code))
+            {
+                role.Permissions.Add(meetWrite);
+            }
+        }
+
         await db.SaveChangesAsync(cancellationToken);
 
         var adminEmail = configuration["Seed:AdminEmail"] ?? "admin@oceanerp.local";
