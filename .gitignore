@@ -12,3 +12,4 @@ storage-dev/
 *.tsbuildinfo
 frontend/vite.config.d.ts
 frontend/vite.config.js
+deploy/prestashop/oceanerpbridge.zip

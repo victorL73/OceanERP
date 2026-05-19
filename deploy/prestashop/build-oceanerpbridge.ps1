@@ -19,7 +19,29 @@ New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 Copy-Item -Path $modulePath -Destination $temporaryModule -Recurse
 
 try {
-    Compress-Archive -Path $temporaryModule -DestinationPath $OutputPath -Force
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $archive = [System.IO.Compression.ZipFile]::Open($OutputPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Get-ChildItem -LiteralPath $temporaryModule -Recurse -File | ForEach-Object {
+            $relativePath = $_.FullName.Substring($temporaryRoot.Length).TrimStart(
+                [System.IO.Path]::DirectorySeparatorChar,
+                [System.IO.Path]::AltDirectorySeparatorChar
+            )
+            $entryName = $relativePath.Replace('\', '/')
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive,
+                $_.FullName,
+                $entryName,
+                [System.IO.Compression.CompressionLevel]::Optimal
+            ) | Out-Null
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+
     Write-Host "Created $OutputPath"
 }
 finally {
