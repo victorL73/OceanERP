@@ -343,9 +343,14 @@ export default function App() {
         setCalendarEvents(await api.calendarEvents());
       }
       if (target === 'signatures') {
-        const [nextSignatures, nextFiles] = await Promise.all([api.signatureRequests(), api.files(null, 'pdf')]);
+        const [nextSignatures, nextFiles, nextQuotes] = await Promise.all([
+          api.signatureRequests(),
+          api.files(null, 'pdf'),
+          hasPermission(currentUser, 'quotes.read') ? api.quotes() : Promise.resolve(quotes)
+        ]);
         setSignatureRequests(nextSignatures);
         setFiles(nextFiles);
+        setQuotes(nextQuotes);
       }
       if (target === 'flowcean') {
         await api.flowceanWorkspaces();
@@ -615,7 +620,7 @@ export default function App() {
         {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
         {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} onChanged={() => load('service')} />}
         {view === 'calendar' && <Calendar events={calendarEvents?.items ?? []} onChanged={() => load('calendar')} />}
-        {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} onChanged={() => load('signatures')} />}
+        {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} quotes={quotes?.items ?? []} onChanged={() => load('signatures')} />}
         {view === 'flowcean' && <FlowceanWorkspaceModule />}
         {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
@@ -8749,7 +8754,7 @@ type SignatureRecipientDraft = {
   name: string;
 };
 
-function Signatures({ requests, files, onChanged }: { requests: SignatureRequest[]; files: DriveItem[]; onChanged: () => Promise<void> }) {
+function Signatures({ requests, files, quotes, onChanged }: { requests: SignatureRequest[]; files: DriveItem[]; quotes: Quote[]; onChanged: () => Promise<void> }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -8822,12 +8827,43 @@ function Signatures({ requests, files, onChanged }: { requests: SignatureRequest
     };
   }, [selected?.id]);
 
+  function findQuoteForDocument(driveItemId: string, file?: DriveItem) {
+    const fileName = file?.name.toLocaleLowerCase('fr') ?? '';
+    return quotes.find((quote) => quote.documents.some((document) => document.driveItemId === driveItemId))
+      ?? quotes.find((quote) => quote.documents.some((document) => document.fileName.toLocaleLowerCase('fr') === fileName))
+      ?? quotes.find((quote) => fileName.includes(quote.number.toLocaleLowerCase('fr')));
+  }
+
+  function quoteSigner(quote: Quote) {
+    return {
+      name: quote.customer?.contactName || quote.customer?.companyName || quote.customerName || '',
+      email: [quote.customer?.contactEmail, quote.customer?.email]
+        .map((value) => value?.trim())
+        .find((value) => value && value.includes('@')) ?? ''
+    };
+  }
+
   function chooseDocument(driveItemId: string) {
     const file = signableFiles.find((item) => item.id === driveItemId);
+    const quote = findQuoteForDocument(driveItemId, file);
+    const signer = quote ? quoteSigner(quote) : null;
+    const nextTitle = quote ? quote.number : file?.name.replace(/\.pdf$/i, '') || '';
+
+    if (quote && signer?.email) {
+      setMessage(`Signataire pre-rempli depuis le devis ${quote.number}.`);
+      setError(null);
+    } else if (quote) {
+      setMessage(null);
+      setError(`Le devis ${quote.number} est reconnu, mais aucune adresse email client n'est renseignee.`);
+    } else {
+      setMessage(null);
+    }
+
     setDraft((current) => ({
       ...current,
       driveItemId,
-      title: current.title || file?.name.replace(/\.pdf$/i, '') || ''
+      title: nextTitle || current.title,
+      recipients: signer ? [{ id: current.recipients[0]?.id ?? createSignatureRecipientDraft().id, name: signer.name, email: signer.email }] : current.recipients
     }));
   }
 
