@@ -3282,6 +3282,27 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, isAdmini
     return [customer.companyName, customer.email].filter(Boolean).join(' - ');
   }
 
+  function firstValidEmail(...values: Array<string | undefined | null>) {
+    return values.map((value) => value?.trim()).find((value) => value && value.includes('@')) ?? '';
+  }
+
+  function quoteRecipientEmail(quote: Quote) {
+    const fullCustomer = customers.find((customer) => customer.id === quote.customerId);
+    const primaryContact = fullCustomer?.contacts.find((contact) => contact.isPrimary && contact.email)
+      ?? fullCustomer?.contacts.find((contact) => contact.email);
+
+    return firstValidEmail(
+      quote.customer?.contactEmail,
+      quote.customer?.email,
+      primaryContact?.email,
+      fullCustomer?.email
+    );
+  }
+
+  function quoteGreetingName(quote: Quote) {
+    return quote.customer?.contactName || quote.customer?.companyName || customers.find((customer) => customer.id === quote.customerId)?.companyName || '';
+  }
+
   function productOptionLabel(product: Product) {
     return `${product.reference} - ${product.name}`;
   }
@@ -3475,14 +3496,16 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, isAdmini
   }
 
   function openEmailModal(quote: Quote) {
+    const recipientEmail = quoteRecipientEmail(quote);
+    const greetingName = quoteGreetingName(quote);
     setEmailQuoteId(quote.id);
     setMailAccountId(activeMailAccounts[0]?.id ?? '');
-    setEmailTo('');
+    setEmailTo(recipientEmail);
     setEmailCc('');
     setEmailBcc('');
     setEmailSubject(`Devis ${quote.number}`);
-    setEmailBody(`Bonjour,\n\nVeuillez trouver ci-joint le devis ${quote.number}.\n\nCordialement`);
-    setQuoteFeedback(null);
+    setEmailBody(`Bonjour${greetingName ? ` ${greetingName}` : ''},\n\nVeuillez trouver ci-joint le devis ${quote.number}.\n\nCordialement`);
+    setQuoteFeedback(recipientEmail ? null : `Aucun email client trouve pour le devis ${quote.number}. Completez le destinataire avant l'envoi.`);
   }
 
   function openOrderModal(quote: Quote) {
