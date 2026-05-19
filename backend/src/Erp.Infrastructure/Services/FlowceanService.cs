@@ -168,7 +168,7 @@ public sealed class FlowceanService(ErpDbContext db, ICurrentUserService current
 
         var state = new
         {
-            workspace = new { name, theme = "light" },
+            workspace = new { name, theme = "dark" },
             ui = new { activePageId = welcomeId },
             meta = new { workspaceSlug = slug, source = "oceanerp-flowcean" },
             pages = new object[]

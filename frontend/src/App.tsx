@@ -2,7 +2,6 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import { NotionWorkspaceModule } from './components/NotionWorkspace';
 import type { AuditLog, BackupArchive, BackupOperationResult, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingRoomState, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
@@ -656,7 +655,7 @@ export default function App() {
           />
         )}
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} quotes={quotes?.items ?? []} onChanged={() => load('signatures')} />}
-        {view === 'flowcean' && <NotionWorkspaceModule />}
+        {view === 'flowcean' && <FlowceanWorkspaceModule />}
         {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {view === 'backups' && <Backups archives={backups} onChanged={() => load('backups')} />}
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
@@ -10629,7 +10628,7 @@ function FlowceanWorkspaceModule() {
   const breadcrumbs = page ? flowceanBreadcrumbs(pages, page) : [];
 
   return (
-    <section className="flowcean-shell flowcean-dark">
+    <section className={`flowcean-shell ${state?.workspace.theme === 'dark' ? 'flowcean-dark' : 'flowcean-light'}`}>
       <div className="flowcean-app">
         <aside className="flowcean-sidebar">
           <div className="flowcean-brand">
@@ -11355,15 +11354,200 @@ function renderFlowceanCell(row: FlowceanRow, property: FlowceanProperty, onChan
 
 function parseFlowceanState(workspace: FlowceanWorkspace): FlowceanState {
   try {
-    const parsed = JSON.parse(workspace.dataJson) as FlowceanState;
-    if (Array.isArray(parsed.pages) && parsed.workspace && parsed.ui) {
-      return parsed;
-    }
+    return normalizeFlowceanState(JSON.parse(workspace.dataJson) as unknown, workspace.name, workspace.slug);
   } catch {
     // L'espace sera reconstruit ci-dessous si le JSON historique est illisible.
+    return createLocalFlowceanDefaultState(workspace.name, workspace.slug);
+  }
+}
+
+function normalizeFlowceanState(raw: unknown, workspaceName: string, workspaceSlug: string): FlowceanState {
+  const value = flowceanIsRecord(raw) ? raw : {};
+  const workspaceValue = flowceanIsRecord(value.workspace) ? value.workspace : {};
+  const uiValue = flowceanIsRecord(value.ui) ? value.ui : {};
+  const normalizedPages = Array.isArray(value.pages)
+    ? value.pages.map(normalizeFlowceanPage).filter((page): page is FlowceanPage => Boolean(page))
+    : [];
+  const fallback = createLocalFlowceanDefaultState(workspaceName, workspaceSlug);
+  const pages = normalizedPages.length > 0 ? normalizedPages : fallback.pages;
+  const requestedActivePageId = typeof uiValue.activePageId === 'string' ? uiValue.activePageId : null;
+  const activePageId = requestedActivePageId && pages.some((page) => page.id === requestedActivePageId && !page.deletedAt)
+    ? requestedActivePageId
+    : pages.find((page) => !page.deletedAt)?.id ?? pages[0]?.id ?? null;
+  const meta = flowceanIsRecord(value.meta) ? { ...value.meta } : {};
+
+  if (Array.isArray(value.shares)) {
+    meta.flowceanShares = value.shares
+      .map(normalizeFlowceanShare)
+      .filter((share): share is FlowceanShare => Boolean(share));
   }
 
-  return createLocalFlowceanDefaultState(workspace.name, workspace.slug);
+  if (Array.isArray(value.activity)) {
+    meta.flowceanActivity = value.activity.filter(flowceanIsRecord).slice(0, 80);
+  }
+
+  return {
+    workspace: {
+      name: flowceanString(workspaceValue.name, workspaceName),
+      theme: normalizeFlowceanTheme(workspaceValue.theme)
+    },
+    pages,
+    ui: { activePageId },
+    meta: { ...meta, workspaceSlug }
+  };
+}
+
+function normalizeFlowceanPage(raw: unknown): FlowceanPage | null {
+  if (!flowceanIsRecord(raw)) {
+    return null;
+  }
+
+  const kind: FlowceanPageKind = raw.kind === 'database' || raw.database ? 'database' : 'document';
+  const blocks = Array.isArray(raw.blocks)
+    ? raw.blocks.map(normalizeFlowceanBlock).filter((block): block is FlowceanBlock => Boolean(block))
+    : [];
+
+  return {
+    id: flowceanString(raw.id, createFlowceanId('page')),
+    parentId: typeof raw.parentId === 'string' ? raw.parentId : null,
+    title: flowceanString(raw.title, 'Sans titre'),
+    icon: flowceanString(raw.icon, kind === 'database' ? 'DB' : 'DOC'),
+    favorite: Boolean(raw.favorite),
+    expanded: raw.expanded !== false,
+    kind,
+    updatedAt: flowceanNumber(raw.updatedAt, flowceanNumber(raw.createdAt, Date.now())),
+    deletedAt: typeof raw.deletedAt === 'number' ? raw.deletedAt : raw.archived ? Date.now() : null,
+    blocks: kind === 'database' ? [] : blocks.length > 0 ? blocks : [createFlowceanBlock('paragraph')],
+    database: kind === 'database' ? normalizeFlowceanDatabase(raw.database) : null
+  };
+}
+
+function normalizeFlowceanBlock(raw: unknown): FlowceanBlock | null {
+  if (!flowceanIsRecord(raw)) {
+    return null;
+  }
+
+  const originalType = typeof raw.type === 'string' ? raw.type : '';
+  const type = flowceanValidBlockType(originalType);
+  const fallbackText = originalType === 'image' || originalType === 'file'
+    ? [flowceanString(raw.caption, ''), flowceanString(raw.url, '')].filter(Boolean).join(' ')
+    : '';
+
+  return {
+    id: flowceanString(raw.id, createFlowceanId('block')),
+    type,
+    text: flowceanString(raw.text, fallbackText),
+    checked: typeof raw.checked === 'boolean' ? raw.checked : type === 'todo' ? false : null
+  };
+}
+
+function normalizeFlowceanDatabase(raw: unknown): FlowceanDatabase {
+  const fallback = createDefaultFlowceanDatabase();
+  if (!flowceanIsRecord(raw)) {
+    return fallback;
+  }
+
+  const properties = Array.isArray(raw.properties)
+    ? raw.properties.map(normalizeFlowceanProperty).filter((property): property is FlowceanProperty => Boolean(property))
+    : [];
+  const safeProperties = properties.length > 0 ? properties : fallback.properties;
+  const rows = Array.isArray(raw.rows)
+    ? raw.rows.map((row) => normalizeFlowceanRow(row, safeProperties)).filter((row): row is FlowceanRow => Boolean(row))
+    : [];
+
+  return {
+    activeView: normalizeFlowceanDatabaseView(raw.activeView),
+    properties: safeProperties,
+    rows
+  };
+}
+
+function normalizeFlowceanProperty(raw: unknown): FlowceanProperty | null {
+  if (!flowceanIsRecord(raw)) {
+    return null;
+  }
+
+  return {
+    id: flowceanString(raw.id, createFlowceanId('prop')),
+    name: flowceanString(raw.name, 'Propriete'),
+    type: normalizeFlowceanPropertyType(raw.type),
+    options: Array.isArray(raw.options) ? raw.options.filter((item): item is string => typeof item === 'string') : []
+  };
+}
+
+function normalizeFlowceanRow(raw: unknown, properties: FlowceanProperty[]): FlowceanRow | null {
+  if (!flowceanIsRecord(raw)) {
+    return null;
+  }
+
+  const rawCells = flowceanIsRecord(raw.cells) ? raw.cells : {};
+  const cells: Record<string, FlowceanCellValue> = {};
+  properties.forEach((property) => {
+    cells[property.id] = normalizeFlowceanCellValue(rawCells[property.id]);
+  });
+
+  return {
+    id: flowceanString(raw.id, createFlowceanId('row')),
+    cells
+  };
+}
+
+function normalizeFlowceanShare(raw: unknown): FlowceanShare | null {
+  if (!flowceanIsRecord(raw)) {
+    return null;
+  }
+
+  const email = typeof raw.email === 'string' ? raw.email.trim().toLowerCase() : '';
+  if (!email) {
+    return null;
+  }
+
+  return {
+    id: flowceanString(raw.id, createFlowceanId('share')),
+    email,
+    role: raw.role === 'lecture' ? 'lecture' : 'edition'
+  };
+}
+
+function normalizeFlowceanTheme(value: unknown) {
+  return value === 'dark' || value === 'focus' ? 'dark' : 'light';
+}
+
+function normalizeFlowceanDatabaseView(value: unknown): FlowceanDatabaseView {
+  return value === 'board' || value === 'calendar' || value === 'gantt' ? value : 'table';
+}
+
+function normalizeFlowceanPropertyType(value: unknown): FlowceanPropertyType {
+  if (value === 'status') {
+    return 'select';
+  }
+
+  const types: FlowceanPropertyType[] = ['text', 'select', 'date', 'checkbox', 'number', 'email', 'url'];
+  return types.includes(value as FlowceanPropertyType) ? value as FlowceanPropertyType : 'text';
+}
+
+function normalizeFlowceanCellValue(value: unknown): FlowceanCellValue {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  return String(value);
+}
+
+function flowceanIsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function flowceanString(value: unknown, fallback: string) {
+  return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function flowceanNumber(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function cloneFlowceanState(state: FlowceanState): FlowceanState {
@@ -11374,7 +11558,7 @@ function createLocalFlowceanDefaultState(name: string, slug: string): FlowceanSt
   const now = Date.now();
   const pageId = createFlowceanId('page');
   return {
-    workspace: { name, theme: 'light' },
+    workspace: { name, theme: 'dark' },
     ui: { activePageId: pageId },
     meta: { workspaceSlug: slug, source: 'oceanerp-local' },
     pages: [
@@ -11542,34 +11726,35 @@ function rekeyFlowceanPage(page: FlowceanPage): FlowceanPage {
 }
 
 function normalizeImportedFlowceanState(text: string, workspaceName: string, workspaceSlug: string): FlowceanState {
-  const parsed = JSON.parse(text) as Partial<FlowceanState>;
-  if (!Array.isArray(parsed.pages)) {
+  const parsed = JSON.parse(text) as unknown;
+  if (!flowceanIsRecord(parsed) || !Array.isArray(parsed.pages)) {
     throw new Error('Le fichier importe ne contient pas de pages Flowcean.');
   }
 
-  const pages = parsed.pages.map((page) => ({
-    id: page.id || createFlowceanId('page'),
-    parentId: page.parentId ?? null,
-    title: page.title || 'Sans titre',
-    icon: page.icon || (page.kind === 'database' ? 'DB' : 'DOC'),
-    favorite: Boolean(page.favorite),
-    expanded: page.expanded ?? true,
-    kind: page.kind === 'database' ? 'database' : 'document',
-    updatedAt: Number(page.updatedAt || Date.now()),
-    deletedAt: page.deletedAt ?? null,
-    blocks: Array.isArray(page.blocks) ? page.blocks.map((block) => ({ id: block.id || createFlowceanId('block'), type: flowceanValidBlockType(block.type), text: block.text ?? '', checked: block.checked ?? null })) : [],
-    database: page.database ?? null
-  } satisfies FlowceanPage));
-
+  const state = normalizeFlowceanState(parsed, workspaceName, workspaceSlug);
   return {
-    workspace: { name: parsed.workspace?.name || workspaceName, theme: parsed.workspace?.theme === 'dark' ? 'dark' : 'light' },
-    pages,
-    ui: { activePageId: pages.some((page) => page.id === parsed.ui?.activePageId) ? parsed.ui?.activePageId ?? pages[0]?.id ?? null : pages[0]?.id ?? null },
-    meta: { ...(parsed.meta ?? {}), workspaceSlug, importedAt: new Date().toISOString() }
+    ...state,
+    meta: { ...state.meta, workspaceSlug, importedAt: new Date().toISOString() }
   };
 }
 
 function flowceanValidBlockType(value: unknown): FlowceanBlockType {
+  if (value === 'heading1') {
+    return 'h1';
+  }
+
+  if (value === 'heading2') {
+    return 'h2';
+  }
+
+  if (value === 'heading3') {
+    return 'h3';
+  }
+
+  if (value === 'image' || value === 'file' || value === 'database') {
+    return 'callout';
+  }
+
   const types: FlowceanBlockType[] = ['paragraph', 'h1', 'h2', 'h3', 'todo', 'bullet', 'numbered', 'quote', 'callout', 'code', 'divider'];
   return types.includes(value as FlowceanBlockType) ? value as FlowceanBlockType : 'paragraph';
 }
