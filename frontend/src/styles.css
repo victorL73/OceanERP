@@ -2116,9 +2116,19 @@ button.drive-main {
 .drive-grid .drive-main {
   display: grid;
   min-width: 0;
+  width: 100%;
   flex: none;
   justify-items: start;
   gap: 10px;
+}
+
+.drive-grid .drive-main span {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .drive-grid .drive-main > svg {
