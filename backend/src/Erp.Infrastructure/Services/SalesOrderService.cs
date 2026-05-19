@@ -237,7 +237,7 @@ public sealed class SalesOrderService(
         var externalOrderId = await GetPrestashopExternalOrderIdAsync(order.Id, cancellationToken);
         if (string.IsNullOrWhiteSpace(externalOrderId))
         {
-            return await GenerateColissimoFallbackLabelAsync(order, "Cette commande n'est pas reliee a une commande PrestaShop.", cancellationToken);
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Etiquette Colissimo introuvable : cette commande n'est pas reliee a une commande PrestaShop.");
         }
 
         var connection = await db.PrestashopConnections
@@ -246,13 +246,13 @@ public sealed class SalesOrderService(
             .FirstOrDefaultAsync(cancellationToken);
         if (connection is null)
         {
-            return await GenerateColissimoFallbackLabelAsync(order, "Aucune connexion PrestaShop active n'est configuree.", cancellationToken);
+            return Result<SalesOrderShipmentSlipFileDto>.Failure("Etiquette Colissimo introuvable : aucune connexion PrestaShop active n'est configuree.");
         }
 
         var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
         if (!apiKeyResult.Succeeded)
         {
-            return await GenerateColissimoFallbackLabelAsync(order, apiKeyResult.Error ?? "Cle API PrestaShop non configuree.", cancellationToken);
+            return Result<SalesOrderShipmentSlipFileDto>.Failure($"Etiquette Colissimo introuvable : {apiKeyResult.Error ?? "cle API PrestaShop non configuree."}");
         }
 
         var configuredEndpoint = await TryConfiguredColissimoLabelEndpointAsync(order, externalOrderId, connection, apiKeyResult.Value!, cancellationToken);
@@ -270,34 +270,11 @@ public sealed class SalesOrderService(
         var configuredDetail = configuredEndpoint.Error?.StartsWith("Aucun endpoint", StringComparison.OrdinalIgnoreCase) == false
             ? $"{configuredEndpoint.Error} "
             : string.Empty;
-        return await GenerateColissimoFallbackLabelAsync(
-            order,
-            $"{configuredDetail}Etiquette officielle introuvable via l'API PrestaShop. Si l'etiquette existe deja dans PrestaShop, configurez l'URL d'etiquette Colissimo ou le token du pont dans Parametres > PrestaShop.",
-            cancellationToken);
-    }
-
-    private async Task<Result<SalesOrderShipmentSlipFileDto>> GenerateColissimoFallbackLabelAsync(SalesOrder order, string reason, CancellationToken cancellationToken)
-    {
-        var customer = await db.Customers.Include(x => x.Addresses).FirstOrDefaultAsync(x => x.Id == order.CustomerId, cancellationToken);
-        var address = BuildShippingAddress(order, customer);
-        var lines = await MapLinesAsync(order.Id, cancellationToken);
-        var model = new SalesOrderShipmentSlipPdfModel(
-            order.Number,
-            customer?.CompanyName ?? order.ShippingAddressName ?? "Client",
-            order.ShippingCarrierName ?? order.ShippingServiceName,
-            order.ShippingTrackingNumber,
-            address,
-            lines,
-            order.OrderedAt ?? order.CreatedAt,
-            "Preparation etiquette Colissimo",
-            "Document de preparation genere par OceanERP. Ce document n'est pas une etiquette transporteur officielle.",
-            $"Etiquette Colissimo officielle non disponible depuis l'API PrestaShop. {reason} Generez l'etiquette officielle dans le back-office PrestaShop si necessaire.");
-
-        var content = shipmentPdfService.Generate(model);
-        return Result<SalesOrderShipmentSlipFileDto>.Success(new SalesOrderShipmentSlipFileDto(
-            $"preparation-etiquette-colissimo-{SanitizeFileName(order.Number)}.pdf",
-            "application/pdf",
-            content));
+        var discoveredDetail = !string.IsNullOrWhiteSpace(discoveredResource.Error)
+            ? $" Ressources API testees : {discoveredResource.Error}"
+            : string.Empty;
+        return Result<SalesOrderShipmentSlipFileDto>.Failure(
+            $"{configuredDetail}Etiquette Colissimo officielle introuvable. Verifiez que le module OceanERP Bridge 0.2.0 est installe dans PrestaShop, que le token du pont est renseigne dans Parametres > PrestaShop, et que l'etiquette existe bien cote module Colissimo.{discoveredDetail}");
     }
 
     public async Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken)

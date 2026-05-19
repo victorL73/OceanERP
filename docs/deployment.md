@@ -134,7 +134,7 @@ Le fichier a charger dans PrestaShop est `deploy/prestashop/oceanerpbridge.zip`.
 
 Si le module ne propose qu'un bouton dans le back-office, ouvrir les outils developpeur du navigateur, generer l'etiquette dans PrestaShop, copier l'URL exacte qui telecharge le PDF/ZIP, puis remplacer l'identifiant de commande par `{externalOrderId}` dans le champ `URL etiquette Colissimo`. L'URL de la page `AdminColissimoAffranchissement` seule ne suffit generalement pas : elle affiche l'ecran du module mais ne telecharge pas l'etiquette.
 
-Puis recreer `erp-api` et `nginx`. Sans endpoint expose par le module, l'ERP garde le bouton visible sur les commandes Colissimo et genere un PDF de preparation imprimable. Ce document n'est pas l'etiquette transporteur officielle : l'etiquette officielle reste a creer ou telecharger dans le back-office PrestaShop tant que le module Colissimo ne l'expose pas par URL/API.
+Puis recreer `erp-api` et `nginx`. Sans endpoint expose par le module, l'ERP garde le bouton visible sur les commandes Colissimo mais renvoie une erreur explicite au lieu de generer un PDF de remplacement. L'etiquette officielle reste a creer ou telecharger dans le back-office PrestaShop tant que le module Colissimo ne l'expose pas par URL/API.
 
 ## Commandes utiles
 

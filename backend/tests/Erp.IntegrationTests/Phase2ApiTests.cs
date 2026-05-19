@@ -134,7 +134,7 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
-    public async Task ColissimoLabel_WhenOfficialLabelIsUnavailable_ReturnsPreparationPdf()
+    public async Task ColissimoLabel_WhenOfficialLabelIsUnavailable_ReturnsExplicitError()
     {
         using var client = await CreateAuthenticatedClientAsync();
         var customer = await CreateCustomerAsync(client);
@@ -162,14 +162,10 @@ public sealed class Phase2ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
 
         var labelResponse = await client.GetAsync($"/api/orders/{order!.Id}/colissimo-label");
 
-        Assert.Equal(HttpStatusCode.OK, labelResponse.StatusCode);
-        Assert.Equal("application/pdf", labelResponse.Content.Headers.ContentType?.MediaType);
-        var content = await labelResponse.Content.ReadAsByteArrayAsync();
-        Assert.True(content.Length > 4);
-        Assert.Equal((byte)'%', content[0]);
-        Assert.Equal((byte)'P', content[1]);
-        Assert.Equal((byte)'D', content[2]);
-        Assert.Equal((byte)'F', content[3]);
+        Assert.Equal(HttpStatusCode.BadRequest, labelResponse.StatusCode);
+        var content = await labelResponse.Content.ReadAsStringAsync();
+        Assert.Contains("Etiquette Colissimo introuvable", content);
+        Assert.DoesNotContain("preparation-etiquette-colissimo", content);
     }
 
     [Fact]
