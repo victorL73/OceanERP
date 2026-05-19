@@ -426,6 +426,21 @@ export default function App() {
   }, [currentUser, view]);
 
   useEffect(() => {
+    function handleFlowceanMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.data?.type !== 'oceanerp:logout') {
+        return;
+      }
+
+      api.logout();
+      setCurrentUser(null);
+      setAuthenticated(false);
+    }
+
+    window.addEventListener('message', handleFlowceanMessage);
+    return () => window.removeEventListener('message', handleFlowceanMessage);
+  }, []);
+
+  useEffect(() => {
     if (!isAuthenticated) {
       return;
     }
@@ -655,12 +670,20 @@ export default function App() {
           />
         )}
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} quotes={quotes?.items ?? []} onChanged={() => load('signatures')} />}
-        {view === 'flowcean' && <FlowceanWorkspaceModule />}
+        {view === 'flowcean' && <FlowceanDirectModule />}
         {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
         {view === 'backups' && <Backups archives={backups} onChanged={() => load('backups')} />}
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
     </div>
+  );
+}
+
+function FlowceanDirectModule() {
+  return (
+    <section className="flowcean-direct-shell">
+      <iframe className="flowcean-direct-frame" title="Espace Flowcean" src="/flowcean/index.html" />
+    </section>
   );
 }
 

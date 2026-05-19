@@ -1,0 +1,519 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Erp.Application.Common;
+using Erp.Domain.Auth;
+using Erp.Domain.FutureModules;
+using Erp.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace Erp.Api.Controllers;
+
+[ApiController]
+[Route("api/flowcean/compat")]
+[Authorize]
+public sealed class FlowceanCompatController(ErpDbContext db, ICurrentUserService currentUser) : ControllerBase
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [HttpGet("auth")]
+    public async Task<ActionResult> Auth(CancellationToken cancellationToken)
+    {
+        var user = await CurrentUserAsync(cancellationToken);
+        if (user is null)
+        {
+            return Unauthorized(new { ok = false, authenticated = false, message = "Session OceanERP invalide." });
+        }
+
+        return Ok(new { ok = true, authenticated = true, needsSetup = false, user = await PublicUserAsync(user, cancellationToken) });
+    }
+
+    [HttpPost("auth")]
+    public async Task<ActionResult> LoginFallback(CancellationToken cancellationToken)
+        => await Auth(cancellationToken);
+
+    [HttpDelete("auth")]
+    public ActionResult LogoutFallback()
+        => Ok(new { ok = true, authenticated = false });
+
+    [HttpGet("workspace")]
+    [Authorize(Policy = "flowcean.read")]
+    public async Task<ActionResult> GetWorkspace([FromQuery] string? slug, CancellationToken cancellationToken)
+    {
+        var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(slug), cancellationToken);
+        return Ok(await WorkspacePayloadAsync(workspace, cancellationToken));
+    }
+
+    [HttpPut("workspace")]
+    [HttpPost("workspace")]
+    [Authorize(Policy = "flowcean.write")]
+    public async Task<ActionResult> SaveWorkspace([FromQuery] string? slug, FlowceanCompatSaveRequest request, CancellationToken cancellationToken)
+    {
+        var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(slug), cancellationToken);
+        var expectedVersion = request.ExpectedVersion;
+        if (expectedVersion is not null && expectedVersion.Value != workspace.Version)
+        {
+            var conflictPayload = await WorkspacePayloadAsync(workspace, cancellationToken);
+            return StatusCode(StatusCodes.Status409Conflict, new
+            {
+                ok = false,
+                error = "version_conflict",
+                message = "L'espace a ete modifie ailleurs. Rechargez avant d'enregistrer.",
+                conflictPayload.workspace,
+                conflictPayload.meta
+            });
+        }
+
+        if (request.State.ValueKind is not JsonValueKind.Object)
+        {
+            return BadRequest(new { ok = false, message = "Etat Flowcean invalide." });
+        }
+
+        workspace.Name = string.IsNullOrWhiteSpace(request.Name) ? workspace.Name : request.Name.Trim();
+        workspace.DataJson = request.State.GetRawText();
+        workspace.Version += 1;
+
+        db.FlowceanWorkspaceEvents.Add(new FlowceanWorkspaceEvent
+        {
+            FlowceanWorkspaceId = workspace.Id,
+            ActorUserId = currentUser.UserId,
+            EventType = "workspace.saved",
+            PayloadJson = JsonSerializer.Serialize(new { workspace.Version, request.ClientId }, JsonOptions)
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(await WorkspacePayloadAsync(workspace, cancellationToken));
+    }
+
+    [HttpGet("workspaces")]
+    [Authorize(Policy = "flowcean.read")]
+    public async Task<ActionResult> GetWorkspaces([FromQuery] string? slug, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(slug))
+        {
+            var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(slug), cancellationToken);
+            return Ok(new
+            {
+                ok = true,
+                workspace = PublicWorkspace(workspace, await IsCurrentUserAdminAsync(cancellationToken)),
+                members = await WorkspaceMembersAsync(workspace, cancellationToken),
+                invitations = Array.Empty<object>()
+            });
+        }
+
+        await FindOrCreateWorkspaceAsync("main", cancellationToken);
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        var workspaces = await db.FlowceanWorkspaces
+            .AsNoTracking()
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ThenBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+        return Ok(new
+        {
+            ok = true,
+            workspaces = workspaces.Select(workspace => PublicWorkspace(workspace, isAdmin)).ToList(),
+            deletedWorkspaces = Array.Empty<object>(),
+            pendingInvitations = Array.Empty<object>(),
+            preferredWorkspaceSlug = workspaces.FirstOrDefault(x => x.Slug == "main")?.Slug ?? workspaces.FirstOrDefault()?.Slug
+        });
+    }
+
+    [HttpPost("workspaces")]
+    [Authorize(Policy = "flowcean.write")]
+    public async Task<ActionResult> WorkspaceAction(FlowceanCompatWorkspaceAction request, CancellationToken cancellationToken)
+    {
+        var action = request.Action?.Trim().ToLowerInvariant();
+        if (action == "create")
+        {
+            var name = string.IsNullOrWhiteSpace(request.Name) ? "Nouvel espace" : request.Name.Trim();
+            var slug = await UniqueSlugAsync(Slugify(name), cancellationToken);
+            var workspace = new FlowceanWorkspace
+            {
+                Name = name,
+                Slug = slug,
+                OwnerUserId = currentUser.UserId,
+                DataJson = CreateDefaultFlowceanState(name, slug),
+                Version = 1
+            };
+
+            db.FlowceanWorkspaces.Add(workspace);
+            await db.SaveChangesAsync(cancellationToken);
+            var directory = await GetDirectoryPayloadAsync(slug, cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, directory);
+        }
+
+        if (action is "delete_workspace")
+        {
+            var workspace = await db.FlowceanWorkspaces.FirstOrDefaultAsync(x => x.Slug == NormalizeSlug(request.WorkspaceSlug), cancellationToken);
+            if (workspace is not null && workspace.Slug != "main")
+            {
+                db.FlowceanWorkspaces.Remove(workspace);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            return Ok(await GetDirectoryPayloadAsync("main", cancellationToken));
+        }
+
+        if (action is "restore_workspace")
+        {
+            return Ok(await GetDirectoryPayloadAsync(NormalizeSlug(request.WorkspaceSlug), cancellationToken));
+        }
+
+        if (action is "invite" or "update_member_role" or "remove_member")
+        {
+            var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(request.WorkspaceSlug), cancellationToken);
+            return Ok(new
+            {
+                ok = true,
+                workspace = PublicWorkspace(workspace, await IsCurrentUserAdminAsync(cancellationToken)),
+                members = await WorkspaceMembersAsync(workspace, cancellationToken),
+                invitations = Array.Empty<object>()
+            });
+        }
+
+        if (action is "accept_invite" or "decline_invite")
+        {
+            return Ok(await GetDirectoryPayloadAsync("main", cancellationToken));
+        }
+
+        return BadRequest(new { ok = false, message = "Action Flowcean non reconnue." });
+    }
+
+    [HttpGet("preferences")]
+    public ActionResult GetPreferences()
+        => Ok(new { ok = true, userPreferences = DefaultPreferences(), meta = new { exists = false, updatedAt = (string?)null } });
+
+    [HttpPut("preferences")]
+    [HttpPost("preferences")]
+    public ActionResult SavePreferences(FlowceanCompatPreferencesRequest request)
+        => Ok(new { ok = true, userPreferences = request.Preferences.ValueKind == JsonValueKind.Object ? request.Preferences : DefaultPreferences(), meta = new { exists = true, updatedAt = DateTimeOffset.UtcNow } });
+
+    [HttpGet("people")]
+    public async Task<ActionResult> People(CancellationToken cancellationToken)
+    {
+        var users = await db.Users
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.DisplayName)
+            .ThenBy(x => x.Email)
+            .ToListAsync(cancellationToken);
+
+        return Ok(new { ok = true, users = users.Select(PublicDirectoryUser).ToList() });
+    }
+
+    [HttpGet("users")]
+    public async Task<ActionResult> Users(CancellationToken cancellationToken)
+        => await People(cancellationToken);
+
+    [HttpPost("presence")]
+    public async Task<ActionResult> Presence([FromQuery] string? workspaceSlug, CancellationToken cancellationToken)
+    {
+        var user = await CurrentUserAsync(cancellationToken);
+        return Ok(new
+        {
+            ok = true,
+            workspaceSlug = NormalizeSlug(workspaceSlug),
+            presence = user is null ? Array.Empty<object>() : new[] { new { user = PublicDirectoryUser(user), status = "online", lastSeenAt = DateTimeOffset.UtcNow } }
+        });
+    }
+
+    [HttpGet("notifications")]
+    public ActionResult Notifications()
+        => Ok(new { ok = true, notifications = Array.Empty<object>(), unreadCount = 0 });
+
+    [HttpPost("notifications")]
+    public ActionResult UpdateNotifications()
+        => Ok(new { ok = true, notifications = Array.Empty<object>(), unreadCount = 0 });
+
+    [HttpGet("realtime")]
+    public ActionResult Realtime()
+        => Ok(new { ok = true, realtime = false });
+
+    [HttpGet("ai")]
+    public ActionResult GetAi()
+        => Ok(new { ok = true, enabled = false, message = "Assistant IA non configure dans OceanERP." });
+
+    [HttpPost("ai")]
+    public ActionResult PostAi()
+        => Ok(new { ok = true, text = "Assistant IA non configure dans OceanERP." });
+
+    private async Task<dynamic> WorkspacePayloadAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
+    {
+        var state = ParseState(workspace.DataJson);
+        return new
+        {
+            ok = true,
+            workspace = state,
+            meta = WorkspaceMeta(workspace, await IsCurrentUserAdminAsync(cancellationToken)),
+            userPreferences = DefaultPreferences(),
+            userPreferencesMeta = new { exists = false, updatedAt = (string?)null }
+        };
+    }
+
+    private async Task<object> GetDirectoryPayloadAsync(string? preferredSlug, CancellationToken cancellationToken)
+    {
+        await FindOrCreateWorkspaceAsync("main", cancellationToken);
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        var workspaces = await db.FlowceanWorkspaces
+            .AsNoTracking()
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ThenBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+        return new
+        {
+            ok = true,
+            workspaces = workspaces.Select(workspace => PublicWorkspace(workspace, isAdmin)).ToList(),
+            deletedWorkspaces = Array.Empty<object>(),
+            pendingInvitations = Array.Empty<object>(),
+            preferredWorkspaceSlug = string.IsNullOrWhiteSpace(preferredSlug) ? workspaces.FirstOrDefault()?.Slug : NormalizeSlug(preferredSlug)
+        };
+    }
+
+    private async Task<FlowceanWorkspace> FindOrCreateWorkspaceAsync(string? slug, CancellationToken cancellationToken)
+    {
+        var normalizedSlug = NormalizeSlug(slug);
+        var workspace = await db.FlowceanWorkspaces.FirstOrDefaultAsync(x => x.Slug == normalizedSlug, cancellationToken);
+        if (workspace is not null)
+        {
+            return workspace;
+        }
+
+        if (normalizedSlug != "main")
+        {
+            var main = await db.FlowceanWorkspaces.FirstOrDefaultAsync(x => x.Slug == "main", cancellationToken);
+            if (main is not null)
+            {
+                return main;
+            }
+        }
+
+        workspace = new FlowceanWorkspace
+        {
+            Name = "RenovBoat",
+            Slug = "main",
+            OwnerUserId = currentUser.UserId,
+            DataJson = CreateDefaultFlowceanState("RenovBoat", "main"),
+            Version = 1
+        };
+
+        db.FlowceanWorkspaces.Add(workspace);
+        await db.SaveChangesAsync(cancellationToken);
+        return workspace;
+    }
+
+    private async Task<List<object>> WorkspaceMembersAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
+    {
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        var users = await db.Users
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.DisplayName)
+            .ThenBy(x => x.Email)
+            .ToListAsync(cancellationToken);
+
+        return users.Select(user => new
+        {
+            id = FlowceanUserId(user.Id),
+            email = user.Email,
+            displayName = user.DisplayName,
+            role = isAdmin ? "admin" : "member",
+            workspaceRole = user.Id == workspace.OwnerUserId || isAdmin ? "owner" : "editor",
+            isActive = user.IsActive,
+            joinedAt = user.CreatedAt
+        }).Cast<object>().ToList();
+    }
+
+    private async Task<User?> CurrentUserAsync(CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is Guid userId)
+        {
+            return await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        }
+
+        return string.IsNullOrWhiteSpace(currentUser.Email)
+            ? null
+            : await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Email == currentUser.Email, cancellationToken);
+    }
+
+    private async Task<object?> PublicUserAsync(User user, CancellationToken cancellationToken)
+    {
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        return new
+        {
+            id = FlowceanUserId(user.Id),
+            email = user.Email,
+            displayName = user.DisplayName,
+            role = isAdmin ? "super" : "member",
+            isActive = user.IsActive,
+            createdAt = user.CreatedAt,
+            permissions = AdminPermissions(isAdmin)
+        };
+    }
+
+    private static object PublicDirectoryUser(User user)
+        => new
+        {
+            id = FlowceanUserId(user.Id),
+            email = user.Email,
+            displayName = user.DisplayName,
+            role = "member",
+            isActive = user.IsActive,
+            createdAt = user.CreatedAt
+        };
+
+    private static object PublicWorkspace(FlowceanWorkspace workspace, bool isAdmin)
+        => new
+        {
+            slug = workspace.Slug,
+            name = workspace.Name,
+            version = workspace.Version,
+            updatedAt = workspace.UpdatedAt ?? workspace.CreatedAt,
+            createdAt = workspace.CreatedAt,
+            memberRole = isAdmin ? "owner" : "editor",
+            permissions = WorkspacePermissions(isAdmin),
+            isPersonal = workspace.IsPersonal
+        };
+
+    private static object WorkspaceMeta(FlowceanWorkspace workspace, bool isAdmin)
+        => new
+        {
+            slug = workspace.Slug,
+            name = workspace.Name,
+            version = workspace.Version,
+            updatedAt = workspace.UpdatedAt ?? workspace.CreatedAt,
+            createdAt = workspace.CreatedAt,
+            created = false,
+            memberRole = isAdmin ? "owner" : "editor",
+            permissions = WorkspacePermissions(isAdmin),
+            isPersonal = workspace.IsPersonal
+        };
+
+    private static object WorkspacePermissions(bool isAdmin)
+        => new
+        {
+            canView = true,
+            canEdit = true,
+            canInvite = isAdmin,
+            canManageMembers = isAdmin,
+            canManageWorkspace = isAdmin,
+            canDeleteWorkspace = isAdmin
+        };
+
+    private static object AdminPermissions(bool isAdmin)
+        => new
+        {
+            canManageUsers = isAdmin,
+            canCreateAdmins = isAdmin,
+            canManageWorkspace = isAdmin,
+            canAccessAllWorkspaces = isAdmin,
+            canSuperviseEverything = isAdmin
+        };
+
+    private async Task<bool> IsCurrentUserAdminAsync(CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is not Guid userId)
+        {
+            return false;
+        }
+
+        return await db.UserRoles
+            .AsNoTracking()
+            .AnyAsync(x => x.UserId == userId && x.Role != null && x.Role.Name == "Administrator", cancellationToken);
+    }
+
+    private static JsonElement ParseState(string dataJson)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<JsonElement>(dataJson);
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.Deserialize<JsonElement>("{}");
+        }
+    }
+
+    private static object DefaultPreferences()
+        => new { favoritePageIds = Array.Empty<string>(), initialized = false };
+
+    private async Task<string> UniqueSlugAsync(string baseSlug, CancellationToken cancellationToken)
+    {
+        var root = string.IsNullOrWhiteSpace(baseSlug) ? "workspace" : baseSlug;
+        var slug = root;
+        var suffix = 2;
+        while (await db.FlowceanWorkspaces.AnyAsync(x => x.Slug == slug, cancellationToken))
+        {
+            slug = $"{root}-{suffix++}";
+        }
+
+        return slug;
+    }
+
+    private static string NormalizeSlug(string? slug)
+        => Slugify(string.IsNullOrWhiteSpace(slug) ? "main" : slug);
+
+    private static string Slugify(string value)
+    {
+        var lower = value.Trim().ToLowerInvariant();
+        var cleaned = Regex.Replace(lower, @"[^a-z0-9]+", "-").Trim('-');
+        return string.IsNullOrWhiteSpace(cleaned) ? "workspace" : cleaned[..Math.Min(cleaned.Length, 100)];
+    }
+
+    private static int FlowceanUserId(Guid id)
+    {
+        var value = Math.Abs(BitConverter.ToInt32(id.ToByteArray(), 0));
+        return value == 0 ? 1 : value;
+    }
+
+    private static string CreateDefaultFlowceanState(string name, string slug)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var state = new
+        {
+            workspace = new { name, theme = "dark" },
+            ui = new { activePageId = "page-welcome" },
+            meta = new { workspaceSlug = slug, source = "oceanerp-flowcean-direct" },
+            pages = new object[]
+            {
+                new
+                {
+                    id = "page-welcome",
+                    parentId = (string?)null,
+                    title = "Accueil OceanERP",
+                    icon = "OE",
+                    favorite = true,
+                    expanded = true,
+                    kind = "document",
+                    updatedAt = now,
+                    deletedAt = (long?)null,
+                    blocks = new object[]
+                    {
+                        new { id = "block-title", type = "h1", text = "Espace de travail collaboratif" },
+                        new { id = "block-intro", type = "paragraph", text = "Organisez les pages, listes, tableaux, decisions et suivis internes dans OceanERP." },
+                        new { id = "block-risk", type = "callout", text = "Ce module utilise directement Flowcean et enregistre les donnees dans PostgreSQL OceanERP." },
+                        new { id = "block-todo", type = "todo", text = "Adapter les pages aux methodes de l'entreprise", @checked = false }
+                    },
+                    database = (object?)null
+                }
+            }
+        };
+
+        return JsonSerializer.Serialize(state, JsonOptions);
+    }
+}
+
+public sealed record FlowceanCompatSaveRequest(JsonElement State, int? ExpectedVersion, string? Name, string? ClientId);
+
+public sealed record FlowceanCompatWorkspaceAction(
+    string? Action,
+    string? Name,
+    string? WorkspaceSlug,
+    int? UserId,
+    string? Email,
+    string? Role,
+    int? InvitationId);
+
+public sealed record FlowceanCompatPreferencesRequest(JsonElement Preferences);

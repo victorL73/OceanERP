@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OceanERP - Espace</title>
+  <link rel="stylesheet" href="assets/style.css?v=20260428-layout">
+</head>
+<body>
+  <section class="auth-screen" id="auth-screen">
+    <div class="auth-panel">
+      <div class="auth-brand">
+        <div class="brand-badge auth-badge">FL</div>
+        <div>
+          <p class="workspace-kicker">Accès sécurisé</p>
+          <h1 class="workspace-name">Flowcean</h1>
+        </div>
+      </div>
+
+      <div class="auth-copy">
+        <p class="hero-kicker" id="auth-kicker">Connexion requise</p>
+        <h2 class="hero-title" id="auth-title">Connectez-vous à Flowcean</h2>
+        <p class="auth-subtitle" id="auth-subtitle">Vous devez être authentifié avant d'accéder à l'espace de travail.</p>
+      </div>
+
+      <form class="auth-form" id="auth-form">
+        <label class="auth-field hidden" id="auth-name-field">
+          <span>Nom affiché</span>
+          <input type="text" id="auth-name" autocomplete="name" placeholder="Ex: Admin Flowcean">
+        </label>
+
+        <label class="auth-field">
+          <span>Email</span>
+          <input type="email" id="auth-email" autocomplete="username" placeholder="admin@flowcean.local" required>
+        </label>
+
+        <label class="auth-field">
+          <span>Mot de passe</span>
+          <input type="password" id="auth-password" autocomplete="current-password" placeholder="Au moins 8 caractères" required>
+        </label>
+
+        <button class="primary-button auth-submit" id="auth-submit" type="submit">Se connecter</button>
+      </form>
+
+      <div class="auth-message hidden" id="auth-message"></div>
+      <div class="auth-note" id="auth-note">Seuls les utilisateurs autorisés peuvent entrer dans Flowcean.</div>
+    </div>
+  </section>
+
+  <div class="app-shell hidden" id="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="workspace-brand">
+          <button class="brand-badge" id="brand-home" type="button">FL</button>
+          <div>
+            <p class="workspace-kicker" id="workspace-kicker-label">Workspace</p>
+            <h1 class="workspace-name" id="workspace-brand-name">Flowcean</h1>
+          </div>
+        </div>
+        <button class="ghost-icon mobile-only" id="close-sidebar" type="button" aria-label="Fermer le menu">✕</button>
+      </div>
+
+      <div class="sidebar-tools">
+        <button class="primary-button" id="new-page-launcher" type="button">+ Nouveau</button>
+      </div>
+
+      <div class="sidebar-quick-actions">
+        <button class="sidebar-link" id="open-search" type="button">⌕ Rechercher</button>
+        <button class="sidebar-link" id="open-templates" type="button">◫ Modèles</button>
+        <button class="sidebar-link" id="trigger-import" type="button">⇪ Importer</button>
+        <button class="sidebar-link" id="trigger-export" type="button">⇩ Exporter</button>
+      </div>
+
+      <div class="sidebar-scroll">
+        <section class="sidebar-section">
+          <div class="section-heading">
+            <span>Favoris</span>
+          </div>
+          <div id="favorites-list" class="nav-list empty-aware"></div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-heading">
+            <span>Espace</span>
+            <button class="section-action" id="new-root-page" type="button">+</button>
+          </div>
+          <div id="page-tree" class="tree-root"></div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-heading">
+            <span>Récents</span>
+          </div>
+          <div id="recent-list" class="nav-list empty-aware"></div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-heading">
+            <span>Corbeille</span>
+          </div>
+          <div id="trash-list" class="nav-list empty-aware"></div>
+        </section>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="storage-chip" id="storage-chip">Connexion serveur...</div>
+        <div class="footer-actions">
+          <button class="footer-button" id="toggle-theme" type="button">☼ Thème</button>
+          <button class="footer-button" id="open-help" type="button">? Aide</button>
+        </div>
+      </div>
+      <button class="sidebar-resize-handle" id="sidebar-resize-handle" type="button" aria-label="Redimensionner la barre laterale"></button>
+    </aside>
+
+    <main class="workspace-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="ghost-icon mobile-only" id="open-sidebar" type="button" aria-label="Ouvrir le menu">☰</button>
+          <div id="breadcrumbs" class="breadcrumbs"></div>
+        </div>
+
+        <div class="topbar-right">
+          <span class="user-chip hidden" id="current-user-chip"></span>
+          <button class="topbar-button menu-only" id="workspace-button" type="button">Espaces</button>
+          <button class="topbar-button menu-only" id="share-workspace-button" type="button">Partager</button>
+          <button class="topbar-button menu-only hidden" id="admin-button" type="button">Admin</button>
+          <button class="topbar-button" id="search-button" type="button">⌕ Rechercher</button>
+          <button class="topbar-button" id="template-button" type="button">Modèles</button>
+          <button class="topbar-button" id="duplicate-page" type="button">Dupliquer</button>
+          <button class="topbar-button" id="logout-button" type="button">Déconnexion</button>
+          <button class="topbar-button danger-soft" id="delete-page" type="button">Corbeille</button>
+        </div>
+      </header>
+
+      <section class="status-bar">
+        <div class="status-line">
+          <div class="status-meta">
+            <span class="pill" id="page-kind-badge">Page</span>
+            <span class="status-text" id="page-updated">Mis à jour localement</span>
+          </div>
+          <div class="live-presence-bar" id="live-presence-bar"></div>
+        </div>
+        <div class="view-switcher hidden" id="view-switcher"></div>
+      </section>
+
+      <section class="workspace-content">
+        <article class="page-surface">
+          <div class="page-hero" id="page-hero">
+            <div class="hero-icon" id="page-icon-display">🌿</div>
+            <div class="hero-copy">
+              <p class="hero-kicker">Workspace local Flowcean</p>
+              <h2 class="hero-title" id="hero-title">Bienvenue</h2>
+            </div>
+            <div class="hero-actions">
+              <button class="hero-button" id="cycle-icon" type="button">Changer l'icône</button>
+              <button class="hero-button" id="toggle-favorite" type="button">☆ Favori</button>
+            </div>
+          </div>
+
+          <div class="page-header">
+            <input id="page-title" class="page-title-input" type="text" placeholder="Titre de la page">
+            <div class="page-toolbar" id="page-toolbar"></div>
+          </div>
+
+          <div class="page-body" id="page-body"></div>
+        </article>
+
+        <aside class="inspector" id="inspector"></aside>
+      </section>
+    </main>
+  </div>
+
+  <div class="menu hidden" id="context-menu"></div>
+  <div class="menu slash-menu hidden" id="slash-menu"></div>
+
+  <div class="modal hidden" id="modal">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <p class="modal-kicker" id="modal-kicker">Commande</p>
+          <h3 class="modal-title" id="modal-title">Recherche</h3>
+        </div>
+        <button class="ghost-icon" id="close-modal" type="button" aria-label="Fermer la fenêtre">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toast-stack"></div>
+  <input id="import-input" type="file" accept="application/json" hidden>
+
+  <script src="assets/app.js?v=20260428-filters"></script>
+</body>
+</html>
