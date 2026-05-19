@@ -51,7 +51,7 @@ class Oceanerpbridge extends Module
             <form method="post">
                 <div class="panel">
                     <h3>OceanERP Bridge</h3>
-                    <p>Copiez ce token dans la variable PRESTASHOP_COLISSIMO_BRIDGE_TOKEN de OceanERP.</p>
+                    <p>Copiez ce token dans OceanERP, menu Parametres &gt; PrestaShop, sur la connexion de la boutique. Il ne doit pas etre place dans le fichier .env.</p>
                     <div class="form-group">
                         <label for="OCEANERP_BRIDGE_TOKEN">Token de securite</label>
                         <input id="OCEANERP_BRIDGE_TOKEN" name="OCEANERP_BRIDGE_TOKEN" class="form-control" value="' . $token . '" />

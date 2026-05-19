@@ -577,6 +577,8 @@ export type PrestashopConnection = {
   hasApiKey: boolean;
   isActive: boolean;
   warehouseId?: string;
+  colissimoLabelEndpointTemplate?: string;
+  hasColissimoBridgeToken: boolean;
 };
 
 export type PrestashopSyncLog = {

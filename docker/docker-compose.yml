@@ -19,8 +19,6 @@ services:
       Email__EnableSmtpSending: ${EMAIL_ENABLE_SMTP_SENDING:-false}
       OnlyOffice__DocumentServerUrl: ${ONLYOFFICE_DOCUMENT_SERVER_URL:-/onlyoffice}
       OnlyOffice__CallbackSecret: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
-      Prestashop__ColissimoLabelEndpointTemplate: ${PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE:-}
-      Prestashop__ColissimoBridgeToken: ${PRESTASHOP_COLISSIMO_BRIDGE_TOKEN:-}
       Prestashop__AutoSyncEnabled: ${PRESTASHOP_AUTO_SYNC_ENABLED:-true}
       Prestashop__AutoSyncIntervalSeconds: ${PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS:-10}
       Secrets__EncryptionKey: ${SECRETS_ENCRYPTION_KEY:-CHANGE_ME_WITH_64_RANDOM_CHARACTERS_FOR_SECRET_ENCRYPTION}

@@ -44,7 +44,7 @@ internal static class PrestashopSecretProtector
         return Result<string>.Failure("PrestaShop API key is not configured.");
     }
 
-    private static Result<string> UnprotectSecret(IConfiguration configuration, string protectedValue)
+    public static Result<string> UnprotectSecret(IConfiguration configuration, string protectedValue)
     {
         var parts = protectedValue.Split('.');
         if (parts.Length != 4 || parts[0] != "v1")

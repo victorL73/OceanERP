@@ -80,6 +80,11 @@ La migration `PrestashopProtectedApiKey` ajoute :
 
 - `PrestashopConnections.ApiKeyProtectedValue` pour stocker la cle API PrestaShop sous forme protegee, sans exposer la valeur en clair dans les listes API.
 
+La migration `PrestashopColissimoConnectionSettings` ajoute :
+
+- `PrestashopConnections.ColissimoLabelEndpointTemplate` pour stocker l'URL de recuperation d'etiquette Colissimo par boutique.
+- `PrestashopConnections.ColissimoBridgeTokenProtectedValue` pour stocker le token optionnel du module pont Colissimo sous forme protegee en base, sans variable `.env`.
+
 La migration `PrestashopSyncExecutionLog` ajoute :
 
 - `PrestashopSyncLogs.Message`, `StartedAt` et `CompletedAt` pour suivre la file de synchronisation PrestaShop et diagnostiquer les etats `Queued`, `Running`, `Completed` et `Failed`.

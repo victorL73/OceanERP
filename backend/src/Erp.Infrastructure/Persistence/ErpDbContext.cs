@@ -512,6 +512,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.ShopUrl).HasMaxLength(500);
             entity.Property(x => x.ApiKeySecretName).HasMaxLength(160);
             entity.Property(x => x.ApiKeyProtectedValue).HasMaxLength(2000);
+            entity.Property(x => x.ColissimoLabelEndpointTemplate).HasMaxLength(2000);
+            entity.Property(x => x.ColissimoBridgeTokenProtectedValue).HasMaxLength(2000);
             entity.HasIndex(x => x.WarehouseId);
         });
 

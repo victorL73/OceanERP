@@ -1925,8 +1925,11 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
   const [shopUrl, setShopUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  const [colissimoLabelEndpointTemplate, setColissimoLabelEndpointTemplate] = useState('');
+  const [colissimoBridgeToken, setColissimoBridgeToken] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [clearApiKey, setClearApiKey] = useState(false);
+  const [clearColissimoBridgeToken, setClearColissimoBridgeToken] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const selectedConnection = connections.find((connection) => connection.id === selectedId);
@@ -1936,9 +1939,12 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
     if (selectedConnection) {
       setShopUrl(selectedConnection.shopUrl);
       setWarehouseId(selectedConnection.warehouseId ?? '');
+      setColissimoLabelEndpointTemplate(selectedConnection.colissimoLabelEndpointTemplate ?? '');
       setIsActive(selectedConnection.isActive);
       setApiKey('');
+      setColissimoBridgeToken('');
       setClearApiKey(false);
+      setClearColissimoBridgeToken(false);
     }
   }, [selectedConnection]);
 
@@ -1947,10 +1953,25 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
     setMessage(null);
     try {
       if (selectedConnection) {
-        await api.updatePrestashopConnection(selectedConnection.id, { shopUrl, apiKey: apiKey || undefined, isActive, clearApiKey, warehouseId: warehouseId || undefined });
+        await api.updatePrestashopConnection(selectedConnection.id, {
+          shopUrl,
+          apiKey: apiKey || undefined,
+          isActive,
+          clearApiKey,
+          warehouseId: warehouseId || undefined,
+          colissimoLabelEndpointTemplate: colissimoLabelEndpointTemplate || undefined,
+          colissimoBridgeToken: colissimoBridgeToken || undefined,
+          clearColissimoBridgeToken
+        });
         setMessage('Connexion PrestaShop mise a jour.');
       } else {
-        await api.createPrestashopConnection({ shopUrl, apiKey: apiKey || undefined, warehouseId: warehouseId || undefined });
+        await api.createPrestashopConnection({
+          shopUrl,
+          apiKey: apiKey || undefined,
+          warehouseId: warehouseId || undefined,
+          colissimoLabelEndpointTemplate: colissimoLabelEndpointTemplate || undefined,
+          colissimoBridgeToken: colissimoBridgeToken || undefined
+        });
         setMessage('Connexion PrestaShop creee.');
       }
 
@@ -1958,8 +1979,11 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
       setShopUrl('');
       setApiKey('');
       setWarehouseId('');
+      setColissimoLabelEndpointTemplate('');
+      setColissimoBridgeToken('');
       setIsActive(true);
       setClearApiKey(false);
+      setClearColissimoBridgeToken(false);
       await onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Configuration PrestaShop impossible');
@@ -1988,6 +2012,8 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
               </option>
             ))}
           </select>
+          <input className="wide-field" placeholder="URL etiquette Colissimo optionnelle, ex: https://.../label.php?id_order={orderId}" value={colissimoLabelEndpointTemplate} onChange={(event) => setColissimoLabelEndpointTemplate(event.target.value)} />
+          <input type="password" placeholder={selectedConnection?.hasColissimoBridgeToken ? 'Nouveau token pont Colissimo, vide = conserver' : 'Token pont Colissimo optionnel'} value={colissimoBridgeToken} onChange={(event) => setColissimoBridgeToken(event.target.value)} />
           <label className="check-field">
             <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
             Actif
@@ -1998,15 +2024,21 @@ function PrestashopSettings({ connections, warehouses, onChanged }: { connection
               Effacer la cle
             </label>
           )}
+          {selectedConnection?.hasColissimoBridgeToken && (
+            <label className="check-field">
+              <input type="checkbox" checked={clearColissimoBridgeToken} onChange={(event) => setClearColissimoBridgeToken(event.target.checked)} />
+              Effacer token Colissimo
+            </label>
+          )}
           <button className="primary" type="submit">
             <Store size={16} />
             {selectedConnection ? 'Mettre a jour' : 'Ajouter'}
           </button>
         </form>
         {message && <div className="inline-message">{message}</div>}
-        <p className="panel-note">Cet entrepot sert de valeur par defaut lors de l'import de nouveaux produits. Chaque article peut ensuite etre rattache a son propre entrepot depuis la page Stock.</p>
+        <p className="panel-note">La cle API et le token optionnel du pont Colissimo sont proteges en base. Aucune cle PrestaShop n'est a renseigner dans le fichier .env.</p>
       </Panel>
-      <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : 'Entrepot principal automatique', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.isActive ? 'Actif' : 'Inactif'])} />
+      <DataTable columns={['Boutique', 'Entrepot stock', 'Cle API', 'Colissimo', 'Statut']} rows={connections.map((connection) => [connection.shopUrl, connection.warehouseId ? warehouseById.get(connection.warehouseId) ?? connection.warehouseId : 'Entrepot principal automatique', connection.hasApiKey ? 'Configuree' : 'Manquante', connection.colissimoLabelEndpointTemplate || connection.hasColissimoBridgeToken ? 'Configure' : 'Non configure', connection.isActive ? 'Actif' : 'Inactif'])} />
     </>
   );
 }

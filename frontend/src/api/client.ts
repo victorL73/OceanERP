@@ -697,11 +697,11 @@ export class ApiClient {
     return this.request<PrestashopSyncLog[]>('/api/prestashop/sync-logs', { auth: true });
   }
 
-  createPrestashopConnection(payload: { shopUrl: string; apiKey?: string; warehouseId?: string }) {
+  createPrestashopConnection(payload: { shopUrl: string; apiKey?: string; warehouseId?: string; colissimoLabelEndpointTemplate?: string; colissimoBridgeToken?: string }) {
     return this.request<PrestashopConnection>('/api/prestashop/connections', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
-  updatePrestashopConnection(connectionId: string, payload: { shopUrl: string; apiKey?: string; isActive: boolean; clearApiKey: boolean; warehouseId?: string }) {
+  updatePrestashopConnection(connectionId: string, payload: { shopUrl: string; apiKey?: string; isActive: boolean; clearApiKey: boolean; warehouseId?: string; colissimoLabelEndpointTemplate?: string; colissimoBridgeToken?: string; clearColissimoBridgeToken: boolean }) {
     return this.request<PrestashopConnection>(`/api/prestashop/connections/${connectionId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 

@@ -28,6 +28,7 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         var connection = new PrestashopConnection
         {
             ShopUrl = NormalizeShopUrl(request.ShopUrl),
+            ColissimoLabelEndpointTemplate = NormalizeOptional(request.ColissimoLabelEndpointTemplate),
             IsActive = true,
             WarehouseId = request.WarehouseId ?? await GetOrCreateDefaultPrestashopWarehouseIdAsync(cancellationToken)
         };
@@ -38,6 +39,10 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         }
 
         SetApiKey(connection, request.ApiKey, clearApiKey: false);
+        SetProtectedSecret(
+            value => connection.ColissimoBridgeTokenProtectedValue = value,
+            request.ColissimoBridgeToken,
+            clearSecret: false);
         db.PrestashopConnections.Add(connection);
         await db.SaveChangesAsync(cancellationToken);
         return Result<PrestashopConnectionDto>.Success(MapConnection(connection));
@@ -58,6 +63,7 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         }
 
         connection.ShopUrl = NormalizeShopUrl(request.ShopUrl);
+        connection.ColissimoLabelEndpointTemplate = NormalizeOptional(request.ColissimoLabelEndpointTemplate);
         connection.IsActive = request.IsActive;
         connection.WarehouseId = request.WarehouseId ?? await GetOrCreateDefaultPrestashopWarehouseIdAsync(cancellationToken);
         var warehouseValidation = await ValidateWarehouseAsync(connection.WarehouseId, cancellationToken);
@@ -67,6 +73,10 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         }
 
         SetApiKey(connection, request.ApiKey, request.ClearApiKey);
+        SetProtectedSecret(
+            value => connection.ColissimoBridgeTokenProtectedValue = value,
+            request.ColissimoBridgeToken,
+            request.ClearColissimoBridgeToken);
 
         await db.SaveChangesAsync(cancellationToken);
         return Result<PrestashopConnectionDto>.Success(MapConnection(connection));
@@ -175,11 +185,41 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         connection.ApiKeySecretName = "DATABASE_PROTECTED";
     }
 
+    private void SetProtectedSecret(Action<string?> assignProtectedValue, string? secret, bool clearSecret)
+    {
+        if (clearSecret)
+        {
+            assignProtectedValue(null);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            return;
+        }
+
+        assignProtectedValue(PrestashopSecretProtector.ProtectSecret(configuration, secret.Trim()));
+    }
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static bool HasApiKey(PrestashopConnection connection)
         => !string.IsNullOrWhiteSpace(connection.ApiKeyProtectedValue) || !string.IsNullOrWhiteSpace(connection.ApiKeySecretName);
 
+    private static bool HasColissimoBridgeToken(PrestashopConnection connection)
+        => !string.IsNullOrWhiteSpace(connection.ColissimoBridgeTokenProtectedValue);
+
     private static PrestashopConnectionDto MapConnection(PrestashopConnection connection)
-        => new(connection.Id, connection.ShopUrl, connection.ApiKeySecretName, HasApiKey(connection), connection.IsActive, connection.WarehouseId);
+        => new(
+            connection.Id,
+            connection.ShopUrl,
+            connection.ApiKeySecretName,
+            HasApiKey(connection),
+            connection.IsActive,
+            connection.WarehouseId,
+            connection.ColissimoLabelEndpointTemplate,
+            HasColissimoBridgeToken(connection));
 
     private static PrestashopSyncLogDto MapLog(PrestashopSyncLog log)
         => new(log.Id, log.PrestashopConnectionId, log.Status, log.Message, log.CreatedAt, log.StartedAt, log.CompletedAt);

@@ -64,8 +64,6 @@ Variables importantes :
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
 - `EMAIL_ENABLE_SMTP_SENDING`
-- `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE` optionnel, si le module Colissimo expose une URL de recuperation d'etiquette. Variables disponibles : `{shopUrl}`, `{apiBaseUrl}`, `{orderId}`, `{externalOrderId}`, `{orderReference}`, `{orderNumber}`, `{trackingNumber}`. Plusieurs URL peuvent etre separees par `;`.
-- `PRESTASHOP_COLISSIMO_BRIDGE_TOKEN` optionnel, recommande lorsque le Webservice PrestaShop ne publie pas les etiquettes Colissimo. Il doit correspondre au token du module PrestaShop `deploy/prestashop/oceanerpbridge`.
 - `PRESTASHOP_AUTO_SYNC_ENABLED` active la synchronisation PrestaShop automatique serveur.
 - `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS` definit la cadence invisible de synchronisation des produits, clients, commandes, stocks et messages SAV. Valeur par defaut : `10`.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
@@ -100,9 +98,11 @@ Pour l'edition Office, le bouton `Office` du Drive ouvre ONLYOFFICE directement 
 
 Pour imprimer les etiquettes Colissimo officielles depuis l'ERP, le module Colissimo PrestaShop doit exposer un endpoint telechargeable. Quand l'URL est connue, renseigner par exemple :
 
-```env
-PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE=https://boutique.example.com/modules/colissimo/label.php?id_order={orderId}
-```
+1. Aller dans `Parametres > PrestaShop`.
+2. Modifier la connexion de la boutique.
+3. Renseigner `URL etiquette Colissimo` avec une URL de recuperation d'etiquette, par exemple `https://boutique.example.com/modules/colissimo/label.php?id_order={orderId}`.
+
+Variables disponibles dans cette URL : `{shopUrl}`, `{apiBaseUrl}`, `{orderId}`, `{externalOrderId}`, `{orderReference}`, `{orderNumber}`, `{trackingNumber}`. Plusieurs URL peuvent etre separees par `;`.
 
 L'ERP tente aussi les ressources API Colissimo connues, dont `colissimo_ace`, `colissimo_labels` et les variantes de labels. Si le module renvoie un PDF, une image ou un ZIP, le fichier officiel est ouvert directement.
 
@@ -111,11 +111,7 @@ Si aucune ressource API ne contient l'etiquette, installer le pont PrestaShop fo
 1. Copier le dossier `deploy/prestashop/oceanerpbridge` dans le dossier `modules/` de PrestaShop, ou creer le zip avec `powershell -ExecutionPolicy Bypass -File deploy/prestashop/build-oceanerpbridge.ps1` puis l'installer depuis le back-office.
 2. Installer le module `OceanERP Bridge` dans PrestaShop.
 3. Copier son token de securite.
-4. Renseigner le meme token dans `~/OceanERP/deploy/ubuntu/.env` :
-
-```env
-PRESTASHOP_COLISSIMO_BRIDGE_TOKEN=le-token-du-module
-```
+4. Renseigner le meme token dans `Parametres > PrestaShop`, champ `Token pont Colissimo optionnel`.
 
 Avec ce token, OceanERP tente automatiquement :
 
@@ -126,7 +122,7 @@ Avec ce token, OceanERP tente automatiquement :
 
 Le pont lit uniquement les fichiers locaux de PrestaShop, cherche les PDF/ZIP/ZPL Colissimo rattaches a la commande et les renvoie a OceanERP. Aucun fichier binaire n'est stocke dans PostgreSQL.
 
-Si le module ne propose qu'un bouton dans le back-office, ouvrir les outils developpeur du navigateur, generer l'etiquette dans PrestaShop, copier l'URL exacte qui telecharge le PDF/ZIP, puis remplacer l'identifiant de commande par `{externalOrderId}` dans `PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE`. L'URL de la page `AdminColissimoAffranchissement` seule ne suffit generalement pas : elle affiche l'ecran du module mais ne telecharge pas l'etiquette.
+Si le module ne propose qu'un bouton dans le back-office, ouvrir les outils developpeur du navigateur, generer l'etiquette dans PrestaShop, copier l'URL exacte qui telecharge le PDF/ZIP, puis remplacer l'identifiant de commande par `{externalOrderId}` dans le champ `URL etiquette Colissimo`. L'URL de la page `AdminColissimoAffranchissement` seule ne suffit generalement pas : elle affiche l'ecran du module mais ne telecharge pas l'etiquette.
 
 Puis recreer `erp-api` et `nginx`. Sans endpoint expose par le module, l'ERP garde le bouton visible sur les commandes Colissimo et genere un PDF de preparation imprimable. Ce document n'est pas l'etiquette transporteur officielle : l'etiquette officielle reste a creer ou telecharger dans le back-office PrestaShop tant que le module Colissimo ne l'expose pas par URL/API.
 

@@ -272,7 +272,7 @@ public sealed class SalesOrderService(
             : string.Empty;
         return await GenerateColissimoFallbackLabelAsync(
             order,
-            $"{configuredDetail}Etiquette officielle introuvable via l'API PrestaShop. Si l'etiquette existe deja dans PrestaShop, configurez PRESTASHOP_COLISSIMO_LABEL_ENDPOINT_TEMPLATE avec l'URL exposee par le module.",
+            $"{configuredDetail}Etiquette officielle introuvable via l'API PrestaShop. Si l'etiquette existe deja dans PrestaShop, configurez l'URL d'etiquette Colissimo ou le token du pont dans Parametres > PrestaShop.",
             cancellationToken);
     }
 
@@ -360,7 +360,13 @@ public sealed class SalesOrderService(
         string apiKey,
         CancellationToken cancellationToken)
     {
-        var templates = BuildColissimoLabelEndpointTemplates();
+        var bridgeTokenResult = ResolveColissimoBridgeToken(connection);
+        if (!bridgeTokenResult.Succeeded)
+        {
+            return Result<SalesOrderShipmentSlipFileDto>.Failure(bridgeTokenResult.Error!);
+        }
+
+        var templates = BuildColissimoLabelEndpointTemplates(connection, bridgeTokenResult.Value);
         if (templates.Count == 0)
         {
             return Result<SalesOrderShipmentSlipFileDto>.Failure("Aucun endpoint Colissimo n'est configure.");
@@ -373,7 +379,7 @@ public sealed class SalesOrderService(
             var shopRootUrl = GetShopRootUrl(connection.ShopUrl);
             foreach (var endpointTemplate in templates)
             {
-                var url = BuildColissimoLabelUrl(endpointTemplate, apiBaseUrl, shopRootUrl, order, externalOrderId);
+                var url = BuildColissimoLabelUrl(endpointTemplate, apiBaseUrl, shopRootUrl, order, externalOrderId, bridgeTokenResult.Value);
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 AddPrestashopHeaders(request, apiKey, "application/pdf");
 
@@ -921,7 +927,7 @@ public sealed class SalesOrderService(
         return new string(value.Select(x => invalid.Contains(x) ? '-' : x).ToArray());
     }
 
-    private string BuildColissimoLabelUrl(string template, string apiBaseUrl, string shopRootUrl, SalesOrder order, string externalOrderId)
+    private static string BuildColissimoLabelUrl(string template, string apiBaseUrl, string shopRootUrl, SalesOrder order, string externalOrderId, string? bridgeToken)
     {
         var resolved = template
             .Replace("{apiBaseUrl}", apiBaseUrl, StringComparison.OrdinalIgnoreCase)
@@ -931,7 +937,7 @@ public sealed class SalesOrderService(
             .Replace("{orderReference}", Uri.EscapeDataString(order.Number), StringComparison.OrdinalIgnoreCase)
             .Replace("{orderNumber}", Uri.EscapeDataString(order.Number), StringComparison.OrdinalIgnoreCase)
             .Replace("{trackingNumber}", Uri.EscapeDataString(order.ShippingTrackingNumber ?? string.Empty), StringComparison.OrdinalIgnoreCase)
-            .Replace("{bridgeToken}", Uri.EscapeDataString(GetColissimoBridgeToken() ?? string.Empty), StringComparison.OrdinalIgnoreCase);
+            .Replace("{bridgeToken}", Uri.EscapeDataString(bridgeToken ?? string.Empty), StringComparison.OrdinalIgnoreCase);
 
         if (Uri.TryCreate(resolved, UriKind.Absolute, out var absolute))
         {
@@ -941,21 +947,14 @@ public sealed class SalesOrderService(
         return $"{shopRootUrl.TrimEnd('/')}/{resolved.TrimStart('/')}";
     }
 
-    private IReadOnlyList<string> BuildColissimoLabelEndpointTemplates()
+    private static IReadOnlyList<string> BuildColissimoLabelEndpointTemplates(PrestashopConnection connection, string? bridgeToken)
     {
         var templates = new List<string>();
-        var configured = configuration["Prestashop:ColissimoLabelEndpointTemplate"];
-        if (string.IsNullOrWhiteSpace(configured))
+        if (!string.IsNullOrWhiteSpace(connection.ColissimoLabelEndpointTemplate))
         {
-            configured = configuration["Colissimo:LabelEndpointTemplate"];
+            templates.AddRange(SplitConfiguredTemplates(connection.ColissimoLabelEndpointTemplate));
         }
 
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            templates.AddRange(SplitConfiguredTemplates(configured));
-        }
-
-        var bridgeToken = GetColissimoBridgeToken();
         if (!string.IsNullOrWhiteSpace(bridgeToken))
         {
             templates.Add("{shopUrl}/module/oceanerpbridge/colissimolabel?token={bridgeToken}&id_order={orderId}&order_reference={orderNumber}&tracking={trackingNumber}");
@@ -965,8 +964,18 @@ public sealed class SalesOrderService(
         return templates.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private string? GetColissimoBridgeToken()
-        => FirstNonEmpty(configuration["Prestashop:ColissimoBridgeToken"], configuration["Colissimo:BridgeToken"]);
+    private Result<string?> ResolveColissimoBridgeToken(PrestashopConnection connection)
+    {
+        if (string.IsNullOrWhiteSpace(connection.ColissimoBridgeTokenProtectedValue))
+        {
+            return Result<string?>.Success(null);
+        }
+
+        var token = PrestashopSecretProtector.UnprotectSecret(configuration, connection.ColissimoBridgeTokenProtectedValue);
+        return token.Succeeded
+            ? Result<string?>.Success(token.Value)
+            : Result<string?>.Failure("Le token du pont Colissimo configure dans Parametres > PrestaShop ne peut pas etre dechiffre.");
+    }
 
     private static IReadOnlyList<string> SplitConfiguredTemplates(string value)
         => value
