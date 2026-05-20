@@ -901,15 +901,24 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -917,17 +926,33 @@ button {
   cursor: pointer;
 }
 
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+img,
+video,
+canvas,
+iframe {
+  max-width: 100%;
+}
+
 .app-shell {
   display: grid;
-  grid-template-columns: 280px 1fr;
-  height: 100vh;
-  min-height: 100vh;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 100dvh;
+  width: 100%;
   overflow: hidden;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
+  z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -940,10 +965,24 @@ button {
   overflow: hidden;
 }
 
+.mobile-nav-backdrop,
+.mobile-menu-button,
+.sidebar-close {
+  display: none;
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .brand.large {
@@ -1033,15 +1072,25 @@ button {
 
 .workspace {
   min-width: 0;
-  height: 100vh;
+  width: 100%;
+  height: 100dvh;
   padding: 28px;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .workspace-flowcean {
+  position: relative;
   padding: 0;
   overflow: hidden;
   background: #f5f7fb;
+}
+
+.flowcean-mobile-menu {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 35;
 }
 
 .topbar {
@@ -1050,6 +1099,17 @@ button {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.topbar-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+
+.topbar-title > div {
+  min-width: 0;
 }
 
 .eyebrow {
@@ -1063,12 +1123,14 @@ button {
 h1 {
   margin: 0;
   font-size: 30px;
+  overflow-wrap: anywhere;
 }
 
 .top-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .search {
@@ -1076,6 +1138,7 @@ h1 {
   align-items: center;
   gap: 8px;
   width: min(340px, 40vw);
+  max-width: 100%;
   min-height: 40px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
@@ -1845,11 +1908,16 @@ h1 {
 }
 
 .table-surface {
-  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
 }
 
@@ -1948,7 +2016,8 @@ th {
 
 .modal-panel {
   width: min(780px, 100%);
-  max-height: min(720px, calc(100vh - 48px));
+  max-width: calc(100vw - 32px);
+  max-height: min(720px, calc(100dvh - 32px));
   overflow: auto;
   border: 1px solid #dbe3ea;
   border-radius: 8px;
@@ -3170,13 +3239,13 @@ button.drive-main {
 
 .drive-preview-dialog {
   width: min(1120px, calc(100vw - 42px));
-  max-height: min(86vh, 900px);
+  max-height: min(86dvh, 900px);
 }
 
 .drive-preview-body {
   display: grid;
   min-height: 360px;
-  max-height: calc(86vh - 120px);
+  max-height: calc(86dvh - 120px);
   overflow: auto;
   border: 1px solid #dbe3ea;
   border-radius: 8px;
@@ -5512,6 +5581,23 @@ button.drive-main {
   .flowcean-app .flowcean-inspector {
     display: none;
   }
+
+  .meet-layout,
+  .meet-content-grid,
+  .public-meet-layout,
+  .signature-main-card,
+  .flowcean-layout,
+  .notion-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .meet-rooms {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+
+  .notion-inspector {
+    display: none;
+  }
 }
 
 @media (max-width: 760px) {
@@ -5537,59 +5623,179 @@ button.drive-main {
 @media (max-width: 880px) {
   .app-shell {
     grid-template-columns: 1fr;
-    height: auto;
-    overflow: visible;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: block;
+    border: 0;
+    background: rgb(15 23 42 / 0);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease, background 160ms ease;
+  }
+
+  .app-shell.nav-open .mobile-nav-backdrop {
+    background: rgb(15 23 42 / 0.5);
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .sidebar {
-    position: sticky;
+    position: fixed;
     top: 0;
-    z-index: 10;
-    display: block;
-    height: auto;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: min(320px, 88vw);
+    height: 100dvh;
     min-height: 0;
-    overflow: visible;
-    padding: 14px;
+    padding: 18px;
+    overflow: hidden;
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+    box-shadow: 18px 0 40px rgb(15 23 42 / 0.24);
+  }
+
+  .app-shell.nav-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .mobile-menu-button,
+  .sidebar-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    border: 1px solid #dbe3ea;
+    border-radius: 8px;
+    background: #fff;
+    color: #0f172a;
+  }
+
+  .sidebar-close {
+    border-color: rgb(148 163 184 / 0.35);
+    background: rgb(15 23 42 / 0.55);
+    color: #f8fafc;
   }
 
   .nav-list {
-    grid-template-columns: repeat(3, 1fr);
-    margin-top: 14px;
-    overflow: visible;
-    padding-right: 0;
+    grid-template-columns: 1fr;
+    margin-top: 0;
+    overflow-y: auto;
+    padding-right: 2px;
   }
 
   .nav-list button,
   .logout,
   .account-button {
-    justify-content: center;
-  }
-
-  .nav-list span,
-  .logout span,
-  .account-button span,
-  .account-button small {
-    display: none;
+    justify-content: flex-start;
   }
 
   .workspace {
-    height: auto;
-    padding: 18px;
+    height: 100dvh;
+    padding: 16px;
+    overflow-x: hidden;
   }
 
   .topbar {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .topbar-title {
+    align-items: flex-start;
+  }
+
+  h1 {
+    font-size: 26px;
+    line-height: 1.16;
+  }
+
+  .top-actions {
+    width: 100%;
+    align-items: stretch;
   }
 
   .search {
-    width: calc(100vw - 92px);
+    width: 100%;
+    flex: 1 1 auto;
   }
 
   .modal-backdrop {
-    padding: 12px;
+    align-items: stretch;
+    justify-items: stretch;
+    padding: 10px;
   }
 
+  .modal-panel,
+  .product-modal,
+  .customer-modal,
+  .stock-modal,
+  .quote-modal,
+  .order-modal,
+  .email-modal,
+  .calendar-modal,
+  .drive-dialog,
+  .drive-preview-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 20px);
+    padding: 16px;
+  }
+
+  .modal-header,
+  .modal-footer,
+  .modal-actions,
+  .section-heading,
+  .backup-toolbar,
+  .dashboard-editor-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modal-actions,
+  .modal-footer {
+    justify-content: stretch;
+  }
+
+  .modal-actions button,
+  .modal-footer button,
+  .primary,
+  .module-actions button,
+  .table-actions button {
+    width: 100%;
+  }
+
+  .browser-tabs {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(132px, max-content);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 1px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .browser-tabs button {
+    min-width: 132px;
+    white-space: nowrap;
+  }
+
+  .grid.metrics,
+  .dashboard-block-picker,
+  .form-grid,
+  .filter-grid,
+  .email-account-form,
   .product-detail-hero,
   .product-facts,
   .product-edit-form .form-grid,
@@ -5607,13 +5813,34 @@ button.drive-main {
   .signature-signed-row,
   .signature-proof-row,
   .public-signature-layout,
+  .meet-command-grid,
+  .meet-create-form,
+  .meet-layout,
+  .meet-content-grid,
+  .meet-video-grid,
+  .public-meet-layout,
+  .calendar-toolbar,
+  .calendar-event-form,
   .flowcean-toolbar,
   .flowcean-layout,
   .flowcean-page-head,
   .flowcean-block,
   .flowcean-board,
-  .flowcean-gantt-row {
+  .flowcean-gantt-row,
+  .notion-shell,
+  .notion-topbar,
+  .notion-block,
+  .notion-page-head,
+  .notion-db-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .panel,
+  .metric-card,
+  .table-surface,
+  .drive-row,
+  .notification {
+    min-width: 0;
   }
 
   .quote-line-row > .field:first-child,
@@ -5627,5 +5854,124 @@ button.drive-main {
 
   .product-image-frame {
     min-height: 220px;
+  }
+
+  table {
+    min-width: 640px;
+  }
+
+  .drive-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
+
+  .drive-grid .drive-row {
+    min-height: auto;
+  }
+
+  .drive-grid .drive-thumb,
+  .drive-grid .drive-file-icon {
+    height: 112px;
+  }
+
+  .calendar-month-grid {
+    grid-template-columns: repeat(7, minmax(104px, 1fr));
+  }
+
+  .calendar-timeline {
+    overflow-x: auto;
+  }
+
+  .calendar-timeline.week {
+    min-width: 760px;
+  }
+
+  .meet-stage-header,
+  .public-meet-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .meet-video-tile {
+    min-height: 210px;
+  }
+
+  .email-modal .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .workspace {
+    padding: 12px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  .grid.metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .top-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 40px;
+  }
+
+  .icon-button {
+    width: 40px;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+
+  .browser-tabs {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+  }
+
+  .drive-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .drive-grid .drive-row {
+    padding: 10px;
+  }
+
+  .drive-grid .drive-thumb,
+  .drive-grid .drive-file-icon {
+    height: 96px;
+  }
+
+  .drive-row {
+    align-items: stretch;
+  }
+
+  .drive-row .table-actions,
+  .drive-row .module-actions {
+    width: 100%;
+  }
+
+  .modal-panel,
+  .product-modal,
+  .customer-modal,
+  .stock-modal,
+  .quote-modal,
+  .order-modal,
+  .email-modal {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 420px) {
+  .drive-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    width: 92vw;
   }
 }

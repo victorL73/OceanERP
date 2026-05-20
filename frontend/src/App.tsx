@@ -147,6 +147,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(api.user);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -539,6 +540,10 @@ export default function App() {
     storeChoice('oceanerp.activeView', view);
   }, [view]);
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [view]);
+
   if (publicSignatureToken) {
     return <PublicSignaturePage token={publicSignatureToken} />;
   }
@@ -559,14 +564,25 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={mobileNavOpen ? 'app-shell nav-open' : 'app-shell'}>
+      <button
+        className="mobile-nav-backdrop"
+        type="button"
+        aria-label="Fermer le menu"
+        onClick={() => setMobileNavOpen(false)}
+      />
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">OE</div>
-          <div>
-            <strong>OceanERP</strong>
-            <span>Gestion commerciale</span>
+        <div className="sidebar-head">
+          <div className="brand">
+            <div className="brand-mark">OE</div>
+            <div>
+              <strong>OceanERP</strong>
+              <span>Gestion commerciale</span>
+            </div>
           </div>
+          <button className="sidebar-close" type="button" aria-label="Fermer le menu" onClick={() => setMobileNavOpen(false)}>
+            <X size={18} />
+          </button>
         </div>
 
         <nav className="nav-list">
@@ -601,11 +617,21 @@ export default function App() {
       </aside>
 
       <main className={view === 'flowcean' ? 'workspace workspace-flowcean' : 'workspace'}>
+        {view === 'flowcean' && (
+          <button className="mobile-menu-button flowcean-mobile-menu" type="button" aria-label="Ouvrir le menu" onClick={() => setMobileNavOpen(true)}>
+            <List size={19} />
+          </button>
+        )}
         {view !== 'flowcean' && (
           <header className="topbar">
-            <div>
-              <p className="eyebrow">ERP modulaire</p>
-              <h1>{viewLabels[view]}</h1>
+            <div className="topbar-title">
+              <button className="mobile-menu-button" type="button" aria-label="Ouvrir le menu" onClick={() => setMobileNavOpen(true)}>
+                <List size={19} />
+              </button>
+              <div>
+                <p className="eyebrow">ERP modulaire</p>
+                <h1>{viewLabels[view]}</h1>
+              </div>
             </div>
             <div className="top-actions">
               <div className="search">
