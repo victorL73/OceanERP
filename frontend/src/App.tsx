@@ -9435,6 +9435,13 @@ type MeetingRemoteStream = {
   kind: 'camera' | 'screen' | 'media';
 };
 
+type MeetingPeerConnectionState = {
+  connection: RTCPeerConnection;
+  makingOffer: boolean;
+  ignoreOffer: boolean;
+  settingRemoteAnswer: boolean;
+};
+
 type MeetingPeerSignalPayload = {
   description?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
@@ -9462,7 +9469,7 @@ function useMeetingPeerStreams({
   onError: (message: string) => void;
 }) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MeetingRemoteStream[]>>({});
-  const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const peersRef = useRef<Map<string, MeetingPeerConnectionState>>(new Map());
   const processedSignalsRef = useRef<Set<string>>(new Set());
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const sendSignalRef = useRef(sendSignal);
@@ -9492,7 +9499,7 @@ function useMeetingPeerStreams({
   }, [onError]);
 
   const closePeer = useCallback((remoteClientId: string) => {
-    peersRef.current.get(remoteClientId)?.close();
+    peersRef.current.get(remoteClientId)?.connection.close();
     peersRef.current.delete(remoteClientId);
     pendingCandidatesRef.current.delete(remoteClientId);
     setRemoteStreams((current) => {
@@ -9502,17 +9509,36 @@ function useMeetingPeerStreams({
     });
   }, []);
 
-  const addLocalTracks = useCallback((connection: RTCPeerConnection) => {
-    const addedTrackIds = new Set<string>();
-    getLocalStreamsRef.current()
-      .filter((stream): stream is MediaStream => Boolean(stream))
-      .forEach((stream) => {
-        stream.getTracks()
-          .filter((track) => track.readyState === 'live' && !addedTrackIds.has(track.id))
-          .forEach((track) => {
-            addedTrackIds.add(track.id);
-            connection.addTrack(track, stream);
-          });
+  const syncLocalTracks = useCallback((connection: RTCPeerConnection) => {
+    const localTracks = getLocalStreamsRef.current()
+      .flatMap((stream) => stream.getTracks().map((track) => ({ stream, track })))
+      .filter(({ track }) => track.readyState === 'live');
+    const liveTrackIds = new Set(localTracks.map(({ track }) => track.id));
+
+    connection.getSenders()
+      .filter((sender) => sender.track && !liveTrackIds.has(sender.track.id))
+      .forEach((sender) => {
+        try {
+          connection.removeTrack(sender);
+        } catch {
+          // La piste a deja pu etre retiree pendant une reconnexion.
+        }
+      });
+
+    const sentTrackIds = new Set(
+      connection.getSenders()
+        .map((sender) => sender.track?.id)
+        .filter((trackId): trackId is string => Boolean(trackId))
+    );
+
+    localTracks
+      .filter(({ track }) => !sentTrackIds.has(track.id))
+      .forEach(({ stream, track }) => {
+        try {
+          connection.addTrack(track, stream);
+        } catch {
+          // Une double insertion ne doit pas interrompre toute la salle.
+        }
       });
   }, []);
 
@@ -9528,6 +9554,28 @@ function useMeetingPeerStreams({
     }
   }, []);
 
+  const createPeerOffer = useCallback(async (remoteClientId: string, peer: MeetingPeerConnectionState) => {
+    const { connection } = peer;
+    if (peer.makingOffer || connection.signalingState === 'closed') {
+      return;
+    }
+
+    try {
+      peer.makingOffer = true;
+      const offer = await connection.createOffer();
+      if (connection.signalingState !== 'stable') {
+        return;
+      }
+
+      await connection.setLocalDescription(offer);
+      await sendSignalRef.current(remoteClientId, 'offer', { description: connection.localDescription ?? offer });
+    } catch {
+      onErrorRef.current('Offre media Meet non transmise.');
+    } finally {
+      peer.makingOffer = false;
+    }
+  }, []);
+
   const ensurePeer = useCallback((remoteClientId: string) => {
     const existing = peersRef.current.get(remoteClientId);
     if (existing) {
@@ -9540,13 +9588,24 @@ function useMeetingPeerStreams({
     }
 
     const connection = new RTCPeerConnection(meetingRtcConfiguration);
-    peersRef.current.set(remoteClientId, connection);
-    addLocalTracks(connection);
+    const peer: MeetingPeerConnectionState = {
+      connection,
+      makingOffer: false,
+      ignoreOffer: false,
+      settingRemoteAnswer: false
+    };
+    peersRef.current.set(remoteClientId, peer);
+
+    connection.onnegotiationneeded = () => {
+      void createPeerOffer(remoteClientId, peer);
+    };
+
     try {
       connection.createDataChannel('oceanerp-meet-control');
     } catch {
       // Le canal de controle rend les offres WebRTC valides meme sans piste media locale.
     }
+    syncLocalTracks(connection);
 
     connection.onicecandidate = (event) => {
       if (!event.candidate) {
@@ -9580,26 +9639,31 @@ function useMeetingPeerStreams({
 
     connection.onconnectionstatechange = () => {
       if (connection.connectionState === 'failed') {
-        connection.restartIce();
+        try {
+          connection.restartIce();
+        } catch {
+          // Certains WebView/Electron anciens exposent mal restartIce.
+        }
+        void createPeerOffer(remoteClientId, peer);
       }
       if (connection.connectionState === 'closed') {
         closePeer(remoteClientId);
       }
     };
 
-    return connection;
-  }, [addLocalTracks, closePeer]);
+    return peer;
+  }, [closePeer, createPeerOffer, syncLocalTracks]);
 
   useEffect(() => {
     processedSignalsRef.current.clear();
   }, [roomId]);
 
   useEffect(() => {
-    peersRef.current.forEach((connection) => connection.close());
+    peersRef.current.forEach((peer) => peer.connection.close());
     peersRef.current.clear();
     pendingCandidatesRef.current.clear();
     setRemoteStreams({});
-  }, [roomId, mediaRevision]);
+  }, [roomId]);
 
   useEffect(() => {
     if (!roomId) {
@@ -9612,15 +9676,12 @@ function useMeetingPeerStreams({
       .forEach(closePeer);
 
     remoteParticipants.forEach((participant) => {
-      const connection = ensurePeer(participant.clientId);
-      const shouldCreateOffer = mediaRevision > 0 || clientId.localeCompare(participant.clientId) < 0;
-      if (!connection || !shouldCreateOffer) {
-        return;
+      const peer = ensurePeer(participant.clientId);
+      if (peer) {
+        syncLocalTracks(peer.connection);
       }
-
-      void createMeetingOffer(participant.clientId, connection, sendSignalRef.current, onErrorRef.current);
     });
-  }, [clientId, closePeer, ensurePeer, mediaRevision, remoteParticipantKey, roomId]);
+  }, [closePeer, ensurePeer, mediaRevision, remoteParticipantKey, roomId, syncLocalTracks]);
 
   useEffect(() => {
     if (!roomId || signals.length === 0) {
@@ -9634,10 +9695,11 @@ function useMeetingPeerStreams({
         }
 
         processedSignalsRef.current.add(signal.id);
-        const connection = ensurePeer(signal.senderClientId);
-        if (!connection) {
+        const peer = ensurePeer(signal.senderClientId);
+        if (!peer) {
           continue;
         }
+        const { connection } = peer;
 
         const payload = parseMeetingSignalPayload(signal);
         if (!payload) {
@@ -9645,26 +9707,42 @@ function useMeetingPeerStreams({
         }
 
         try {
-          if (signal.signalType === 'offer' && payload.description) {
-            const isPolitePeer = clientId.localeCompare(signal.senderClientId) > 0;
-            if (connection.signalingState !== 'stable') {
-              if (!isPolitePeer) {
+          if (payload.description) {
+            if (payload.description.type === 'answer') {
+              if (connection.signalingState !== 'have-local-offer') {
                 continue;
               }
 
-              await connection.setLocalDescription({ type: 'rollback' });
+              peer.settingRemoteAnswer = true;
+              await connection.setRemoteDescription(new RTCSessionDescription(payload.description));
+              peer.settingRemoteAnswer = false;
+              await flushPendingCandidates(signal.senderClientId, connection);
+              continue;
             }
+
+            if (payload.description.type !== 'offer') {
+              continue;
+            }
+
+            const isPolitePeer = clientId.localeCompare(signal.senderClientId) > 0;
+            const readyForOffer = !peer.makingOffer && (connection.signalingState === 'stable' || peer.settingRemoteAnswer);
+            const offerCollision = !readyForOffer;
+            peer.ignoreOffer = !isPolitePeer && offerCollision;
+            if (peer.ignoreOffer) {
+              continue;
+            }
+
+            peer.ignoreOffer = false;
             await connection.setRemoteDescription(new RTCSessionDescription(payload.description));
             await flushPendingCandidates(signal.senderClientId, connection);
             const answer = await connection.createAnswer();
             await connection.setLocalDescription(answer);
             await sendSignalRef.current(signal.senderClientId, 'answer', { description: connection.localDescription ?? answer });
-          } else if (signal.signalType === 'answer' && payload.description) {
-            if (connection.signalingState !== 'stable') {
-              await connection.setRemoteDescription(new RTCSessionDescription(payload.description));
-              await flushPendingCandidates(signal.senderClientId, connection);
-            }
           } else if (signal.signalType === 'candidate' && payload.candidate) {
+            if (peer.ignoreOffer) {
+              continue;
+            }
+
             if (connection.remoteDescription) {
               await connection.addIceCandidate(new RTCIceCandidate(payload.candidate));
             } else {
@@ -9675,6 +9753,7 @@ function useMeetingPeerStreams({
             }
           }
         } catch {
+          peer.settingRemoteAnswer = false;
           onErrorRef.current('Connexion media Meet interrompue. Relancez la camera ou le partage si besoin.');
         }
       }
@@ -9682,25 +9761,11 @@ function useMeetingPeerStreams({
   }, [clientId, ensurePeer, flushPendingCandidates, roomId, signalKey, signals]);
 
   useEffect(() => () => {
-    peersRef.current.forEach((connection) => connection.close());
+    peersRef.current.forEach((peer) => peer.connection.close());
     peersRef.current.clear();
   }, []);
 
   return remoteStreams;
-}
-
-async function createMeetingOffer(remoteClientId: string, connection: RTCPeerConnection, sendSignal: MeetingPeerSignalSender, onError: (message: string) => void) {
-  if (connection.signalingState !== 'stable') {
-    return;
-  }
-
-  try {
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
-    await sendSignal(remoteClientId, 'offer', { description: connection.localDescription ?? offer });
-  } catch {
-    onError('Offre media Meet non transmise.');
-  }
 }
 
 function parseMeetingSignalPayload(signal: MeetingSignal): MeetingPeerSignalPayload | null {
