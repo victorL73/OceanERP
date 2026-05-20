@@ -136,6 +136,15 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             });
         }
 
+        if (statusChanged && string.Equals(ticket.Status, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            var closeResult = await prestashopService.CloseServiceTicketThreadAsync(ticket.Id, cancellationToken);
+            if (!closeResult.Succeeded)
+            {
+                return Result<ServiceTicketDto>.Failure(closeResult.Error!);
+            }
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));
     }
@@ -187,14 +196,28 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             return Result<ServiceTicketDto>.Failure("Ticket SAV introuvable.");
         }
 
+        var statusChanged = !string.Equals(ticket.Status, nextStatus, StringComparison.OrdinalIgnoreCase);
         ticket.Status = nextStatus;
-        db.ServiceTicketStatusHistories.Add(new ServiceTicketStatusHistory
+
+        if (string.Equals(ticket.Status, "Closed", StringComparison.OrdinalIgnoreCase))
         {
-            ServiceTicketId = ticket.Id,
-            Status = ticket.Status,
-            Comment = NormalizeOptional(request.Comment),
-            ChangedByUserId = currentUser.UserId
-        });
+            var closeResult = await prestashopService.CloseServiceTicketThreadAsync(ticket.Id, cancellationToken);
+            if (!closeResult.Succeeded)
+            {
+                return Result<ServiceTicketDto>.Failure(closeResult.Error!);
+            }
+        }
+
+        if (statusChanged)
+        {
+            db.ServiceTicketStatusHistories.Add(new ServiceTicketStatusHistory
+            {
+                ServiceTicketId = ticket.Id,
+                Status = ticket.Status,
+                Comment = NormalizeOptional(request.Comment),
+                ChangedByUserId = currentUser.UserId
+            });
+        }
 
         await db.SaveChangesAsync(cancellationToken);
         return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));

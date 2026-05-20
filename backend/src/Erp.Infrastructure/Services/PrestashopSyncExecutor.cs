@@ -712,7 +712,9 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
             updated = true;
         }
 
-        if (!string.Equals(ticket.Status, status, StringComparison.OrdinalIgnoreCase))
+        // Une fois le ticket importe, le statut ERP devient la source de verite.
+        // La fermeture vers PrestaShop est publiee par ServiceTicketService.
+        if (string.IsNullOrWhiteSpace(ticket.Status))
         {
             ticket.Status = status;
             updated = true;

@@ -177,6 +177,57 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         }
     }
 
+    public async Task<Result> CloseServiceTicketThreadAsync(Guid serviceTicketId, CancellationToken cancellationToken)
+    {
+        var threadReference = await db.ExternalReferences.FirstOrDefaultAsync(
+            x => x.Provider == Provider && x.Module == CustomerThreadModule && x.EntityId == serviceTicketId,
+            cancellationToken);
+        if (threadReference is null)
+        {
+            return Result.Success();
+        }
+
+        var threadExternalId = ExtractPrestashopId(threadReference, CustomerThreadModule);
+        if (string.IsNullOrWhiteSpace(threadExternalId))
+        {
+            return Result.Failure("Reference PrestaShop SAV invalide.");
+        }
+
+        var connection = await db.PrestashopConnections
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (connection is null)
+        {
+            return Result.Failure("Aucune connexion PrestaShop active n'est configuree.");
+        }
+
+        var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
+        if (!apiKeyResult.Succeeded)
+        {
+            return Result.Failure(apiKeyResult.Error ?? "Cle API PrestaShop non configuree.");
+        }
+
+        try
+        {
+            await PutCustomerThreadStatusAsync(
+                GetApiBaseUrl(connection.ShopUrl),
+                threadExternalId,
+                apiKeyResult.Value!,
+                "closed",
+                cancellationToken);
+            return Result.Success();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure($"Fermeture PrestaShop SAV impossible: {TrimDetail(FullExceptionMessage(ex))}");
+        }
+    }
+
     private async Task<string?> PostCustomerMessageAsync(string apiBaseUrl, string threadExternalId, string apiKey, string body, CancellationToken cancellationToken)
     {
         var document = await GetCustomerMessageSchemaAsync(apiBaseUrl, apiKey, cancellationToken);
@@ -215,6 +266,38 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
             ?.Element("id")
             ?.Value
             ?.Trim();
+    }
+
+    private async Task PutCustomerThreadStatusAsync(string apiBaseUrl, string threadExternalId, string apiKey, string status, CancellationToken cancellationToken)
+    {
+        var document = await GetPrestashopXmlAsync($"{apiBaseUrl}/{CustomerThreadModule}/{threadExternalId}?display=full&output_format=XML", "fil SAV", apiKey, cancellationToken);
+        var existingThread = document.Root?.Element("customer_thread") ?? document.Descendants("customer_thread").FirstOrDefault();
+        if (existingThread is null)
+        {
+            throw new InvalidOperationException("Fil SAV PrestaShop introuvable.");
+        }
+
+        var threadElement = new XElement("customer_thread");
+        foreach (var fieldName in new[] { "id", "id_lang", "id_shop", "id_customer", "id_order", "id_product", "id_contact", "email", "token", "status" })
+        {
+            var value = string.Equals(fieldName, "status", StringComparison.OrdinalIgnoreCase)
+                ? status
+                : existingThread.Element(fieldName)?.Value?.Trim() ?? string.Empty;
+            threadElement.Add(new XElement(fieldName, value));
+        }
+
+        var payload = new XDocument(new XElement("prestashop", threadElement));
+        var httpClient = httpClientFactory.CreateClient(nameof(PrestashopService));
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"{apiBaseUrl}/{CustomerThreadModule}/{threadExternalId}");
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+        request.Content = new StringContent(payload.ToString(SaveOptions.DisableFormatting), Encoding.UTF8, "application/xml");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"PUT fil SAV PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(responseBody)}");
+        }
     }
 
     private async Task<XDocument> GetCustomerMessageSchemaAsync(string apiBaseUrl, string apiKey, CancellationToken cancellationToken)
