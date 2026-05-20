@@ -128,12 +128,18 @@ public interface IMeetingService
     Task<Result<MeetingRoomStateDto>> GetAsync(Guid roomId, string? clientId, DateTimeOffset? since, CancellationToken cancellationToken);
     Task<Result<MeetingRoomStateDto>> CreateAsync(CreateMeetingRoomRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingRoomStateDto>> JoinAsync(JoinMeetingRoomRequest request, CancellationToken cancellationToken);
+    Task<Result<MeetingRoomStateDto>> JoinPublicAsync(JoinMeetingRoomRequest request, CancellationToken cancellationToken);
     Task<Result<string>> EnsureInviteAsync(Guid roomId, CancellationToken cancellationToken);
     Task<Result<MeetingRoomStateDto>> SyncAsync(Guid roomId, SyncMeetingRoomRequest request, CancellationToken cancellationToken);
+    Task<Result<MeetingRoomStateDto>> SyncPublicAsync(string token, SyncMeetingRoomRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingSignalDto>> SendSignalAsync(Guid roomId, SendMeetingSignalRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingTranscriptDto>> AddTranscriptAsync(Guid roomId, AddMeetingTranscriptRequest request, CancellationToken cancellationToken);
+    Task<Result<MeetingTranscriptDto>> AddPublicTranscriptAsync(string token, AddMeetingTranscriptRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingChatMessageDto>> AddChatMessageAsync(Guid roomId, AddMeetingChatMessageRequest request, CancellationToken cancellationToken);
+    Task<Result<MeetingChatMessageDto>> AddPublicChatMessageAsync(string token, AddMeetingChatMessageRequest request, CancellationToken cancellationToken);
     Task<Result> LeaveAsync(Guid roomId, LeaveMeetingRoomRequest request, CancellationToken cancellationToken);
+    Task<Result> LeavePublicAsync(string token, LeaveMeetingRoomRequest request, CancellationToken cancellationToken);
     Task<Result> DeleteAsync(Guid roomId, CancellationToken cancellationToken);
     Task<Result<(Stream Content, string FileName, string MimeType)>> OpenChatAttachmentAsync(Guid messageId, CancellationToken cancellationToken);
+    Task<Result<(Stream Content, string FileName, string MimeType)>> OpenPublicChatAttachmentAsync(string token, Guid messageId, CancellationToken cancellationToken);
 }

@@ -5415,6 +5415,95 @@ button.drive-main {
   color: var(--muted);
 }
 
+.public-meet-screen,
+.public-meet-room {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--text);
+}
+
+.public-meet-screen {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.public-meet-card {
+  display: grid;
+  gap: 24px;
+  width: min(520px, 100%);
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.public-meet-card form {
+  display: grid;
+  gap: 14px;
+}
+
+.public-meet-card h1 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.public-meet-card .brand {
+  align-items: center;
+}
+
+.public-meet-room {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding: 28px;
+}
+
+.public-meet-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 8px;
+}
+
+.public-meet-topbar h1 {
+  margin: 0;
+  font-size: 32px;
+}
+
+.public-meet-topbar span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.public-meet-toolbar {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.public-meet-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+
+.public-meet-layout .meet-video-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.public-meet-side {
+  position: sticky;
+  top: 16px;
+}
+
+.meet-screen-share {
+  border-color: var(--accent);
+}
+
 @media (max-width: 1180px) {
   .flowcean-app {
     grid-template-columns: 260px minmax(0, 1fr);

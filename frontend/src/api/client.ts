@@ -811,12 +811,20 @@ export class ApiClient {
     return this.request<MeetingRoomState>('/api/meetings/rooms/join', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  joinPublicMeetingRoom(payload: { codeOrToken: string; clientId: string; displayName: string; sourceLanguage?: string; targetLanguage?: string; media?: { microphoneEnabled: boolean; cameraEnabled: boolean; screenEnabled: boolean; connectionState?: string | null } | null }) {
+    return this.request<MeetingRoomState>('/api/meetings/public/rooms/join', { method: 'POST', body: JSON.stringify(payload) });
+  }
+
   ensureMeetingInvite(roomId: string) {
     return this.request<{ token: string }>(`/api/meetings/rooms/${roomId}/invite`, { method: 'POST', auth: true });
   }
 
   syncMeetingRoom(roomId: string, payload: { clientId: string; displayName: string; sourceLanguage?: string; targetLanguage?: string; media?: { microphoneEnabled: boolean; cameraEnabled: boolean; screenEnabled: boolean; connectionState?: string | null } | null; since?: string | null }) {
     return this.request<MeetingRoomState>(`/api/meetings/rooms/${roomId}/sync`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  syncPublicMeetingRoom(token: string, payload: { clientId: string; displayName: string; sourceLanguage?: string; targetLanguage?: string; media?: { microphoneEnabled: boolean; cameraEnabled: boolean; screenEnabled: boolean; connectionState?: string | null } | null; since?: string | null }) {
+    return this.request<MeetingRoomState>(`/api/meetings/public/rooms/${encodeURIComponent(token)}/sync`, { method: 'POST', body: JSON.stringify(payload) });
   }
 
   sendMeetingSignal(roomId: string, payload: { senderClientId: string; recipientClientId: string; signalType: string; payloadJson: string }) {
@@ -827,12 +835,24 @@ export class ApiClient {
     return this.request(`/api/meetings/rooms/${roomId}/transcripts`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  addPublicMeetingTranscript(token: string, payload: { clientId: string; speakerName: string; text: string; sourceLanguage?: string; translatedText?: string | null; isFinal?: boolean }) {
+    return this.request(`/api/meetings/public/rooms/${encodeURIComponent(token)}/transcripts`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
   addMeetingChatMessage(roomId: string, payload: { clientId: string; senderName: string; message: string; fileName?: string | null; fileMimeType?: string | null; fileBase64?: string | null }) {
     return this.request(`/api/meetings/rooms/${roomId}/chat`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  addPublicMeetingChatMessage(token: string, payload: { clientId: string; senderName: string; message: string; fileName?: string | null; fileMimeType?: string | null; fileBase64?: string | null }) {
+    return this.request(`/api/meetings/public/rooms/${encodeURIComponent(token)}/chat`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
   leaveMeetingRoom(roomId: string, clientId: string) {
     return this.request<void>(`/api/meetings/rooms/${roomId}/leave`, { method: 'POST', auth: true, body: JSON.stringify({ clientId }) });
+  }
+
+  leavePublicMeetingRoom(token: string, clientId: string) {
+    return this.request<void>(`/api/meetings/public/rooms/${encodeURIComponent(token)}/leave`, { method: 'POST', body: JSON.stringify({ clientId }) });
   }
 
   deleteMeetingRoom(roomId: string) {
@@ -841,6 +861,10 @@ export class ApiClient {
 
   async downloadMeetingAttachment(messageId: string, fileName: string) {
     await this.download(`/api/meetings/chat/${messageId}/attachment`, fileName);
+  }
+
+  async downloadPublicMeetingAttachment(token: string, messageId: string, fileName: string) {
+    await this.download(`/api/meetings/public/chat/${messageId}/attachment?token=${encodeURIComponent(token)}`, fileName);
   }
 
   signatureRequests() {

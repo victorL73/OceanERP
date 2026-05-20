@@ -120,6 +120,21 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
         return Result<MeetingRoomStateDto>.Success(await MapStateAsync(room, request.ClientId, null, cancellationToken));
     }
 
+    public async Task<Result<MeetingRoomStateDto>> JoinPublicAsync(JoinMeetingRoomRequest request, CancellationToken cancellationToken)
+    {
+        var roomResult = await FindPublicRoomAsync(request.CodeOrToken, cancellationToken);
+        if (!roomResult.Succeeded)
+        {
+            return Result<MeetingRoomStateDto>.Failure(roomResult.Error!);
+        }
+
+        var room = roomResult.Value!;
+        room.LastActivityAt = DateTimeOffset.UtcNow;
+        UpsertParticipant(room.Id, request.ClientId, request.DisplayName, request.SourceLanguage, request.TargetLanguage, request.Media);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<MeetingRoomStateDto>.Success(await MapStateAsync(room, request.ClientId, null, cancellationToken));
+    }
+
     public async Task<Result<string>> EnsureInviteAsync(Guid roomId, CancellationToken cancellationToken)
     {
         var room = await db.MeetingRooms.FirstOrDefaultAsync(x => x.Id == roomId, cancellationToken);
@@ -146,6 +161,22 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
             return Result<MeetingRoomStateDto>.Failure("Salle de meeting introuvable.");
         }
 
+        room.LastActivityAt = DateTimeOffset.UtcNow;
+        UpsertParticipant(room.Id, request.ClientId, request.DisplayName, request.SourceLanguage, request.TargetLanguage, request.Media);
+        await CleanupSignalsAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<MeetingRoomStateDto>.Success(await MapStateAsync(room, request.ClientId, request.Since, cancellationToken));
+    }
+
+    public async Task<Result<MeetingRoomStateDto>> SyncPublicAsync(string token, SyncMeetingRoomRequest request, CancellationToken cancellationToken)
+    {
+        var roomResult = await FindPublicRoomAsync(token, cancellationToken);
+        if (!roomResult.Succeeded)
+        {
+            return Result<MeetingRoomStateDto>.Failure(roomResult.Error!);
+        }
+
+        var room = roomResult.Value!;
         room.LastActivityAt = DateTimeOffset.UtcNow;
         UpsertParticipant(room.Id, request.ClientId, request.DisplayName, request.SourceLanguage, request.TargetLanguage, request.Media);
         await CleanupSignalsAsync(cancellationToken);
@@ -181,6 +212,22 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
             return Result<MeetingTranscriptDto>.Failure("Salle de meeting introuvable.");
         }
 
+        return await AddTranscriptForRoomAsync(roomId, request, cancellationToken);
+    }
+
+    public async Task<Result<MeetingTranscriptDto>> AddPublicTranscriptAsync(string token, AddMeetingTranscriptRequest request, CancellationToken cancellationToken)
+    {
+        var roomResult = await FindPublicRoomAsync(token, cancellationToken);
+        if (!roomResult.Succeeded)
+        {
+            return Result<MeetingTranscriptDto>.Failure(roomResult.Error!);
+        }
+
+        return await AddTranscriptForRoomAsync(roomResult.Value!.Id, request, cancellationToken);
+    }
+
+    private async Task<Result<MeetingTranscriptDto>> AddTranscriptForRoomAsync(Guid roomId, AddMeetingTranscriptRequest request, CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(request.Text))
         {
             return Result<MeetingTranscriptDto>.Failure("Texte de transcription obligatoire.");
@@ -210,6 +257,22 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
             return Result<MeetingChatMessageDto>.Failure("Salle de meeting introuvable.");
         }
 
+        return await AddChatMessageForRoomAsync(roomId, request, cancellationToken);
+    }
+
+    public async Task<Result<MeetingChatMessageDto>> AddPublicChatMessageAsync(string token, AddMeetingChatMessageRequest request, CancellationToken cancellationToken)
+    {
+        var roomResult = await FindPublicRoomAsync(token, cancellationToken);
+        if (!roomResult.Succeeded)
+        {
+            return Result<MeetingChatMessageDto>.Failure(roomResult.Error!);
+        }
+
+        return await AddChatMessageForRoomAsync(roomResult.Value!.Id, request, cancellationToken);
+    }
+
+    private async Task<Result<MeetingChatMessageDto>> AddChatMessageForRoomAsync(Guid roomId, AddMeetingChatMessageRequest request, CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(request.Message) && string.IsNullOrWhiteSpace(request.FileBase64))
         {
             return Result<MeetingChatMessageDto>.Failure("Message ou piece jointe obligatoire.");
@@ -262,6 +325,17 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
         return Result.Success();
     }
 
+    public async Task<Result> LeavePublicAsync(string token, LeaveMeetingRoomRequest request, CancellationToken cancellationToken)
+    {
+        var roomResult = await FindPublicRoomAsync(token, cancellationToken);
+        if (!roomResult.Succeeded)
+        {
+            return Result.Failure(roomResult.Error!);
+        }
+
+        return await LeaveAsync(roomResult.Value!.Id, request, cancellationToken);
+    }
+
     public async Task<Result> DeleteAsync(Guid roomId, CancellationToken cancellationToken)
     {
         var room = await db.MeetingRooms.FirstOrDefaultAsync(x => x.Id == roomId, cancellationToken);
@@ -296,6 +370,51 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
 
         var stream = await fileStorage.OpenReadAsync(message.FileStoragePath, cancellationToken);
         return Result<(Stream, string, string)>.Success((stream, message.FileName ?? "piece-jointe.bin", message.FileMimeType ?? "application/octet-stream"));
+    }
+
+    public async Task<Result<(Stream Content, string FileName, string MimeType)>> OpenPublicChatAttachmentAsync(string token, Guid messageId, CancellationToken cancellationToken)
+    {
+        var roomResult = await FindPublicRoomAsync(token, cancellationToken);
+        if (!roomResult.Succeeded)
+        {
+            return Result<(Stream, string, string)>.Failure(roomResult.Error!);
+        }
+
+        var message = await db.MeetingChatMessages.AsNoTracking().FirstOrDefaultAsync(x => x.Id == messageId && x.MeetingRoomId == roomResult.Value!.Id, cancellationToken);
+        if (message?.FileStoragePath is null)
+        {
+            return Result<(Stream, string, string)>.Failure("Piece jointe introuvable.");
+        }
+
+        var stream = await fileStorage.OpenReadAsync(message.FileStoragePath, cancellationToken);
+        return Result<(Stream, string, string)>.Success((stream, message.FileName ?? "piece-jointe.bin", message.FileMimeType ?? "application/octet-stream"));
+    }
+
+    private async Task<Result<MeetingRoom>> FindPublicRoomAsync(string? token, CancellationToken cancellationToken)
+    {
+        var normalizedToken = Normalize(token);
+        if (string.IsNullOrWhiteSpace(normalizedToken))
+        {
+            return Result<MeetingRoom>.Failure("Lien invite obligatoire.");
+        }
+
+        var room = await db.MeetingRooms.FirstOrDefaultAsync(x => x.InviteToken == normalizedToken, cancellationToken);
+        if (room is null)
+        {
+            return Result<MeetingRoom>.Failure("Lien Meet invalide ou expire.");
+        }
+
+        if (room.ScheduledStartAt.HasValue && room.ScheduledStartAt.Value > DateTimeOffset.UtcNow.AddMinutes(10))
+        {
+            return Result<MeetingRoom>.Failure("Le lien invite sera ouvert 10 minutes avant le rendez-vous.");
+        }
+
+        if (room.IsLocked)
+        {
+            return Result<MeetingRoom>.Failure("Cette salle est verrouillee.");
+        }
+
+        return Result<MeetingRoom>.Success(room);
     }
 
     private async Task<MeetingRoomStateDto> MapStateAsync(MeetingRoom room, string? clientId, DateTimeOffset? since, CancellationToken cancellationToken)

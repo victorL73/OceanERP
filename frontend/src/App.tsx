@@ -122,6 +122,15 @@ function readPublicSignatureToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function readPublicMeetToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const token = new URLSearchParams(window.location.search).get('meet');
+  return token?.trim() || null;
+}
+
 type PrestashopSyncCompletedEvent = {
   connectionId: string;
   shopUrl: string;
@@ -132,6 +141,7 @@ type PrestashopSyncCompletedEvent = {
 
 export default function App() {
   const publicSignatureToken = useMemo(readPublicSignatureToken, []);
+  const publicMeetToken = useMemo(readPublicMeetToken, []);
   const [isAuthenticated, setAuthenticated] = useState(Boolean(api.token));
   const [view, setView] = useState<ViewKey>(() => readStoredChoice('oceanerp.activeView', 'dashboard', appViewKeys));
   const [error, setError] = useState<string | null>(null);
@@ -531,6 +541,10 @@ export default function App() {
 
   if (publicSignatureToken) {
     return <PublicSignaturePage token={publicSignatureToken} />;
+  }
+
+  if (!isAuthenticated && publicMeetToken) {
+    return <PublicMeetPage token={publicMeetToken} />;
   }
 
   if (!isAuthenticated) {
@@ -957,6 +971,539 @@ function PublicSignaturePage({ token }: { token: string }) {
         {error && !signature && <div className="alert">{error}</div>}
         </aside>
       </section>
+    </main>
+  );
+}
+
+function PublicMeetPage({ token }: { token: string }) {
+  const clientId = useMemo(() => `guest-${getMeetClientId()}`, []);
+  const [guestName, setGuestName] = useState(() => localStorage.getItem('oceanerp.meet.guestName') ?? '');
+  const [joinedName, setJoinedName] = useState('');
+  const [roomState, setRoomState] = useState<MeetingRoomState | null>(null);
+  const [sourceLanguage, setSourceLanguage] = useState('fr-FR');
+  const [targetLanguage, setTargetLanguage] = useState('fr-FR');
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [screenEnabled, setScreenEnabled] = useState(false);
+  const [mediaDevices, setMediaDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedAudioInputId, setSelectedAudioInputId] = useState('');
+  const [selectedVideoInputId, setSelectedVideoInputId] = useState('');
+  const [transcriptionEnabled, setTranscriptionEnabled] = useState(false);
+  const [translationEnabled, setTranslationEnabled] = useState(false);
+  const [chatMessage, setChatMessage] = useState('');
+  const [chatFile, setChatFile] = useState<File | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const canUseMediaDevices = Boolean(navigator.mediaDevices?.getUserMedia);
+  const canUseDisplayMedia = Boolean(navigator.mediaDevices?.getDisplayMedia);
+  const audioInputDevices = mediaDevices.filter((device) => device.kind === 'audioinput');
+  const videoInputDevices = mediaDevices.filter((device) => device.kind === 'videoinput');
+
+  const loadMediaDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setMediaDevices([]);
+      return [] as MediaDeviceInfo[];
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setMediaDevices(devices);
+      setSelectedAudioInputId((current) => current && devices.some((device) => device.kind === 'audioinput' && device.deviceId === current) ? current : '');
+      setSelectedVideoInputId((current) => current && devices.some((device) => device.kind === 'videoinput' && device.deviceId === current) ? current : '');
+      return devices;
+    } catch {
+      setMediaDevices([]);
+      return [] as MediaDeviceInfo[];
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMediaDevices();
+
+    if (!navigator.mediaDevices?.addEventListener) {
+      return undefined;
+    }
+
+    const onDeviceChange = () => void loadMediaDevices();
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+  }, [loadMediaDevices]);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let alive = true;
+
+    if (!roomState || (!cameraEnabled && !microphoneEnabled)) {
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      return undefined;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage("Micro et camera indisponibles. Ouvrez l'ERP en HTTPS ou avec l'application Windows autorisee.");
+      setCameraEnabled(false);
+      setMicrophoneEnabled(false);
+      return undefined;
+    }
+
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+
+    navigator.mediaDevices.getUserMedia({
+      video: cameraEnabled
+        ? selectedVideoInputId
+          ? { deviceId: { exact: selectedVideoInputId } }
+          : { facingMode: 'user' }
+        : false,
+      audio: microphoneEnabled
+        ? {
+          ...(selectedAudioInputId ? { deviceId: { exact: selectedAudioInputId } } : {}),
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+        : false
+    })
+      .then((nextStream) => {
+        if (!alive) {
+          nextStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        stream = nextStream;
+        localStreamRef.current = nextStream;
+        const activeAudioDeviceId = nextStream.getAudioTracks()[0]?.getSettings().deviceId;
+        const activeVideoDeviceId = nextStream.getVideoTracks()[0]?.getSettings().deviceId;
+        if (activeAudioDeviceId) {
+          setSelectedAudioInputId((current) => current || activeAudioDeviceId);
+        }
+        if (activeVideoDeviceId) {
+          setSelectedVideoInputId((current) => current || activeVideoDeviceId);
+        }
+        void loadMediaDevices();
+        if (videoRef.current) {
+          videoRef.current.srcObject = nextStream;
+          void videoRef.current.play().catch(() => undefined);
+        }
+      })
+      .catch((error) => {
+        setMessage(formatMeetMediaError(error, "Impossible d'acceder au micro ou a la camera."));
+        setCameraEnabled(false);
+        setMicrophoneEnabled(false);
+      });
+
+    return () => {
+      alive = false;
+      stream?.getTracks().forEach((track) => track.stop());
+      if (localStreamRef.current === stream) {
+        localStreamRef.current = null;
+      }
+    };
+  }, [cameraEnabled, loadMediaDevices, microphoneEnabled, roomState?.room.id, selectedAudioInputId, selectedVideoInputId]);
+
+  useEffect(() => () => {
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  useEffect(() => {
+    if (!screenEnabled || !screenVideoRef.current || !screenStreamRef.current) {
+      return;
+    }
+
+    screenVideoRef.current.srcObject = screenStreamRef.current;
+    void screenVideoRef.current.play().catch(() => undefined);
+  }, [screenEnabled]);
+
+  useEffect(() => {
+    if (!roomState) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      void syncRoom(false);
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [cameraEnabled, clientId, joinedName, microphoneEnabled, roomState?.room.id, screenEnabled, sourceLanguage, targetLanguage]);
+
+  useEffect(() => {
+    if (!roomState) {
+      return;
+    }
+
+    void syncRoom(false);
+  }, [cameraEnabled, microphoneEnabled, screenEnabled, sourceLanguage, targetLanguage]);
+
+  useEffect(() => {
+    if (!roomState || !transcriptionEnabled) {
+      return undefined;
+    }
+
+    const speechWindow = window as Window & { SpeechRecognition?: BrowserSpeechRecognitionConstructor; webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor };
+    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setMessage("La transcription vocale n'est pas disponible dans ce navigateur.");
+      setTranscriptionEnabled(false);
+      return undefined;
+    }
+
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = sourceLanguage;
+    recognition.onresult = (event) => {
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const text = result?.[0]?.transcript?.trim();
+        if (text && result.isFinal) {
+          void api.addPublicMeetingTranscript(token, {
+            clientId,
+            speakerName: joinedName,
+            text,
+            sourceLanguage,
+            translatedText: translationEnabled && targetLanguage !== sourceLanguage ? `[${targetLanguage}] ${text}` : null,
+            isFinal: true
+          }).then(() => syncRoom(false));
+        }
+      }
+    };
+    recognition.onerror = () => setMessage('Transcription interrompue.');
+    recognition.start();
+
+    return () => recognition.stop();
+  }, [clientId, joinedName, roomState?.room.id, sourceLanguage, targetLanguage, token, transcriptionEnabled, translationEnabled]);
+
+  async function joinAsGuest(event: FormEvent) {
+    event.preventDefault();
+    const name = guestName.trim();
+    if (!name) {
+      setMessage('Votre nom est obligatoire pour rejoindre la reunion.');
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+    try {
+      localStorage.setItem('oceanerp.meet.guestName', name);
+      const next = await api.joinPublicMeetingRoom({
+        codeOrToken: token,
+        clientId,
+        displayName: name,
+        sourceLanguage,
+        targetLanguage,
+        media: defaultMeetingMedia()
+      });
+      setJoinedName(name);
+      setRoomState(next);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Lien Meet invalide.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function syncRoom(showErrors = true) {
+    if (!roomState) {
+      return;
+    }
+
+    try {
+      const next = await api.syncPublicMeetingRoom(token, {
+        clientId,
+        displayName: joinedName || guestName || 'Invite',
+        sourceLanguage,
+        targetLanguage,
+        media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
+      });
+      setRoomState(next);
+    } catch (err) {
+      if (showErrors) {
+        setMessage(err instanceof Error ? err.message : 'Synchronisation Meet impossible.');
+      }
+    }
+  }
+
+  async function leaveRoom() {
+    if (!roomState) {
+      return;
+    }
+
+    await api.leavePublicMeetingRoom(token, clientId);
+    setRoomState(null);
+    setCameraEnabled(false);
+    setMicrophoneEnabled(false);
+    stopScreenShare();
+    setMessage('Vous avez quitte la reunion.');
+  }
+
+  async function toggleScreenShare() {
+    if (screenEnabled) {
+      stopScreenShare();
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setMessage("Le partage d'ecran n'est pas disponible. Utilisez l'application Windows a jour ou ouvrez l'ERP en HTTPS.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      screenStreamRef.current = stream;
+      setScreenEnabled(true);
+      stream.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare, { once: true });
+    } catch (error) {
+      setMessage(formatMeetMediaError(error, "Partage d'ecran annule ou refuse."));
+    }
+  }
+
+  async function refreshMediaDeviceList() {
+    const devices = await loadMediaDevices();
+    const cameraCount = devices.filter((device) => device.kind === 'videoinput').length;
+    const microphoneCount = devices.filter((device) => device.kind === 'audioinput').length;
+    setMessage(`${cameraCount} camera(s) et ${microphoneCount} micro(s) detecte(s).`);
+  }
+
+  function switchToNextCamera() {
+    if (videoInputDevices.length < 2) {
+      setMessage("Une seule camera est detectee pour l'instant. Branchez une autre camera puis actualisez les peripheriques.");
+      return;
+    }
+
+    const activeDeviceId = localStreamRef.current?.getVideoTracks()[0]?.getSettings().deviceId || selectedVideoInputId;
+    const currentIndex = videoInputDevices.findIndex((device) => device.deviceId === activeDeviceId);
+    const nextDevice = videoInputDevices[(currentIndex + 1 + videoInputDevices.length) % videoInputDevices.length];
+    setSelectedVideoInputId(nextDevice.deviceId);
+    setCameraEnabled(true);
+    setMessage(`Camera selectionnee : ${nextDevice.label || 'camera suivante'}.`);
+  }
+
+  function stopScreenShare() {
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
+    if (screenVideoRef.current) {
+      screenVideoRef.current.srcObject = null;
+    }
+    setScreenEnabled(false);
+  }
+
+  async function sendChat(event: FormEvent) {
+    event.preventDefault();
+    if (!roomState || (!chatMessage.trim() && !chatFile)) {
+      return;
+    }
+
+    const fileBase64 = chatFile ? await readFileAsDataUrl(chatFile) : null;
+    await api.addPublicMeetingChatMessage(token, {
+      clientId,
+      senderName: joinedName,
+      message: chatMessage,
+      fileName: chatFile?.name ?? null,
+      fileMimeType: chatFile?.type || null,
+      fileBase64
+    });
+    setChatMessage('');
+    setChatFile(null);
+    await syncRoom(false);
+  }
+
+  const activeParticipant = roomState?.participants.find((participant) => participant.clientId === clientId);
+
+  if (!roomState) {
+    return (
+      <main className="public-meet-screen">
+        <section className="public-meet-card">
+          <div className="brand large">
+            <div className="brand-mark">OE</div>
+            <div>
+              <strong>OceanERP Meet</strong>
+              <span>Acces invite securise</span>
+            </div>
+          </div>
+          <form onSubmit={joinAsGuest}>
+            <p className="eyebrow">Invitation Meet</p>
+            <h1>Rejoindre la reunion</h1>
+            <p className="panel-note">Entrez seulement votre nom. Vous n'aurez acces qu'a cette salle Meet.</p>
+            <label>
+              Votre nom
+              <input value={guestName} onChange={(event) => setGuestName(event.target.value)} autoFocus autoComplete="name" placeholder="Nom et prenom" />
+            </label>
+            {message && <div className="alert">{message}</div>}
+            <button className="primary" type="submit" disabled={loading}>
+              <Video size={18} />
+              {loading ? 'Connexion...' : 'Rejoindre'}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="public-meet-room">
+      <header className="public-meet-topbar">
+        <div>
+          <p className="eyebrow">OceanERP Meet</p>
+          <h1>{roomState.room.title}</h1>
+          <span>{roomState.room.code}</span>
+        </div>
+        <button className="danger" type="button" onClick={() => void leaveRoom()}>
+          <PhoneOff size={16} />
+          Quitter
+        </button>
+      </header>
+
+      {message && <div className="alert">{message}</div>}
+      {(!canUseMediaDevices || !canUseDisplayMedia) && (
+        <div className="alert meet-media-warning">
+          {meetMediaAvailabilityMessage(canUseMediaDevices, canUseDisplayMedia)}
+        </div>
+      )}
+
+      <div className="meet-toolbar public-meet-toolbar">
+        <button className={microphoneEnabled ? 'active' : ''} type="button" disabled={!canUseMediaDevices} onClick={() => setMicrophoneEnabled((value) => !value)}>
+          {microphoneEnabled ? <Mic size={16} /> : <MicOff size={16} />}
+          Micro
+        </button>
+        {canUseMediaDevices && (
+          <select className="meet-device-select" value={selectedAudioInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => setSelectedAudioInputId(event.target.value)} aria-label="Choisir le micro">
+            <option value="">{audioInputDevices.length ? 'Micro par defaut' : 'Aucun micro detecte'}</option>
+            {audioInputDevices.map((device, index) => (
+              <option value={device.deviceId} key={device.deviceId || `guest-audio-${index}`}>
+                {device.label || `Micro ${index + 1}`}
+              </option>
+            ))}
+          </select>
+        )}
+        <button className={cameraEnabled ? 'active' : ''} type="button" disabled={!canUseMediaDevices} onClick={() => setCameraEnabled((value) => !value)}>
+          {cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />}
+          Camera
+        </button>
+        {canUseMediaDevices && (
+          <select className="meet-device-select" value={selectedVideoInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedVideoInputId(event.target.value); setCameraEnabled(true); }} aria-label="Choisir la camera">
+            <option value="">{videoInputDevices.length ? 'Camera par defaut' : 'Aucune camera detectee'}</option>
+            {videoInputDevices.map((device, index) => (
+              <option value={device.deviceId} key={device.deviceId || `guest-video-${index}`}>
+                {device.label || `Camera ${index + 1}`}
+              </option>
+            ))}
+          </select>
+        )}
+        {canUseMediaDevices && (
+          <button className="secondary" type="button" disabled={videoInputDevices.length < 2} onClick={switchToNextCamera}>
+            Changer camera
+          </button>
+        )}
+        {canUseMediaDevices && (
+          <button className="secondary" type="button" onClick={() => void refreshMediaDeviceList()}>
+            Detecter
+          </button>
+        )}
+        <button className={screenEnabled ? 'active' : ''} type="button" disabled={!canUseDisplayMedia} onClick={() => void toggleScreenShare()}>
+          <ScreenShare size={16} />
+          Ecran
+        </button>
+        <button className={transcriptionEnabled ? 'active' : ''} type="button" onClick={() => setTranscriptionEnabled((value) => !value)}>
+          <FileText size={16} />
+          Transcription
+        </button>
+        <button className={translationEnabled ? 'active' : ''} type="button" onClick={() => setTranslationEnabled((value) => !value)}>
+          <Languages size={16} />
+          Traduction
+        </button>
+        <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)} aria-label="Langue parlee">
+          {meetingLanguageOptions.map((language) => <option value={language.code} key={language.code}>{language.label}</option>)}
+        </select>
+        <select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)} aria-label="Langue cible">
+          {meetingLanguageOptions.map((language) => <option value={language.code} key={language.code}>{language.label}</option>)}
+        </select>
+      </div>
+
+      <section className="public-meet-layout">
+        <div className="meet-video-grid">
+          <article className="meet-video-tile">
+            {cameraEnabled ? <video ref={videoRef} autoPlay muted playsInline /> : <div className="meet-avatar">{joinedName.slice(0, 2).toUpperCase()}</div>}
+            <footer>
+              <strong>{joinedName}</strong>
+              <span>{activeParticipant?.connectionState ?? 'online'}</span>
+            </footer>
+          </article>
+          {screenEnabled && (
+            <article className="meet-video-tile meet-screen-share">
+              <video ref={screenVideoRef} autoPlay muted playsInline />
+              <footer>
+                <strong>Partage d'ecran</strong>
+                <span>actif</span>
+              </footer>
+            </article>
+          )}
+          {roomState.participants.filter((participant) => participant.clientId !== clientId).map((participant) => (
+            <article className="meet-video-tile remote" key={participant.id}>
+              <div className="meet-avatar">{participant.displayName.slice(0, 2).toUpperCase()}</div>
+              <footer>
+                <strong>{participant.displayName}</strong>
+                <span>{participant.microphoneEnabled ? 'Micro actif' : 'Micro coupe'} - {participant.cameraEnabled ? 'Camera active' : 'Camera coupee'}</span>
+              </footer>
+            </article>
+          ))}
+        </div>
+
+        <aside className="meet-side-panel public-meet-side">
+          <section>
+            <h3>Participants</h3>
+            {roomState.participants.map((participant) => (
+              <div className="meet-participant" key={participant.id}>
+                <strong>{participant.displayName}</strong>
+                <span>{participant.sourceLanguage} - {participant.connectionState}</span>
+              </div>
+            ))}
+          </section>
+          <section>
+            <h3>Chat</h3>
+            <div className="meet-chat-list">
+              {roomState.chatMessages.map((item) => (
+                <article key={item.id}>
+                  <strong>{item.senderName}</strong>
+                  <p>{item.message}</p>
+                  {item.hasFile && item.fileName && (
+                    <button className="link-button" type="button" onClick={() => void api.downloadPublicMeetingAttachment(token, item.id, item.fileName!)}>
+                      <Paperclip size={14} />
+                      {item.fileName}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+            <form className="meet-chat-form" onSubmit={sendChat}>
+              <textarea value={chatMessage} onChange={(event) => setChatMessage(event.target.value)} placeholder="Message" />
+              <input type="file" onChange={(event) => setChatFile(event.target.files?.[0] ?? null)} />
+              <button className="primary" type="submit">Envoyer</button>
+            </form>
+          </section>
+        </aside>
+      </section>
+
+      <Panel title="Transcription">
+        <div className="meet-transcript-list">
+          {roomState.transcripts.map((item) => (
+            <article key={item.id}>
+              <span>{formatOrderDate(item.createdAt)}</span>
+              <strong>{item.speakerName}</strong>
+              <p>{item.text}</p>
+              {item.translatedText && <small>{item.translatedText}</small>}
+            </article>
+          ))}
+          {roomState.transcripts.length === 0 && <p className="panel-note">Aucune transcription.</p>}
+        </div>
+      </Panel>
     </main>
   );
 }
