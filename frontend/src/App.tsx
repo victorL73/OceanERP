@@ -708,12 +708,10 @@ export default function App() {
           />
         )}
         {view === 'meetings' && (
-          <Meet
-            dashboard={meetingDashboard}
+          <MeetDirectModule
             currentUser={currentUser}
             initialRoomId={meetingInitialRoomId}
             onInitialRoomOpened={() => setMeetingInitialRoomId(null)}
-            onChanged={() => load('meetings')}
           />
         )}
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} quotes={quotes?.items ?? []} onChanged={() => load('signatures')} />}
@@ -730,6 +728,45 @@ function FlowceanDirectModule() {
   return (
     <section className="flowcean-direct-shell">
       <iframe className="flowcean-direct-frame" title="Espace Flowcean" src="/flowcean/index.html" />
+    </section>
+  );
+}
+
+function MeetDirectModule({
+  currentUser,
+  initialRoomId,
+  onInitialRoomOpened,
+}: {
+  currentUser: User | null;
+  initialRoomId: string | null;
+  onInitialRoomOpened: () => void;
+}) {
+  const src = useMemo(() => {
+    const params = new URLSearchParams();
+    if (initialRoomId) {
+      params.set('roomId', initialRoomId);
+    }
+    if (currentUser?.displayName) {
+      params.set('user', currentUser.displayName);
+    }
+    const query = params.toString();
+    return `/meet/index.html${query ? `?${query}` : ''}`;
+  }, [currentUser?.displayName, initialRoomId]);
+
+  useEffect(() => {
+    if (initialRoomId) {
+      onInitialRoomOpened();
+    }
+  }, [initialRoomId, onInitialRoomOpened]);
+
+  return (
+    <section className="meet-direct-shell">
+      <iframe
+        allow="camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay; fullscreen"
+        className="meet-direct-frame"
+        src={src}
+        title="Meet OceanERP"
+      />
     </section>
   );
 }

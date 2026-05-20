@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meet</title>
+  <meta name="description" content="Meet - reunions video, transcription et traduction en temps reel.">
+  <link rel="stylesheet" href="assets/style.css?v=20260506-chat-files">
+  <script defer src="assets/vendor/mediapipe-selfie-segmentation/selfie_segmentation.js?v=20260506"></script>
+  <script defer src="assets/app.js?v=20260506-person-segmentation-timezone"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <span class="brand-mark">ME</span>
+      <p>Chargement Meet...</p>
+    </section>
+
+    <section class="app-view hidden" id="app-view">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-line">
+            <span class="brand-mark compact">ME</span>
+            <span class="status-pill" id="connection-pill">Hors reunion</span>
+          </div>
+          <h1>Meet</h1>
+          <p>Reunions video, transcription et traduction live</p>
+        </div>
+
+        <div class="topbar-actions">
+          <span class="user-chip" id="current-user"></span>
+          <button class="ghost-button danger-text" id="logout-button" type="button">Deconnexion</button>
+        </div>
+      </header>
+
+      <p class="app-message hidden" id="app-message"></p>
+
+      <section class="panel guest-panel hidden" id="guest-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Invitation</p>
+            <h2>Rejoindre la reunion</h2>
+          </div>
+          <span class="count-pill" id="guest-room-code">Invite externe</span>
+        </div>
+        <div class="guest-form">
+          <label class="field">
+            <span>Votre nom</span>
+            <input id="guest-name" type="text" maxlength="120" placeholder="Nom affiche dans la reunion">
+          </label>
+          <div class="language-row single-language">
+            <label class="field">
+              <span>Langue parlee</span>
+              <select id="guest-source-language"></select>
+            </label>
+            <label class="field hidden">
+              <span>Langue souhaitee</span>
+              <select id="guest-target-language"></select>
+            </label>
+          </div>
+          <button class="primary-button full-button" id="guest-join-button" type="button">Rejoindre comme invite</button>
+        </div>
+      </section>
+
+      <section class="meeting-layout">
+        <section class="panel start-panel" id="start-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Reunion</p>
+              <h2>Demarrer ou rejoindre</h2>
+            </div>
+            <span class="count-pill" id="ai-pill">Traduction</span>
+          </div>
+
+          <div class="join-grid">
+            <section class="join-section">
+              <h3>Nouvelle reunion</h3>
+              <label class="field">
+                <span>Titre</span>
+                <input id="room-title" type="text" maxlength="120" value="Reunion Meet">
+              </label>
+              <label class="field">
+                <span>Date et heure</span>
+                <input id="room-scheduled-start" type="datetime-local">
+              </label>
+              <div class="language-row single-language">
+                <label class="field">
+                  <span>Langue parlee</span>
+                  <select id="source-language"></select>
+                </label>
+                <label class="field hidden">
+                  <span>Langue souhaitee</span>
+                  <select id="target-language"></select>
+                </label>
+              </div>
+              <button class="primary-button full-button" id="create-room-button" type="button">Creer la reunion</button>
+            </section>
+
+            <section class="join-section">
+              <h3>Rejoindre</h3>
+              <label class="field">
+                <span>Code reunion</span>
+                <input id="room-code" type="text" maxlength="24" placeholder="VIS-ABC123">
+              </label>
+              <button class="ghost-button full-button" id="join-room-button" type="button">Rejoindre</button>
+              <div class="recent-rooms" id="recent-rooms"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="meeting-stage hidden" id="meeting-stage" aria-label="Reunion Meet">
+          <div class="stage-head">
+            <div class="room-identity">
+              <p class="eyebrow">En cours</p>
+              <h2 id="active-room-title">Reunion</h2>
+              <button class="room-code" id="copy-room-button" type="button" title="Copier le code">
+                <span id="active-room-code">---</span>
+              </button>
+            </div>
+            <div class="stage-actions">
+              <button class="tool-button" id="copy-invite-button" type="button" title="Copier le lien invite">Inviter</button>
+              <button class="tool-button" id="toggle-mic-button" type="button" title="Micro">Micro</button>
+              <button class="tool-button" id="toggle-camera-button" type="button" title="Camera">Camera</button>
+              <button class="tool-button" id="share-screen-button" type="button" title="Partage d'ecran">Ecran</button>
+              <button class="tool-button danger-text" id="delete-room-button" type="button" title="Supprimer la reunion">Supprimer</button>
+              <button class="ghost-button danger-text" id="leave-room-button" type="button">Quitter</button>
+            </div>
+          </div>
+
+          <div class="video-grid" id="video-grid"></div>
+          <div class="live-caption hidden" id="live-caption"></div>
+        </section>
+
+        <aside class="side-column" id="side-column">
+          <section class="panel controls-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Live</p>
+                <h2>Parametres</h2>
+              </div>
+            </div>
+            <div class="settings-stack">
+              <label class="toggle-row">
+                <input id="transcription-toggle" type="checkbox" checked>
+                <span>Transcription</span>
+              </label>
+              <label class="toggle-row">
+                <input id="translation-toggle" type="checkbox" checked>
+                <span>Traduction</span>
+              </label>
+              <label class="field">
+                <span>Langue parlee</span>
+                <select id="active-source-language"></select>
+              </label>
+              <label class="field hidden">
+                <span>Langue souhaitee</span>
+                <select id="active-target-language"></select>
+              </label>
+              <label class="field">
+                <span>Arriere-plan camera</span>
+                <select id="camera-background-effect">
+                  <option value="none">Aucun effet</option>
+                  <option value="blur">Flou</option>
+                  <option value="ocean">Fond ocean</option>
+                  <option value="studio">Fond studio</option>
+                  <option value="workshop">Fond atelier</option>
+                  <option value="custom">Image personnalisee</option>
+                </select>
+              </label>
+              <label class="field background-file-field hidden" id="camera-background-file-field">
+                <span>Image de fond</span>
+                <input id="camera-background-file" type="file" accept="image/*">
+              </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Participants</p>
+                <h2>Equipe</h2>
+              </div>
+              <span class="count-pill" id="participant-count">0</span>
+            </div>
+            <div class="participant-list" id="participant-list"></div>
+          </section>
+
+          <section class="panel chat-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Tchat</p>
+                <h2>Messages</h2>
+              </div>
+              <button class="ghost-button compact-button" id="chat-file-button" type="button" disabled>Fichier</button>
+            </div>
+            <div class="chat-list" id="chat-list"></div>
+            <form class="chat-form" id="chat-form">
+              <input id="chat-file-input" class="hidden" type="file">
+              <div class="chat-file-preview hidden" id="chat-file-preview"></div>
+              <label class="field">
+                <span>Message</span>
+                <textarea id="chat-message-input" rows="2" maxlength="4000" placeholder="Ecrire un message" disabled></textarea>
+              </label>
+              <button class="primary-button full-button" id="chat-send-button" type="submit" disabled>Envoyer</button>
+            </form>
+          </section>
+
+          <section class="panel transcript-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Paroles</p>
+                <h2>Transcription</h2>
+              </div>
+              <button class="ghost-button compact-button" id="clear-transcript-button" type="button">Effacer</button>
+            </div>
+            <div class="transcript-list" id="transcript-list"></div>
+          </section>
+        </aside>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
+
