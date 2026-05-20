@@ -742,8 +742,11 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    const formData = new FormData(event.currentTarget as HTMLFormElement);
+    const submittedEmail = String(formData.get('username') ?? email).trim();
+    const submittedPassword = String(formData.get('password') ?? password);
     try {
-      await api.login(email, password);
+      await api.login(submittedEmail, submittedPassword);
       onLoggedIn();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connexion impossible');
@@ -760,14 +763,32 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             <span>Acces securise</span>
           </div>
         </div>
-        <form onSubmit={submit} autoComplete="off">
+        <form onSubmit={submit} autoComplete="on">
           <label>
             Email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="off" placeholder="Email" />
+            <input
+              id="login-email"
+              name="username"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              type="email"
+              autoComplete="username"
+              placeholder="Email"
+              required
+            />
           </label>
           <label>
             Mot de passe
-            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" placeholder="Mot de passe" />
+            <input
+              id="login-password"
+              name="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+              autoComplete="current-password"
+              placeholder="Mot de passe"
+              required
+            />
           </label>
           {error && <div className="alert">{error}</div>}
           <button className="primary" type="submit">
