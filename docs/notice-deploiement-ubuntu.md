@@ -93,6 +93,8 @@ Variables minimales a changer avant production :
 - `ERP_ADMIN_EMAIL`
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
+- `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice`
+- `ONLYOFFICE_INTERNAL_BASE_URL=http://nginx`
 - `PUBLIC_URL`
 - `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
 - `PRESTASHOP_AUTO_SYNC_ENABLED=true` et `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS=10` activent la synchronisation PrestaShop automatique en quasi temps reel.
@@ -100,6 +102,8 @@ Variables minimales a changer avant production :
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
 `SECRETS_ENCRYPTION_KEY` doit rester stable entre les redeploiements : elle sert a relire les cles API PrestaShop et les mots de passe mail chiffres en base.
+
+Pour ONLYOFFICE, garder `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice` pour l'editeur cote navigateur et `ONLYOFFICE_INTERNAL_BASE_URL=http://nginx` pour le telechargement/callback depuis le conteneur ONLYOFFICE. Si un fichier Office affiche `errorCode -4`, le conteneur Document Server n'arrive pas a telecharger le fichier depuis cette URL interne.
 
 Pour activer l'envoi SMTP plus tard, un administrateur renseigne les serveurs dans `Parametres > Boites mail`, cree les boites et saisit les mots de passe. Il est aussi possible de creer une boite avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis d'ajouter dans `.env` :
 

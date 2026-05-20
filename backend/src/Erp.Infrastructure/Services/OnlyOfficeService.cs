@@ -49,12 +49,16 @@ public sealed class OnlyOfficeService(
         var publicBaseUrl = string.IsNullOrWhiteSpace(configuredPublicBaseUrl)
             ? requestBaseUri.ToString().TrimEnd('/')
             : configuredPublicBaseUrl.TrimEnd('/');
+        var configuredInternalBaseUrl = configuration["OnlyOffice:InternalBaseUrl"];
+        var documentExchangeBaseUrl = string.IsNullOrWhiteSpace(configuredInternalBaseUrl)
+            ? publicBaseUrl
+            : configuredInternalBaseUrl.TrimEnd('/');
         var userId = currentUser.UserId?.ToString() ?? "anonymous";
         var userName = currentUser.Email ?? "OceanERP";
         var key = $"{item.Id:N}-{item.CurrentVersion}-{item.Size}".Replace("-", string.Empty, StringComparison.Ordinal);
         var accessToken = CreateDocumentToken(item.Id, item.CurrentVersion, DateTimeOffset.UtcNow.AddHours(2));
-        var documentUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/download?token={Uri.EscapeDataString(accessToken)}";
-        var callbackUrl = $"{publicBaseUrl}/api/onlyoffice/files/{item.Id}/callback?token={Uri.EscapeDataString(accessToken)}";
+        var documentUrl = $"{documentExchangeBaseUrl}/api/onlyoffice/files/{item.Id}/download?token={Uri.EscapeDataString(accessToken)}";
+        var callbackUrl = $"{documentExchangeBaseUrl}/api/onlyoffice/files/{item.Id}/callback?token={Uri.EscapeDataString(accessToken)}";
         var permissions = new OnlyOfficeDocumentPermissionsDto(Edit: true, Download: true, Print: true);
         var customization = new OnlyOfficeCustomizationDto(
             Autosave: false,
