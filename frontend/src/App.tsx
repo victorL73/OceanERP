@@ -1286,6 +1286,20 @@ function PublicMeetPage({ token }: { token: string }) {
     setMessage(`Camera selectionnee : ${nextDevice.label || 'camera suivante'}.`);
   }
 
+  function switchToNextMicrophone() {
+    if (audioInputDevices.length < 2) {
+      setMessage("Un seul micro est detecte pour l'instant. Branchez un autre micro puis actualisez les peripheriques.");
+      return;
+    }
+
+    const activeDeviceId = localStreamRef.current?.getAudioTracks()[0]?.getSettings().deviceId || selectedAudioInputId;
+    const currentIndex = audioInputDevices.findIndex((device) => device.deviceId === activeDeviceId);
+    const nextDevice = audioInputDevices[(currentIndex + 1 + audioInputDevices.length) % audioInputDevices.length];
+    setSelectedAudioInputId(nextDevice.deviceId);
+    setMicrophoneEnabled(true);
+    setMessage(`Micro selectionne : ${nextDevice.label || 'micro suivant'}.`);
+  }
+
   function stopScreenShare() {
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenStreamRef.current = null;
@@ -1373,40 +1387,35 @@ function PublicMeetPage({ token }: { token: string }) {
           {microphoneEnabled ? <Mic size={16} /> : <MicOff size={16} />}
           Micro
         </button>
-        {canUseMediaDevices && (
-          <select className="meet-device-select" value={selectedAudioInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => setSelectedAudioInputId(event.target.value)} aria-label="Choisir le micro">
-            <option value="">{audioInputDevices.length ? 'Micro par defaut' : 'Aucun micro detecte'}</option>
-            {audioInputDevices.map((device, index) => (
-              <option value={device.deviceId} key={device.deviceId || `guest-audio-${index}`}>
-                {device.label || `Micro ${index + 1}`}
-              </option>
-            ))}
-          </select>
-        )}
+        <select className="meet-device-select" value={selectedAudioInputId} disabled={!canUseMediaDevices} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedAudioInputId(event.target.value); setMicrophoneEnabled(true); }} aria-label="Choisir le micro">
+          <option value="">{audioInputDevices.length ? 'Micro par defaut' : 'Aucun micro detecte'}</option>
+          {audioInputDevices.map((device, index) => (
+            <option value={device.deviceId} key={device.deviceId || `guest-audio-${index}`}>
+              {device.label || `Micro ${index + 1}`}
+            </option>
+          ))}
+        </select>
+        <button className="secondary" type="button" disabled={!canUseMediaDevices || audioInputDevices.length < 2} title={!canUseMediaDevices ? "Micro indisponible sans HTTPS ou permission Windows." : audioInputDevices.length < 2 ? "Un seul micro detecte. Cliquez sur Detecter apres avoir branche un autre micro." : 'Passer au micro suivant'} onClick={switchToNextMicrophone}>
+          Changer micro
+        </button>
         <button className={cameraEnabled ? 'active' : ''} type="button" disabled={!canUseMediaDevices} onClick={() => setCameraEnabled((value) => !value)}>
           {cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />}
           Camera
         </button>
-        {canUseMediaDevices && (
-          <select className="meet-device-select" value={selectedVideoInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedVideoInputId(event.target.value); setCameraEnabled(true); }} aria-label="Choisir la camera">
-            <option value="">{videoInputDevices.length ? 'Camera par defaut' : 'Aucune camera detectee'}</option>
-            {videoInputDevices.map((device, index) => (
-              <option value={device.deviceId} key={device.deviceId || `guest-video-${index}`}>
-                {device.label || `Camera ${index + 1}`}
-              </option>
-            ))}
-          </select>
-        )}
-        {canUseMediaDevices && (
-          <button className="secondary" type="button" disabled={videoInputDevices.length < 2} onClick={switchToNextCamera}>
-            Changer camera
-          </button>
-        )}
-        {canUseMediaDevices && (
-          <button className="secondary" type="button" onClick={() => void refreshMediaDeviceList()}>
-            Detecter
-          </button>
-        )}
+        <select className="meet-device-select" value={selectedVideoInputId} disabled={!canUseMediaDevices} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedVideoInputId(event.target.value); setCameraEnabled(true); }} aria-label="Choisir la camera">
+          <option value="">{videoInputDevices.length ? 'Camera par defaut' : 'Aucune camera detectee'}</option>
+          {videoInputDevices.map((device, index) => (
+            <option value={device.deviceId} key={device.deviceId || `guest-video-${index}`}>
+              {device.label || `Camera ${index + 1}`}
+            </option>
+          ))}
+        </select>
+        <button className="secondary" type="button" disabled={!canUseMediaDevices || videoInputDevices.length < 2} title={!canUseMediaDevices ? "Camera indisponible sans HTTPS ou permission Windows." : videoInputDevices.length < 2 ? "Une seule camera detectee. Cliquez sur Detecter apres avoir branche une autre camera." : 'Passer a la camera suivante'} onClick={switchToNextCamera}>
+          Changer camera
+        </button>
+        <button className="secondary" type="button" disabled={!navigator.mediaDevices?.enumerateDevices} onClick={() => void refreshMediaDeviceList()}>
+          Detecter
+        </button>
         <button className={screenEnabled ? 'active' : ''} type="button" disabled={!canUseDisplayMedia} onClick={() => void toggleScreenShare()}>
           <ScreenShare size={16} />
           Ecran
@@ -9935,6 +9944,20 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     setMessage(`Camera selectionnee : ${nextDevice.label || 'camera suivante'}.`);
   }
 
+  function switchToNextMicrophone() {
+    if (audioInputDevices.length < 2) {
+      setMessage("Un seul micro est detecte pour l'instant. Branchez un autre micro puis actualisez les peripheriques.");
+      return;
+    }
+
+    const activeDeviceId = localStreamRef.current?.getAudioTracks()[0]?.getSettings().deviceId || selectedAudioInputId;
+    const currentIndex = audioInputDevices.findIndex((device) => device.deviceId === activeDeviceId);
+    const nextDevice = audioInputDevices[(currentIndex + 1 + audioInputDevices.length) % audioInputDevices.length];
+    setSelectedAudioInputId(nextDevice.deviceId);
+    setMicrophoneEnabled(true);
+    setMessage(`Micro selectionne : ${nextDevice.label || 'micro suivant'}.`);
+  }
+
   function stopScreenShare() {
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenStreamRef.current = null;
@@ -10046,40 +10069,35 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                 {microphoneEnabled ? <Mic size={16} /> : <MicOff size={16} />}
                 Micro
               </button>
-              {canUseMediaDevices && (
-                <select className="meet-device-select" value={selectedAudioInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => setSelectedAudioInputId(event.target.value)} aria-label="Choisir le micro">
-                  <option value="">{audioInputDevices.length ? 'Micro par defaut' : 'Aucun micro detecte'}</option>
-                  {audioInputDevices.map((device, index) => (
-                    <option value={device.deviceId} key={device.deviceId || `audio-${index}`}>
-                      {device.label || `Micro ${index + 1}`}
-                    </option>
-                  ))}
-                </select>
-              )}
+              <select className="meet-device-select" value={selectedAudioInputId} disabled={!canUseMediaDevices} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedAudioInputId(event.target.value); setMicrophoneEnabled(true); }} aria-label="Choisir le micro">
+                <option value="">{audioInputDevices.length ? 'Micro par defaut' : 'Aucun micro detecte'}</option>
+                {audioInputDevices.map((device, index) => (
+                  <option value={device.deviceId} key={device.deviceId || `audio-${index}`}>
+                    {device.label || `Micro ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+              <button className="secondary" type="button" disabled={!canUseMediaDevices || audioInputDevices.length < 2} title={!canUseMediaDevices ? "Micro indisponible sans HTTPS ou permission Windows." : audioInputDevices.length < 2 ? "Un seul micro detecte. Cliquez sur Detecter apres avoir branche un autre micro." : 'Passer au micro suivant'} onClick={switchToNextMicrophone}>
+                Changer micro
+              </button>
               <button className={cameraEnabled ? 'active' : ''} type="button" disabled={!canUseMediaDevices} title={!canUseMediaDevices ? "Camera indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => setCameraEnabled((value) => !value)}>
                 {cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />}
                 Camera
               </button>
-              {canUseMediaDevices && (
-                <select className="meet-device-select" value={selectedVideoInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedVideoInputId(event.target.value); setCameraEnabled(true); }} aria-label="Choisir la camera">
-                  <option value="">{videoInputDevices.length ? 'Camera par defaut' : 'Aucune camera detectee'}</option>
-                  {videoInputDevices.map((device, index) => (
-                    <option value={device.deviceId} key={device.deviceId || `video-${index}`}>
-                      {device.label || `Camera ${index + 1}`}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {canUseMediaDevices && (
-                <button className="secondary" type="button" disabled={videoInputDevices.length < 2} title={videoInputDevices.length < 2 ? "Une seule camera detectee. Cliquez sur Detecter apres avoir branche une autre camera." : 'Passer a la camera suivante'} onClick={switchToNextCamera}>
-                  Changer camera
-                </button>
-              )}
-              {canUseMediaDevices && (
-                <button className="secondary" type="button" onClick={() => void refreshMediaDeviceList()}>
-                  Detecter
-                </button>
-              )}
+              <select className="meet-device-select" value={selectedVideoInputId} disabled={!canUseMediaDevices} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedVideoInputId(event.target.value); setCameraEnabled(true); }} aria-label="Choisir la camera">
+                <option value="">{videoInputDevices.length ? 'Camera par defaut' : 'Aucune camera detectee'}</option>
+                {videoInputDevices.map((device, index) => (
+                  <option value={device.deviceId} key={device.deviceId || `video-${index}`}>
+                    {device.label || `Camera ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+              <button className="secondary" type="button" disabled={!canUseMediaDevices || videoInputDevices.length < 2} title={!canUseMediaDevices ? "Camera indisponible sans HTTPS ou permission Windows." : videoInputDevices.length < 2 ? "Une seule camera detectee. Cliquez sur Detecter apres avoir branche une autre camera." : 'Passer a la camera suivante'} onClick={switchToNextCamera}>
+                Changer camera
+              </button>
+              <button className="secondary" type="button" disabled={!navigator.mediaDevices?.enumerateDevices} onClick={() => void refreshMediaDeviceList()}>
+                Detecter
+              </button>
               <button className={screenEnabled ? 'active' : ''} type="button" disabled={!canUseDisplayMedia} title={!canUseDisplayMedia ? "Partage d'ecran indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => void toggleScreenShare()}>
                 <ScreenShare size={16} />
                 Ecran
