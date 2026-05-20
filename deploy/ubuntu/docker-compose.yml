@@ -18,7 +18,7 @@ services:
       Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost}
       Email__EnableSmtpSending: ${EMAIL_ENABLE_SMTP_SENDING:-false}
       OnlyOffice__DocumentServerUrl: ${ONLYOFFICE_DOCUMENT_SERVER_URL:-/onlyoffice}
-      OnlyOffice__InternalBaseUrl: ${ONLYOFFICE_INTERNAL_BASE_URL:-http://nginx}
+      OnlyOffice__InternalBaseUrl: ${ONLYOFFICE_INTERNAL_BASE_URL:-http://erp-api:8080}
       OnlyOffice__CallbackSecret: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
       Prestashop__AutoSyncEnabled: ${PRESTASHOP_AUTO_SYNC_ENABLED:-true}
       Prestashop__AutoSyncIntervalSeconds: ${PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS:-10}

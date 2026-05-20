@@ -100,9 +100,9 @@ Le logo des devis configure dans `Parametres > Devis` est stocke dans le volume 
 
 Pour l'edition Office, le bouton `Office` du Drive ouvre ONLYOFFICE directement dans OceanERP pour les fichiers DOCX, XLSX et PPTX compatibles. `PUBLIC_URL` reste l'URL HTTPS publique de l'ERP. `ONLYOFFICE_DOCUMENT_SERVER_URL` vaut generalement `/onlyoffice` derriere Nginx : c'est l'URL chargee par le navigateur pour afficher l'editeur.
 
-`ONLYOFFICE_INTERNAL_BASE_URL` sert uniquement a Document Server pour telecharger le fichier et appeler le callback de sauvegarde. Dans Docker Compose, la valeur recommandee est `http://nginx`, car le conteneur ONLYOFFICE rejoint alors l'API par le reseau Docker interne. Ne pas remplacer cette valeur par l'URL publique HTTPS sauf si le conteneur ONLYOFFICE peut vraiment joindre cette URL depuis l'interieur du serveur.
+`ONLYOFFICE_INTERNAL_BASE_URL` sert uniquement a Document Server pour telecharger le fichier et appeler le callback de sauvegarde. Dans Docker Compose, la valeur recommandee est `http://erp-api:8080`, car le conteneur ONLYOFFICE rejoint alors directement l'API par le reseau Docker interne, sans repasser par Nginx ni par la redirection HTTPS publique. Ne pas remplacer cette valeur par l'URL publique HTTPS sauf si le conteneur ONLYOFFICE peut vraiment joindre cette URL depuis l'interieur du serveur.
 
-La configuration envoyee au Document Server contient un JWT signe par `ONLYOFFICE_JWT_SECRET`, puis les sauvegardes sont versionnees dans Drive. Si ONLYOFFICE affiche `errorCode -4` / `Echec du telechargement`, verifier en priorite `ONLYOFFICE_INTERNAL_BASE_URL`, les logs `oceanerp-onlyoffice` et l'acces interne a `http://nginx/api/health`.
+La configuration envoyee au Document Server contient un JWT signe par `ONLYOFFICE_JWT_SECRET`, puis les sauvegardes sont versionnees dans Drive. Si ONLYOFFICE affiche `errorCode -4` / `Echec du telechargement`, verifier en priorite `ONLYOFFICE_INTERNAL_BASE_URL`, les logs `oceanerp-onlyoffice` et l'acces interne a `http://erp-api:8080/api/health` depuis le conteneur ONLYOFFICE.
 
 Pour imprimer les etiquettes Colissimo officielles depuis l'ERP, le module Colissimo PrestaShop doit exposer un endpoint telechargeable. Quand l'URL est connue, renseigner par exemple :
 
