@@ -11,6 +11,7 @@ using Erp.Infrastructure.Persistence;
 using Erp.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Serilog;
@@ -48,6 +49,13 @@ builder.Services.AddScoped<IRealtimeNotificationPublisher, RealtimeNotificationP
 builder.Services.AddScoped<IPrestashopSyncNotifier, PrestashopRealtimeSyncNotifier>();
 builder.Services.AddHostedService<EmailAutoSyncWorker>();
 builder.Services.AddHostedService<CalendarReminderWorker>();
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
 builder.Services
@@ -139,6 +147,7 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 if (app.Environment.IsDevelopment())

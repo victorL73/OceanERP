@@ -94,8 +94,9 @@ Variables minimales a changer avant production :
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
 - `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice`
-- `ONLYOFFICE_INTERNAL_BASE_URL=http://erp-api:8080`
+- `ONLYOFFICE_INTERNAL_BASE_URL=http://nginx`
 - `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true`
+- `ONLYOFFICE_ALLOW_META_IP_ADDRESS=true`
 - `PUBLIC_URL`
 - `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
 - `PRESTASHOP_AUTO_SYNC_ENABLED=true` et `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS=10` activent la synchronisation PrestaShop automatique en quasi temps reel.
@@ -104,7 +105,7 @@ Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
 `SECRETS_ENCRYPTION_KEY` doit rester stable entre les redeploiements : elle sert a relire les cles API PrestaShop et les mots de passe mail chiffres en base.
 
-Pour ONLYOFFICE, garder `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice` pour l'editeur cote navigateur et `ONLYOFFICE_INTERNAL_BASE_URL=http://erp-api:8080` pour le telechargement/callback depuis le conteneur ONLYOFFICE. Comme cette URL est interne au reseau Docker, garder aussi `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true`.
+Pour ONLYOFFICE, garder `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice` pour l'editeur cote navigateur et `ONLYOFFICE_INTERNAL_BASE_URL=http://nginx` pour le telechargement/callback depuis le conteneur ONLYOFFICE. Comme cette URL est interne au reseau Docker, garder aussi `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true` et `ONLYOFFICE_ALLOW_META_IP_ADDRESS=true`.
 
 Si un fichier Office affiche `errorCode -4`, le conteneur Document Server n'arrive pas a telecharger le fichier depuis cette URL interne. Apres mise a jour de `.env` ou du compose, recreer ONLYOFFICE :
 
