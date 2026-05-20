@@ -8440,17 +8440,55 @@ function buildOnlyOfficeEditorId(file: DriveItem, suffix = '') {
   return `onlyoffice-editor-${file.id.replace(/[^a-z0-9]/gi, '')}${suffix}`;
 }
 
+function cleanupOnlyOfficePopupSessions() {
+  const prefix = 'oceanerp.onlyoffice.session.';
+  const now = Date.now();
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(prefix)) {
+      continue;
+    }
+
+    try {
+      const value = JSON.parse(localStorage.getItem(key) ?? '{}') as { expiresAt?: number };
+      if (!value.expiresAt || value.expiresAt < now) {
+        localStorage.removeItem(key);
+      }
+    } catch {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
+function buildOnlyOfficePopupUrl(sessionKey: string) {
+  const url = new URL('/onlyoffice-editor.html', window.location.origin);
+  url.searchParams.set('session', sessionKey);
+  return url.toString();
+}
+
 function openOnlyOfficeDetachedWindow(file: DriveItem, config: OnlyOfficeConfig) {
   const editorId = buildOnlyOfficeEditorId(file, `-${Date.now()}`);
-  const opened = window.open('', `oceanerp-onlyoffice-${file.id}`, 'popup,width=1600,height=980,resizable,scrollbars');
+  const sessionKey = `oceanerp.onlyoffice.session.${editorId}`;
+  cleanupOnlyOfficePopupSessions();
+  localStorage.setItem(sessionKey, JSON.stringify({
+    editorId,
+    title: file.name,
+    scriptUrl: `${resolveOnlyOfficeServerUrl(config.documentServerUrl)}/web-apps/apps/api/documents/api.js`,
+    config: getOnlyOfficeEditorConfig(config),
+    expiresAt: Date.now() + 6 * 60 * 60 * 1000
+  }));
+
+  const opened = window.open(buildOnlyOfficePopupUrl(sessionKey), `oceanerp-onlyoffice-${file.id}`, 'popup,width=1600,height=980,resizable,scrollbars');
   if (!opened) {
+    localStorage.removeItem(sessionKey);
     return false;
   }
 
-  opened.document.open();
-  opened.document.write(getOnlyOfficeFrameHtml(editorId, config));
-  opened.document.close();
-  opened.document.title = `ONLYOFFICE - ${file.name}`;
+  try {
+    opened.document.title = `ONLYOFFICE - ${file.name}`;
+  } catch {
+    // La fenetre peut deja avoir navigue vers la page hebergee par l'ERP.
+  }
   opened.focus();
   return true;
 }

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ONLYOFFICE - OceanERP</title>
+  <style>
+    html, body, #placeholder {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    #status {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: #f8fafc;
+      color: #334155;
+      font: 700 15px/1.4 Arial, sans-serif;
+      text-align: center;
+    }
+
+    #status.hidden {
+      display: none;
+    }
+
+    #status.error {
+      color: #991b1b;
+      background: #fff5f5;
+    }
+  </style>
+</head>
+<body>
+  <div id="placeholder"></div>
+  <div id="status">Connexion a ONLYOFFICE...</div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var sessionKey = params.get('session');
+      var parentWindow = window.opener && !window.opener.closed ? window.opener : null;
+      var editorInstance = null;
+
+      function setStatus(message, isError) {
+        var status = document.getElementById('status');
+        if (!status) {
+          return;
+        }
+
+        if (!message) {
+          status.className = 'hidden';
+          status.textContent = '';
+          return;
+        }
+
+        status.className = isError ? 'error' : '';
+        status.textContent = message;
+      }
+
+      function post(type, editorId, message) {
+        if (!parentWindow) {
+          return;
+        }
+
+        parentWindow.postMessage({
+          source: 'oceanerp.onlyoffice',
+          editorId: editorId,
+          type: type,
+          message: message || ''
+        }, window.location.origin);
+      }
+
+      function callOriginal(callback, args, editorId) {
+        if (typeof callback === 'function') {
+          try {
+            callback.apply(null, args);
+          } catch (error) {
+            post('error', editorId, error && error.message ? error.message : String(error));
+          }
+        }
+      }
+
+      function loadSession() {
+        if (!sessionKey) {
+          throw new Error('Session ONLYOFFICE manquante.');
+        }
+
+        var raw = localStorage.getItem(sessionKey);
+        if (!raw) {
+          throw new Error('Session ONLYOFFICE expiree ou introuvable.');
+        }
+
+        var session = JSON.parse(raw);
+        if (!session.expiresAt || session.expiresAt < Date.now()) {
+          localStorage.removeItem(sessionKey);
+          throw new Error('Session ONLYOFFICE expiree.');
+        }
+
+        return session;
+      }
+
+      function start() {
+        var session = loadSession();
+        var editorId = session.editorId;
+        var config = session.config;
+        var scriptUrl = session.scriptUrl;
+        document.title = 'ONLYOFFICE - ' + (session.title || 'OceanERP');
+
+        window.onerror = function (message, source, line, column, error) {
+          var text = error && error.message ? error.message : String(message || 'Erreur JavaScript ONLYOFFICE.');
+          setStatus(text, true);
+          post('error', editorId, text);
+          return false;
+        };
+
+        window.addEventListener('beforeunload', function () {
+          try {
+            if (editorInstance && typeof editorInstance.destroyEditor === 'function') {
+              editorInstance.destroyEditor();
+            }
+          } catch (error) {
+            // Fermeture de fenetre: rien a remonter a l'utilisateur.
+          }
+        });
+
+        var script = document.createElement('script');
+        script.src = scriptUrl;
+        script.async = true;
+        script.onload = function () {
+          try {
+            if (!window.DocsAPI || !window.DocsAPI.DocEditor) {
+              throw new Error('ONLYOFFICE DocsAPI indisponible.');
+            }
+
+            var originalEvents = config.events || {};
+            config.events = Object.assign({}, originalEvents, {
+              onAppReady: function () {
+                setStatus('Chargement du document dans ONLYOFFICE...', false);
+                post('loaded', editorId);
+                callOriginal(originalEvents.onAppReady, arguments, editorId);
+              },
+              onDocumentReady: function () {
+                setStatus('', false);
+                post('ready', editorId);
+                callOriginal(originalEvents.onDocumentReady, arguments, editorId);
+              },
+              onError: function (event) {
+                var raw = event && event.data ? JSON.stringify(event.data) : '';
+                var text = raw || 'Erreur ONLYOFFICE pendant l edition.';
+                setStatus(text, true);
+                post('error', editorId, text);
+                callOriginal(originalEvents.onError, arguments, editorId);
+              },
+              onRequestClose: function () {
+                post('request-close', editorId);
+                callOriginal(originalEvents.onRequestClose, arguments, editorId);
+              }
+            });
+
+            editorInstance = new window.DocsAPI.DocEditor('placeholder', config);
+            window.oceanErpOnlyOfficeEditor = editorInstance;
+          } catch (error) {
+            var text = error && error.message ? error.message : String(error);
+            setStatus(text, true);
+            post('error', editorId, text);
+          }
+        };
+        script.onerror = function () {
+          var text = 'Chargement ONLYOFFICE impossible depuis ' + scriptUrl + '.';
+          setStatus(text, true);
+          post('error', editorId, text);
+        };
+        document.head.appendChild(script);
+      }
+
+      try {
+        start();
+      } catch (error) {
+        setStatus(error && error.message ? error.message : String(error), true);
+      }
+    })();
+  </script>
+</body>
+</html>

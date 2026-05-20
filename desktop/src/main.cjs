@@ -369,6 +369,50 @@ function isTrustedPermissionUrl(targetUrl) {
   }
 }
 
+function isLocalGeneratedWindowUrl(targetUrl) {
+  return !targetUrl
+    || targetUrl === 'about:blank'
+    || targetUrl.startsWith('about:blank#')
+    || targetUrl.startsWith('data:text/html')
+    || targetUrl.startsWith('blob:');
+}
+
+function isAllowedServerUrl(targetUrl, serverUrl) {
+  if (isLocalGeneratedWindowUrl(targetUrl)) {
+    return true;
+  }
+
+  if (!serverUrl) {
+    return /^https?:\/\//i.test(targetUrl);
+  }
+
+  try {
+    const target = new URL(targetUrl);
+    const server = new URL(serverUrl);
+    return ['http:', 'https:'].includes(target.protocol) && target.origin === server.origin;
+  } catch {
+    return false;
+  }
+}
+
+function isOnlyOfficeEditorWindowUrl(targetUrl, serverUrl) {
+  if (isLocalGeneratedWindowUrl(targetUrl)) {
+    return true;
+  }
+
+  if (!serverUrl) {
+    return false;
+  }
+
+  try {
+    const target = new URL(targetUrl);
+    const server = new URL(serverUrl);
+    return target.origin === server.origin && target.pathname.endsWith('/onlyoffice-editor.html');
+  } catch {
+    return false;
+  }
+}
+
 function configureMediaPermissions() {
   const allowedPermissions = new Set([
     'media',
@@ -426,7 +470,8 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url === 'about:blank') {
+    const serverUrl = readSettings().serverUrl;
+    if (isOnlyOfficeEditorWindowUrl(url, serverUrl)) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -438,7 +483,12 @@ function createWindow() {
           icon: iconPath,
           webPreferences: {
             contextIsolation: true,
-            nodeIntegration: false
+            nodeIntegration: false,
+            // ONLYOFFICE charge une application complete depuis le serveur Docs dans une
+            // fenetre HTML generee par l'ERP. Electron est plus strict qu'un navigateur
+            // classique sur ce scenario about:blank -> script distant; on isole cette
+            // fenetre sans Node tout en laissant les assets ONLYOFFICE se charger.
+            webSecurity: false
           }
         }
       };
@@ -600,9 +650,11 @@ app.whenReady().then(() => {
 app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, url) => {
     const serverUrl = readSettings().serverUrl;
-    if (serverUrl && !url.startsWith(serverUrl) && !url.startsWith('data:text/html')) {
+    if (!isAllowedServerUrl(url, serverUrl)) {
       event.preventDefault();
-      shell.openExternal(url);
+      if (/^https?:\/\//i.test(url)) {
+        shell.openExternal(url);
+      }
     }
   });
 });
