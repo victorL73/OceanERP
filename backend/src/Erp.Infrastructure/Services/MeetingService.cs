@@ -12,7 +12,7 @@ namespace Erp.Infrastructure.Services;
 public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentUser, IFileStorageService fileStorage) : IMeetingService
 {
     private const int PresenceTtlSeconds = 45;
-    private const int SignalTtlMinutes = 10;
+    private const int SignalTtlMinutes = 3;
     private const long ChatAttachmentMaxBytes = 5 * 1024 * 1024;
 
     private static readonly MeetingLanguageDto[] Languages =
@@ -435,6 +435,7 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
 
     private async Task<MeetingRoomStateDto> MapStateAsync(MeetingRoom room, string? clientId, DateTimeOffset? since, CancellationToken cancellationToken)
     {
+        var syncCursor = DateTimeOffset.UtcNow;
         var activeSince = DateTimeOffset.UtcNow.AddSeconds(-PresenceTtlSeconds);
         var roomDto = (await MapRoomsAsync([room], cancellationToken))[0];
 
@@ -447,7 +448,7 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
         var signalQuery = db.MeetingSignals.AsNoTracking().Where(x => x.MeetingRoomId == room.Id);
         if (!string.IsNullOrWhiteSpace(clientId))
         {
-            signalQuery = signalQuery.Where(x => x.RecipientClientId == clientId || x.RecipientClientId == "*" || x.SenderClientId == clientId);
+            signalQuery = signalQuery.Where(x => x.RecipientClientId == clientId || x.RecipientClientId == "*");
         }
 
         if (since.HasValue)
@@ -472,7 +473,7 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
             .ToListAsync(cancellationToken);
         var messages = messageEntities.Select(Map).ToList();
 
-        return new MeetingRoomStateDto(roomDto, participants, signals, transcripts, messages, DateTimeOffset.UtcNow);
+        return new MeetingRoomStateDto(roomDto, participants, signals, transcripts, messages, syncCursor);
     }
 
     private async Task<IReadOnlyList<MeetingRoomDto>> MapRoomsAsync(IReadOnlyList<MeetingRoom> rooms, CancellationToken cancellationToken)

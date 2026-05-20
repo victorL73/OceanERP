@@ -1032,6 +1032,8 @@ function PublicMeetPage({ token }: { token: string }) {
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const lastMeetingSyncAtRef = useRef<string | null>(null);
+  const meetingSyncInFlightRef = useRef(false);
   const canUseMediaDevices = Boolean(navigator.mediaDevices?.getUserMedia);
   const canUseDisplayMedia = Boolean(navigator.mediaDevices?.getDisplayMedia);
   const audioInputDevices = mediaDevices.filter((device) => device.kind === 'audioinput');
@@ -1066,6 +1068,11 @@ function PublicMeetPage({ token }: { token: string }) {
     navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
     return () => navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
   }, [loadMediaDevices]);
+
+  useEffect(() => {
+    lastMeetingSyncAtRef.current = roomState?.room.id ? roomState.serverTime : null;
+    meetingSyncInFlightRef.current = false;
+  }, [roomState?.room.id]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -1241,7 +1248,7 @@ function PublicMeetPage({ token }: { token: string }) {
         media: defaultMeetingMedia()
       });
       setJoinedName(name);
-      setRoomState(next);
+      replaceRoomState(next);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Lien Meet invalide.');
     } finally {
@@ -1250,24 +1257,35 @@ function PublicMeetPage({ token }: { token: string }) {
   }
 
   async function syncRoom(showErrors = true) {
-    if (!roomState) {
+    if (!roomState || meetingSyncInFlightRef.current) {
       return;
     }
 
     try {
+      meetingSyncInFlightRef.current = true;
+      const since = lastMeetingSyncAtRef.current;
       const next = await api.syncPublicMeetingRoom(token, {
         clientId,
         displayName: joinedName || guestName || 'Invite',
         sourceLanguage,
         targetLanguage,
-        media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
+        media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' },
+        since
       });
-      setRoomState(next);
+      lastMeetingSyncAtRef.current = next.serverTime;
+      setRoomState((current) => mergeMeetingRoomState(since ? current : null, next));
     } catch (err) {
       if (showErrors) {
         setMessage(err instanceof Error ? err.message : 'Synchronisation Meet impossible.');
       }
+    } finally {
+      meetingSyncInFlightRef.current = false;
     }
+  }
+
+  function replaceRoomState(next: MeetingRoomState | null) {
+    lastMeetingSyncAtRef.current = next?.serverTime ?? null;
+    setRoomState(next);
   }
 
   async function leaveRoom() {
@@ -1276,7 +1294,7 @@ function PublicMeetPage({ token }: { token: string }) {
     }
 
     await api.leavePublicMeetingRoom(token, clientId);
-    setRoomState(null);
+    replaceRoomState(null);
     setCameraEnabled(false);
     setMicrophoneEnabled(false);
     stopScreenShare();
@@ -9467,6 +9485,25 @@ function defaultMeetingMedia() {
   return { microphoneEnabled: false, cameraEnabled: false, screenEnabled: false, connectionState: 'online' };
 }
 
+function mergeMeetingItemsById<T extends { id: string; createdAt: string }>(current: T[], incoming: T[]) {
+  const merged = new Map(current.map((item) => [item.id, item]));
+  incoming.forEach((item) => merged.set(item.id, item));
+  return Array.from(merged.values()).sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+}
+
+function mergeMeetingRoomState(current: MeetingRoomState | null, next: MeetingRoomState) {
+  if (!current || current.room.id !== next.room.id) {
+    return next;
+  }
+
+  return {
+    ...next,
+    signals: next.signals,
+    transcripts: mergeMeetingItemsById(current.transcripts, next.transcripts),
+    chatMessages: mergeMeetingItemsById(current.chatMessages, next.chatMessages)
+  };
+}
+
 type MeetingRemoteStream = {
   id: string;
   stream: MediaStream;
@@ -9483,6 +9520,7 @@ type MeetingPeerConnectionState = {
 type MeetingPeerSignalPayload = {
   description?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
+  candidates?: RTCIceCandidateInit[];
 };
 
 type MeetingPeerSignalSender = (recipientClientId: string, signalType: 'offer' | 'answer' | 'candidate', payload: MeetingPeerSignalPayload) => Promise<void>;
@@ -9510,6 +9548,8 @@ function useMeetingPeerStreams({
   const peersRef = useRef<Map<string, MeetingPeerConnectionState>>(new Map());
   const processedSignalsRef = useRef<Set<string>>(new Set());
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const outgoingCandidateQueuesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const outgoingCandidateTimersRef = useRef<Map<string, number>>(new Map());
   const sendSignalRef = useRef(sendSignal);
   const getLocalStreamsRef = useRef(getLocalStreams);
   const onErrorRef = useRef(onError);
@@ -9540,6 +9580,12 @@ function useMeetingPeerStreams({
     peersRef.current.get(remoteClientId)?.connection.close();
     peersRef.current.delete(remoteClientId);
     pendingCandidatesRef.current.delete(remoteClientId);
+    outgoingCandidateQueuesRef.current.delete(remoteClientId);
+    const timer = outgoingCandidateTimersRef.current.get(remoteClientId);
+    if (timer) {
+      window.clearTimeout(timer);
+      outgoingCandidateTimersRef.current.delete(remoteClientId);
+    }
     setRemoteStreams((current) => {
       const next = { ...current };
       delete next[remoteClientId];
@@ -9590,6 +9636,29 @@ function useMeetingPeerStreams({
         // Un candidat ICE obsolete ne doit pas couper la reunion.
       }
     }
+  }, []);
+
+  const queueOutgoingCandidate = useCallback((remoteClientId: string, candidate: RTCIceCandidateInit) => {
+    const queue = outgoingCandidateQueuesRef.current.get(remoteClientId) ?? [];
+    queue.push(candidate);
+    outgoingCandidateQueuesRef.current.set(remoteClientId, queue);
+
+    if (outgoingCandidateTimersRef.current.has(remoteClientId)) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      outgoingCandidateTimersRef.current.delete(remoteClientId);
+      const candidates = outgoingCandidateQueuesRef.current.get(remoteClientId) ?? [];
+      outgoingCandidateQueuesRef.current.delete(remoteClientId);
+      if (candidates.length === 0) {
+        return;
+      }
+
+      void sendSignalRef.current(remoteClientId, 'candidate', { candidates })
+        .catch(() => onErrorRef.current('Signal ICE Meet non transmis.'));
+    }, 150);
+    outgoingCandidateTimersRef.current.set(remoteClientId, timer);
   }, []);
 
   const createPeerOffer = useCallback(async (remoteClientId: string, peer: MeetingPeerConnectionState) => {
@@ -9650,8 +9719,7 @@ function useMeetingPeerStreams({
         return;
       }
 
-      void sendSignalRef.current(remoteClientId, 'candidate', { candidate: event.candidate.toJSON() })
-        .catch(() => onErrorRef.current('Signal ICE Meet non transmis.'));
+      queueOutgoingCandidate(remoteClientId, event.candidate.toJSON());
     };
 
     connection.ontrack = (event) => {
@@ -9690,7 +9758,7 @@ function useMeetingPeerStreams({
     };
 
     return peer;
-  }, [closePeer, createPeerOffer, syncLocalTracks]);
+  }, [closePeer, createPeerOffer, queueOutgoingCandidate, syncLocalTracks]);
 
   useEffect(() => {
     processedSignalsRef.current.clear();
@@ -9700,6 +9768,9 @@ function useMeetingPeerStreams({
     peersRef.current.forEach((peer) => peer.connection.close());
     peersRef.current.clear();
     pendingCandidatesRef.current.clear();
+    outgoingCandidateQueuesRef.current.clear();
+    outgoingCandidateTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    outgoingCandidateTimersRef.current.clear();
     setRemoteStreams({});
   }, [roomId]);
 
@@ -9776,17 +9847,20 @@ function useMeetingPeerStreams({
             const answer = await connection.createAnswer();
             await connection.setLocalDescription(answer);
             await sendSignalRef.current(signal.senderClientId, 'answer', { description: connection.localDescription ?? answer });
-          } else if (signal.signalType === 'candidate' && payload.candidate) {
+          } else if (signal.signalType === 'candidate' && (payload.candidate || payload.candidates?.length)) {
             if (peer.ignoreOffer) {
               continue;
             }
 
+            const candidates = payload.candidates?.length ? payload.candidates : payload.candidate ? [payload.candidate] : [];
             if (connection.remoteDescription) {
-              await connection.addIceCandidate(new RTCIceCandidate(payload.candidate));
+              for (const candidate of candidates) {
+                await connection.addIceCandidate(new RTCIceCandidate(candidate));
+              }
             } else {
               pendingCandidatesRef.current.set(signal.senderClientId, [
                 ...(pendingCandidatesRef.current.get(signal.senderClientId) ?? []),
-                payload.candidate
+                ...candidates
               ]);
             }
           }
@@ -9801,6 +9875,8 @@ function useMeetingPeerStreams({
   useEffect(() => () => {
     peersRef.current.forEach((peer) => peer.connection.close());
     peersRef.current.clear();
+    outgoingCandidateTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    outgoingCandidateTimersRef.current.clear();
   }, []);
 
   return remoteStreams;
@@ -10227,6 +10303,8 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const lastMeetingSyncAtRef = useRef<string | null>(null);
+  const meetingSyncInFlightRef = useRef(false);
   const audioInputDevices = mediaDevices.filter((device) => device.kind === 'audioinput');
   const videoInputDevices = mediaDevices.filter((device) => device.kind === 'videoinput');
 
@@ -10265,12 +10343,17 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   }, [loadMediaDevices]);
 
   useEffect(() => {
+    lastMeetingSyncAtRef.current = roomState?.room.id ? roomState.serverTime : null;
+    meetingSyncInFlightRef.current = false;
+  }, [roomState?.room.id]);
+
+  useEffect(() => {
     if (!initialRoomId) {
       return;
     }
 
     api.meetingRoom(initialRoomId, clientId)
-      .then(setRoomState)
+      .then(replaceRoomState)
       .then(onInitialRoomOpened)
       .catch((err) => setMessage(err instanceof Error ? err.message : 'Salle Meet introuvable.'));
   }, [clientId, initialRoomId, onInitialRoomOpened]);
@@ -10290,7 +10373,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
       targetLanguage,
       media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
     })
-      .then(setRoomState)
+      .then(replaceRoomState)
       .then(() => {
         params.delete('meet');
         const query = params.toString();
@@ -10459,24 +10542,35 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   }
 
   async function syncRoom(showErrors = true) {
-    if (!roomState) {
+    if (!roomState || meetingSyncInFlightRef.current) {
       return;
     }
 
     try {
+      meetingSyncInFlightRef.current = true;
+      const since = lastMeetingSyncAtRef.current;
       const next = await api.syncMeetingRoom(roomState.room.id, {
         clientId,
         displayName,
         sourceLanguage,
         targetLanguage,
-        media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
+        media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' },
+        since
       });
-      setRoomState(next);
+      lastMeetingSyncAtRef.current = next.serverTime;
+      setRoomState((current) => mergeMeetingRoomState(since ? current : null, next));
     } catch (err) {
       if (showErrors) {
         setMessage(err instanceof Error ? err.message : 'Synchronisation Meet impossible.');
       }
+    } finally {
+      meetingSyncInFlightRef.current = false;
     }
+  }
+
+  function replaceRoomState(next: MeetingRoomState | null) {
+    lastMeetingSyncAtRef.current = next?.serverTime ?? null;
+    setRoomState(next);
   }
 
   async function createRoom(event: FormEvent) {
@@ -10491,7 +10585,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
       targetLanguage,
       media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
     });
-    setRoomState(next);
+    replaceRoomState(next);
     await refreshDashboard();
   }
 
@@ -10506,13 +10600,13 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
       targetLanguage,
       media: { microphoneEnabled, cameraEnabled, screenEnabled, connectionState: 'online' }
     });
-    setRoomState(next);
+    replaceRoomState(next);
   }
 
   async function openRoom(roomId: string) {
     setMessage(null);
     const next = await api.meetingRoom(roomId, clientId);
-    setRoomState(next);
+    replaceRoomState(next);
   }
 
   async function copyInvite() {
@@ -10524,7 +10618,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     const link = `${window.location.origin}${window.location.pathname}?meet=${response.token}`;
     const copied = await copyTextToClipboard(link);
     setMessage(copied ? 'Lien Meet copie.' : `Lien Meet : ${link}`);
-    setRoomState({ ...roomState, room: { ...roomState.room, inviteToken: response.token } });
+    setRoomState((current) => current ? { ...current, room: { ...current.room, inviteToken: response.token } } : current);
   }
 
   async function leaveRoom() {
@@ -10533,7 +10627,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     }
 
     await api.leaveMeetingRoom(roomState.room.id, clientId);
-    setRoomState(null);
+    replaceRoomState(null);
     setCameraEnabled(false);
     setMicrophoneEnabled(false);
     stopScreenShare();
@@ -10546,7 +10640,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     }
 
     await api.deleteMeetingRoom(roomState.room.id);
-    setRoomState(null);
+    replaceRoomState(null);
     await refreshDashboard();
   }
 
