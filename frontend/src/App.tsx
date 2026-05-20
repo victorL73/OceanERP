@@ -9034,7 +9034,7 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
   const loadMediaDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) {
       setMediaDevices([]);
-      return;
+      return [] as MediaDeviceInfo[];
     }
 
     try {
@@ -9042,8 +9042,10 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
       setMediaDevices(devices);
       setSelectedAudioInputId((current) => current && devices.some((device) => device.kind === 'audioinput' && device.deviceId === current) ? current : '');
       setSelectedVideoInputId((current) => current && devices.some((device) => device.kind === 'videoinput' && device.deviceId === current) ? current : '');
+      return devices;
     } catch {
       setMediaDevices([]);
+      return [] as MediaDeviceInfo[];
     }
   }, []);
 
@@ -9144,6 +9146,14 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
 
         stream = nextStream;
         localStreamRef.current = nextStream;
+        const activeAudioDeviceId = nextStream.getAudioTracks()[0]?.getSettings().deviceId;
+        const activeVideoDeviceId = nextStream.getVideoTracks()[0]?.getSettings().deviceId;
+        if (activeAudioDeviceId) {
+          setSelectedAudioInputId((current) => current || activeAudioDeviceId);
+        }
+        if (activeVideoDeviceId) {
+          setSelectedVideoInputId((current) => current || activeVideoDeviceId);
+        }
         void loadMediaDevices();
         if (videoRef.current) {
           videoRef.current.srcObject = nextStream;
@@ -9357,6 +9367,27 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
     }
   }
 
+  async function refreshMediaDeviceList() {
+    const devices = await loadMediaDevices();
+    const cameraCount = devices.filter((device) => device.kind === 'videoinput').length;
+    const microphoneCount = devices.filter((device) => device.kind === 'audioinput').length;
+    setMessage(`${cameraCount} camera(s) et ${microphoneCount} micro(s) detecte(s).`);
+  }
+
+  function switchToNextCamera() {
+    if (videoInputDevices.length < 2) {
+      setMessage("Une seule camera est detectee pour l'instant. Branchez une autre camera puis actualisez les peripheriques.");
+      return;
+    }
+
+    const activeDeviceId = localStreamRef.current?.getVideoTracks()[0]?.getSettings().deviceId || selectedVideoInputId;
+    const currentIndex = videoInputDevices.findIndex((device) => device.deviceId === activeDeviceId);
+    const nextDevice = videoInputDevices[(currentIndex + 1 + videoInputDevices.length) % videoInputDevices.length];
+    setSelectedVideoInputId(nextDevice.deviceId);
+    setCameraEnabled(true);
+    setMessage(`Camera selectionnee : ${nextDevice.label || 'camera suivante'}.`);
+  }
+
   function stopScreenShare() {
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     screenStreamRef.current = null;
@@ -9468,9 +9499,9 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                 {microphoneEnabled ? <Mic size={16} /> : <MicOff size={16} />}
                 Micro
               </button>
-              {canUseMediaDevices && audioInputDevices.length > 1 && (
-                <select className="meet-device-select" value={selectedAudioInputId} onChange={(event) => setSelectedAudioInputId(event.target.value)} aria-label="Choisir le micro">
-                  <option value="">Micro par defaut</option>
+              {canUseMediaDevices && (
+                <select className="meet-device-select" value={selectedAudioInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => setSelectedAudioInputId(event.target.value)} aria-label="Choisir le micro">
+                  <option value="">{audioInputDevices.length ? 'Micro par defaut' : 'Aucun micro detecte'}</option>
                   {audioInputDevices.map((device, index) => (
                     <option value={device.deviceId} key={device.deviceId || `audio-${index}`}>
                       {device.label || `Micro ${index + 1}`}
@@ -9482,15 +9513,25 @@ function Meet({ dashboard, currentUser, initialRoomId, onInitialRoomOpened, onCh
                 {cameraEnabled ? <Camera size={16} /> : <CameraOff size={16} />}
                 Camera
               </button>
-              {canUseMediaDevices && videoInputDevices.length > 1 && (
-                <select className="meet-device-select" value={selectedVideoInputId} onChange={(event) => setSelectedVideoInputId(event.target.value)} aria-label="Choisir la camera">
-                  <option value="">Camera par defaut</option>
+              {canUseMediaDevices && (
+                <select className="meet-device-select" value={selectedVideoInputId} onFocus={() => void loadMediaDevices()} onChange={(event) => { setSelectedVideoInputId(event.target.value); setCameraEnabled(true); }} aria-label="Choisir la camera">
+                  <option value="">{videoInputDevices.length ? 'Camera par defaut' : 'Aucune camera detectee'}</option>
                   {videoInputDevices.map((device, index) => (
                     <option value={device.deviceId} key={device.deviceId || `video-${index}`}>
                       {device.label || `Camera ${index + 1}`}
                     </option>
                   ))}
                 </select>
+              )}
+              {canUseMediaDevices && (
+                <button className="secondary" type="button" disabled={videoInputDevices.length < 2} title={videoInputDevices.length < 2 ? "Une seule camera detectee. Cliquez sur Detecter apres avoir branche une autre camera." : 'Passer a la camera suivante'} onClick={switchToNextCamera}>
+                  Changer camera
+                </button>
+              )}
+              {canUseMediaDevices && (
+                <button className="secondary" type="button" onClick={() => void refreshMediaDeviceList()}>
+                  Detecter
+                </button>
               )}
               <button className={screenEnabled ? 'active' : ''} type="button" disabled={!canUseDisplayMedia} title={!canUseDisplayMedia ? "Partage d'ecran indisponible sans HTTPS ou permission Windows." : undefined} onClick={() => void toggleScreenShare()}>
                 <ScreenShare size={16} />
