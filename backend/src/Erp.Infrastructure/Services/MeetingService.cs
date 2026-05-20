@@ -191,6 +191,22 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
             return Result<MeetingSignalDto>.Failure("Salle de meeting introuvable.");
         }
 
+        return await SendSignalForRoomAsync(roomId, request, cancellationToken);
+    }
+
+    public async Task<Result<MeetingSignalDto>> SendPublicSignalAsync(string token, SendMeetingSignalRequest request, CancellationToken cancellationToken)
+    {
+        var roomResult = await FindPublicRoomAsync(token, cancellationToken);
+        if (!roomResult.Succeeded)
+        {
+            return Result<MeetingSignalDto>.Failure(roomResult.Error!);
+        }
+
+        return await SendSignalForRoomAsync(roomResult.Value!.Id, request, cancellationToken);
+    }
+
+    private async Task<Result<MeetingSignalDto>> SendSignalForRoomAsync(Guid roomId, SendMeetingSignalRequest request, CancellationToken cancellationToken)
+    {
         var signal = new MeetingSignal
         {
             MeetingRoomId = roomId,

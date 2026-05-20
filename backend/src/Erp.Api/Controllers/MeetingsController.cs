@@ -71,10 +71,18 @@ public sealed class MeetingsController(IMeetingService meetings) : ControllerBas
     }
 
     [HttpPost("rooms/{id:guid}/signals")]
-    [Authorize(Policy = "meet.write")]
+    [Authorize(Policy = "meet.read")]
     public async Task<ActionResult<MeetingSignalDto>> Signal(Guid id, SendMeetingSignalRequest request, CancellationToken cancellationToken)
     {
         var result = await meetings.SendSignalAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("public/rooms/{token}/signals")]
+    [AllowAnonymous]
+    public async Task<ActionResult<MeetingSignalDto>> SignalPublic(string token, SendMeetingSignalRequest request, CancellationToken cancellationToken)
+    {
+        var result = await meetings.SendPublicSignalAsync(token, request, cancellationToken);
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 

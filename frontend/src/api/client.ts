@@ -844,6 +844,10 @@ export class ApiClient {
     return this.request(`/api/meetings/rooms/${roomId}/signals`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  sendPublicMeetingSignal(token: string, payload: { senderClientId: string; recipientClientId: string; signalType: string; payloadJson: string }) {
+    return this.request(`/api/meetings/public/rooms/${encodeURIComponent(token)}/signals`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
   addMeetingTranscript(roomId: string, payload: { clientId: string; speakerName: string; text: string; sourceLanguage?: string; translatedText?: string | null; isFinal?: boolean }) {
     return this.request(`/api/meetings/rooms/${roomId}/transcripts`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }

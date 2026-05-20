@@ -133,6 +133,7 @@ public interface IMeetingService
     Task<Result<MeetingRoomStateDto>> SyncAsync(Guid roomId, SyncMeetingRoomRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingRoomStateDto>> SyncPublicAsync(string token, SyncMeetingRoomRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingSignalDto>> SendSignalAsync(Guid roomId, SendMeetingSignalRequest request, CancellationToken cancellationToken);
+    Task<Result<MeetingSignalDto>> SendPublicSignalAsync(string token, SendMeetingSignalRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingTranscriptDto>> AddTranscriptAsync(Guid roomId, AddMeetingTranscriptRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingTranscriptDto>> AddPublicTranscriptAsync(string token, AddMeetingTranscriptRequest request, CancellationToken cancellationToken);
     Task<Result<MeetingChatMessageDto>> AddChatMessageAsync(Guid roomId, AddMeetingChatMessageRequest request, CancellationToken cancellationToken);
