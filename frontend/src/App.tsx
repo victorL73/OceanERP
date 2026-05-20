@@ -728,8 +728,8 @@ function FlowceanDirectModule() {
 }
 
 function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
-  const [email, setEmail] = useState('admin@oceanerp.local');
-  const [password, setPassword] = useState('ChangeMe!12345');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   async function submit(event: FormEvent) {
@@ -753,14 +753,14 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             <span>Acces securise</span>
           </div>
         </div>
-        <form onSubmit={submit}>
+        <form onSubmit={submit} autoComplete="off">
           <label>
             Email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="username" />
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="off" placeholder="Email" />
           </label>
           <label>
             Mot de passe
-            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
+            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" placeholder="Mot de passe" />
           </label>
           {error && <div className="alert">{error}</div>}
           <button className="primary" type="submit">
