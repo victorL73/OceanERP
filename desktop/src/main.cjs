@@ -283,7 +283,39 @@ function loadLauncher(errorMessage = '') {
 }
 
 function loadServerUrl(serverUrl) {
-  mainWindow.loadURL(serverUrl || readSettings().serverUrl);
+  const targetUrl = serverUrl || readSettings().serverUrl;
+  if (!targetUrl) {
+    loadLauncher();
+    return;
+  }
+
+  const webSession = mainWindow?.webContents?.session || session.defaultSession;
+  const freshUrl = withDesktopCacheBuster(targetUrl);
+
+  Promise.allSettled([
+    webSession.clearCache(),
+    webSession.clearStorageData({ storages: ['cachestorage', 'serviceworkers'] })
+  ]).then((results) => {
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        log.warn('OceanERP cache clear failed', result.reason);
+      }
+    }
+  }).finally(() => {
+    mainWindow.loadURL(freshUrl);
+  });
+}
+
+function withDesktopCacheBuster(targetUrl) {
+  try {
+    const parsed = new URL(targetUrl);
+    parsed.searchParams.set('desktop', '1');
+    parsed.searchParams.set('desktopVersion', app.getVersion());
+    parsed.searchParams.set('desktopCache', Date.now().toString());
+    return parsed.toString();
+  } catch {
+    return targetUrl;
+  }
 }
 
 function isAllowedAppNavigation(targetUrl) {

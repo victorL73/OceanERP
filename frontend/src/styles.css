@@ -5384,7 +5384,13 @@ button.drive-main {
 }
 
 .meet-device-select {
-  width: min(260px, 100%);
+  flex: 1 1 220px;
+  min-width: 190px;
+  max-width: 280px;
+}
+
+.meet-toolbar .secondary {
+  white-space: nowrap;
 }
 
 .meet-toolbar button.active {
