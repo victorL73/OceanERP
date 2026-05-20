@@ -55,6 +55,12 @@ Swagger est activé en environnement `Development`.
 - `POST /api/notifications`
 - `GET /api/dashboard/summary`
 - `GET /api/health`
+- `GET /api/backups`
+- `POST /api/backups`
+- `GET /api/backups/schedule`
+- `PUT /api/backups/schedule`
+- `GET /api/backups/{name}/download`
+- `POST /api/backups/{name}/restore`
 
 ## Endpoints Phase 2 ajoutes
 
@@ -129,6 +135,8 @@ Les endpoints `GET /api/auth/me`, `PUT /api/auth/me` et `/api/auth/change-passwo
 La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*` et `prestashop.*`.
 
 La Phase 3 ajoute les permissions `service.*`, `calendar.*`, `signatures.*` et `onlyoffice.*`.
+
+La supervision serveur ajoute la permission `backup.manage` pour consulter les sauvegardes, lancer une sauvegarde, telecharger une archive ZIP, restaurer une sauvegarde et regler la planification periodique.
 
 ## Endpoints Phase 3 ajoutes
 

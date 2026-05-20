@@ -3,6 +3,7 @@ import type {
   AuditLog,
   BackupArchive,
   BackupOperationResult,
+  BackupSchedule,
   CalendarEvent,
   Customer,
   DashboardSummary,
@@ -111,6 +112,18 @@ export class ApiClient {
 
   restoreBackup(name: string) {
     return this.request<BackupOperationResult>(`/api/backups/${encodeURIComponent(name)}/restore`, { method: 'POST', auth: true });
+  }
+
+  backupSchedule() {
+    return this.request<BackupSchedule>('/api/backups/schedule', { auth: true });
+  }
+
+  updateBackupSchedule(payload: { enabled: boolean; intervalHours: number }) {
+    return this.request<BackupSchedule>('/api/backups/schedule', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  async downloadBackup(name: string) {
+    await this.download(`/api/backups/${encodeURIComponent(name)}/download`, `oceanerp-backup-${name}.zip`);
   }
 
   customers(search = '', page = 1, pageSize = 100) {

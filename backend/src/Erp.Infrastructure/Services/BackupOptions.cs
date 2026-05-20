@@ -7,4 +7,6 @@ public sealed class BackupOptions
     public string BackupScript { get; set; } = "backup.sh";
     public string RestoreScript { get; set; } = "restore.sh";
     public int CommandTimeoutSeconds { get; set; } = 900;
+    public bool ScheduleEnabled { get; set; }
+    public int ScheduleIntervalHours { get; set; } = 24;
 }

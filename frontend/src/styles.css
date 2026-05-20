@@ -1290,6 +1290,50 @@ h1 {
   flex-wrap: wrap;
 }
 
+.backup-schedule {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(110px, 150px) auto auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 12px;
+}
+
+.backup-schedule p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.backup-schedule label:not(.checkbox-line) {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.backup-schedule-unit {
+  align-self: center;
+  color: #475569;
+  font-weight: 700;
+}
+
+.backup-schedule-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #475569;
+}
+
+.backup-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .backup-result {
   display: grid;
   gap: 8px;
@@ -5805,6 +5849,7 @@ button.drive-main {
   .customer-line-card,
   .purchase-line-row,
   .quote-line-row,
+  .backup-schedule,
   .purchase-charge-row,
   .signature-create-grid,
   .recipient-editor-row,

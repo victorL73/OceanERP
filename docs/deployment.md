@@ -70,6 +70,8 @@ Variables importantes :
 - `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS` definit la cadence invisible de synchronisation des produits, clients, commandes, stocks et messages SAV. Valeur par defaut : `10`.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
 - `BACKUP_RETENTION_DAYS`
+- `BACKUP_SCHEDULE_ENABLED` active la sauvegarde automatique serveur au demarrage si aucun planning n'a encore ete enregistre depuis l'interface.
+- `BACKUP_SCHEDULE_INTERVAL_HOURS` definit l'intervalle par defaut entre deux sauvegardes automatiques.
 
 Par securite, `EMAIL_ENABLE_SMTP_SENDING=false` par defaut. Dans ce mode, les emails sont journalises dans l'ERP mais ne sont pas envoyes au serveur SMTP.
 

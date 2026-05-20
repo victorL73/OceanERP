@@ -54,6 +54,13 @@ export type BackupOperationResult = {
   completedAt: string;
 };
 
+export type BackupSchedule = {
+  enabled: boolean;
+  intervalHours: number;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+};
+
 export type AuditLog = {
   id: string;
   userId?: string;

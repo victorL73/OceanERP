@@ -71,6 +71,8 @@ Documentation detaillee :
 
 ## Sauvegarde
 
+Les sauvegardes peuvent etre lancees, telechargees, restaurees et automatisees depuis le module `Sauvegardes` de l'ERP. Les scripts restent disponibles en SSH :
+
 ```bash
 cd ~/OceanERP/deploy/ubuntu
 ./backup.sh

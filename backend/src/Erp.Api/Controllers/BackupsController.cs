@@ -22,6 +22,32 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpGet("schedule")]
+    [Authorize(Policy = "backup.read")]
+    public async Task<ActionResult<BackupScheduleDto>> GetSchedule(CancellationToken cancellationToken)
+        => Ok(await backups.GetScheduleAsync(cancellationToken));
+
+    [HttpPut("schedule")]
+    [Authorize(Policy = "backup.write")]
+    public async Task<ActionResult<BackupScheduleDto>> UpdateSchedule(UpdateBackupScheduleRequest request, CancellationToken cancellationToken)
+    {
+        var result = await backups.UpdateScheduleAsync(request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpGet("{name}/download")]
+    [Authorize(Policy = "backup.read")]
+    public async Task<IActionResult> Download(string name, CancellationToken cancellationToken)
+    {
+        var result = await backups.OpenBackupDownloadAsync(Uri.UnescapeDataString(name), cancellationToken);
+        if (!result.Succeeded || result.Value is null)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        return File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
+    }
+
     [HttpPost("{name}/restore")]
     [Authorize(Policy = "backup.write")]
     public async Task<ActionResult<BackupOperationResultDto>> Restore(string name, CancellationToken cancellationToken)

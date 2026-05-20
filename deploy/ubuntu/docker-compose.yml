@@ -27,6 +27,8 @@ services:
       Backup__BackupsDirectory: /opt/oceanerp/backups
       Backup__ScriptDirectory: /opt/oceanerp/deploy/ubuntu
       Backup__CommandTimeoutSeconds: ${BACKUP_COMMAND_TIMEOUT_SECONDS:-900}
+      Backup__ScheduleEnabled: ${BACKUP_SCHEDULE_ENABLED:-false}
+      Backup__ScheduleIntervalHours: ${BACKUP_SCHEDULE_INTERVAL_HOURS:-24}
       BACKUP_ROOT_CONTAINER: /opt/oceanerp/backups
       BACKUP_USE_DIRECT_DB: "true"
       POSTGRES_HOST: postgres

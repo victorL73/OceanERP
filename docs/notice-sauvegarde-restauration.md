@@ -11,6 +11,8 @@ Depuis l'interface OceanERP, un administrateur peut utiliser le module `Sauvegar
 
 - `Sauvegardes > Lancer une sauvegarde` execute le script `deploy/ubuntu/backup.sh`.
 - La liste affiche les archives disponibles, leur taille et la presence des fichiers PostgreSQL/documents.
+- Le bouton `Telecharger` recupere une archive ZIP contenant `postgres.sql.gz` et `documents.tar.gz`.
+- Le bloc `Automatisation periodique` permet d'activer une sauvegarde serveur toutes les X heures.
 - Depuis l'interface, le conteneur API utilise `pg_dump`, `psql` et le volume documents monte directement. En SSH, les memes scripts utilisent Docker Compose comme avant.
 
 La sauvegarde peut aussi etre lancee en SSH :
@@ -122,6 +124,8 @@ Variables utiles :
 BACKUP_ROOT=/opt/oceanerp/backups
 BACKUP_RETENTION_DAYS=14
 BACKUP_COMMAND_TIMEOUT_SECONDS=900
+BACKUP_SCHEDULE_ENABLED=false
+BACKUP_SCHEDULE_INTERVAL_HOURS=24
 ```
 
 Si le module affiche `Script de sauvegarde introuvable` ou une erreur Docker, verifier que le deploiement a bien ete reconstruit avec :

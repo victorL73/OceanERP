@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, BackupArchive, BackupOperationResult, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingRoomState, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, BackupArchive, BackupOperationResult, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingRoomState, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
@@ -1615,7 +1615,23 @@ function Dashboard({ summary }: { summary: DashboardSummary | null }) {
 function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [operation, setOperation] = useState<BackupOperationResult | null>(null);
+  const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
+  const [scheduleDraft, setScheduleDraft] = useState({ enabled: false, intervalHours: 24 });
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void loadSchedule();
+  }, []);
+
+  async function loadSchedule() {
+    try {
+      const next = await api.backupSchedule();
+      setSchedule(next);
+      setScheduleDraft({ enabled: next.enabled, intervalHours: next.intervalHours });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Planification indisponible');
+    }
+  }
 
   async function runBackup() {
     setBusy('backup');
@@ -1627,6 +1643,24 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sauvegarde impossible');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadBackup(archive: BackupArchive) {
+    const complete = archive.hasPostgresDump && archive.hasDocumentsArchive;
+    if (!complete) {
+      setError('Cette sauvegarde est incomplete et ne peut pas etre telechargee.');
+      return;
+    }
+
+    setBusy(`download:${archive.name}`);
+    setError(null);
+    try {
+      await api.downloadBackup(archive.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Telechargement impossible');
     } finally {
       setBusy(null);
     }
@@ -1658,6 +1692,24 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
     }
   }
 
+  async function saveSchedule() {
+    setBusy('schedule');
+    setError(null);
+    try {
+      const intervalHours = Number.isFinite(scheduleDraft.intervalHours) ? scheduleDraft.intervalHours : 24;
+      const next = await api.updateBackupSchedule({
+        enabled: scheduleDraft.enabled,
+        intervalHours: Math.max(1, Math.min(24 * 30, Math.round(intervalHours)))
+      });
+      setSchedule(next);
+      setScheduleDraft({ enabled: next.enabled, intervalHours: next.intervalHours });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Planification impossible');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="backup-module">
       <Panel title="Sauvegardes serveur">
@@ -1675,6 +1727,43 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
               <Download size={16} />
               {busy === 'backup' ? 'Sauvegarde...' : 'Lancer une sauvegarde'}
             </button>
+          </div>
+        </div>
+
+        <div className="backup-schedule">
+          <div>
+            <strong>Automatisation periodique</strong>
+            <p>La sauvegarde automatique est executee par le serveur, meme si l'interface est fermee.</p>
+          </div>
+          <label className="checkbox-line">
+            <input
+              type="checkbox"
+              checked={scheduleDraft.enabled}
+              onChange={(event) => setScheduleDraft((current) => ({ ...current, enabled: event.target.checked }))}
+            />
+            Activee
+          </label>
+          <label>
+            Frequence
+            <input
+              type="number"
+              min="1"
+              max={24 * 30}
+              value={scheduleDraft.intervalHours}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setScheduleDraft((current) => ({ ...current, intervalHours: Number.isFinite(value) ? value : 1 }));
+              }}
+            />
+          </label>
+          <span className="backup-schedule-unit">heure(s)</span>
+          <button className="secondary" type="button" disabled={Boolean(busy)} onClick={saveSchedule}>
+            <Save size={16} />
+            {busy === 'schedule' ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+          <div className="backup-schedule-meta">
+            <span>Derniere : {schedule?.lastRunAt ? formatBackupDate(schedule.lastRunAt) : '-'}</span>
+            <span>Prochaine : {schedule?.nextRunAt ? formatBackupDate(schedule.nextRunAt) : '-'}</span>
           </div>
         </div>
 
@@ -1697,19 +1786,32 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
               archive.hasPostgresDump ? formatBytes(archive.postgresSizeBytes) : <span className="text-danger">Manquant</span>,
               archive.hasDocumentsArchive ? formatBytes(archive.documentsSizeBytes) : <span className="text-danger">Manquant</span>,
               formatBytes(archive.totalSizeBytes),
-              <button
-                key="restore"
-                className="secondary"
-                type="button"
-                disabled={Boolean(busy) || !complete}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  restoreBackup(archive);
-                }}
-              >
-                <Upload size={16} />
-                {busy === archive.name ? 'Restauration...' : 'Restaurer'}
-              </button>
+              <div key="actions" className="backup-row-actions">
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={Boolean(busy) || !complete}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    downloadBackup(archive);
+                  }}
+                >
+                  <Download size={16} />
+                  {busy === `download:${archive.name}` ? 'Telechargement...' : 'Telecharger'}
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={Boolean(busy) || !complete}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    restoreBackup(archive);
+                  }}
+                >
+                  <Upload size={16} />
+                  {busy === archive.name ? 'Restauration...' : 'Restaurer'}
+                </button>
+              </div>
             ];
           })}
         />
