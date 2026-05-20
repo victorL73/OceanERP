@@ -182,6 +182,7 @@ export default function App() {
   const [signatureRequests, setSignatureRequests] = useState<PagedResult<SignatureRequest> | null>(null);
   const [backups, setBackups] = useState<BackupArchive[]>([]);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
+  const [serviceTicketCreateOpen, setServiceTicketCreateOpen] = useState(false);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
 
   async function refreshPrestashopData() {
@@ -634,6 +635,12 @@ export default function App() {
               </div>
             </div>
             <div className="top-actions">
+              {view === 'service' && (
+                <button className="primary topbar-action-button" type="button" onClick={() => setServiceTicketCreateOpen(true)}>
+                  <Plus size={16} />
+                  Nouveau ticket
+                </button>
+              )}
               <div className="search">
                 <Search size={16} />
                 <input aria-label="Recherche" placeholder="Rechercher" />
@@ -688,7 +695,7 @@ export default function App() {
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
-        {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} onChanged={() => load('service')} />}
+        {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} createOpen={serviceTicketCreateOpen} onCloseCreate={() => setServiceTicketCreateOpen(false)} onChanged={() => load('service')} />}
         {view === 'calendar' && (
           <Calendar
             events={calendarEvents?.items ?? []}
@@ -9147,7 +9154,25 @@ function OnlyOfficeEditorModal({ session, onClose }: { session: DriveOfficeSessi
   );
 }
 
-function ServiceTickets({ items, customers, products, orders, users, onChanged }: { items: ServiceTicket[]; customers: Customer[]; products: Product[]; orders: SalesOrder[]; users: User[]; onChanged: () => Promise<void> }) {
+function ServiceTickets({
+  items,
+  customers,
+  products,
+  orders,
+  users,
+  createOpen,
+  onCloseCreate,
+  onChanged
+}: {
+  items: ServiceTicket[];
+  customers: Customer[];
+  products: Product[];
+  orders: SalesOrder[];
+  users: User[];
+  createOpen: boolean;
+  onCloseCreate: () => void;
+  onChanged: () => Promise<void>;
+}) {
   const [selected, setSelected] = useState<ServiceTicket | null>(null);
   const [message, setMessage] = useState('');
   const [draft, setDraft] = useState({
@@ -9178,6 +9203,7 @@ function ServiceTickets({ items, customers, products, orders, users, onChanged }
     });
     setDraft({ customerId: '', productId: '', salesOrderId: '', assignedUserId: '', subject: '', description: '', priority: 'Normal' });
     await onChanged();
+    onCloseCreate();
   }
 
   async function changeStatus(ticket: ServiceTicket, status: string) {
@@ -9207,73 +9233,89 @@ function ServiceTickets({ items, customers, products, orders, users, onChanged }
 
   return (
     <>
-      <Panel title="Nouveau ticket SAV">
-        <form className="form-grid" onSubmit={create}>
-          <label className="field">
-            Client
-            <select value={draft.customerId} onChange={(event) => setDraft({ ...draft, customerId: event.target.value })}>
-              <option value="">Client</option>
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>{customer.companyName}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Produit
-            <select value={draft.productId} onChange={(event) => setDraft({ ...draft, productId: event.target.value })}>
-              <option value="">Sans produit</option>
-              {products.map((product) => (
-                <option key={product.id} value={product.id}>{product.reference} - {product.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Commande
-            <select value={draft.salesOrderId} onChange={(event) => setDraft({ ...draft, salesOrderId: event.target.value })}>
-              <option value="">Sans commande</option>
-              {orders.map((order) => (
-                <option key={order.id} value={order.id}>{order.number}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Priorite
-            <select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })}>
-              <option value="Low">Basse</option>
-              <option value="Normal">Normale</option>
-              <option value="High">Haute</option>
-              <option value="Urgent">Urgente</option>
-            </select>
-          </label>
-          <label className="field">
-            Responsable
-            <select value={draft.assignedUserId} onChange={(event) => setDraft({ ...draft, assignedUserId: event.target.value })}>
-              <option value="">A attribuer</option>
-              {activeUsers.map((user) => (
-                <option key={user.id} value={user.id}>{user.displayName}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field wide-field">
-            Sujet
-            <input value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} placeholder="Sujet du ticket" />
-          </label>
-          <label className="field wide-field">
-            Description
-            <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
-          </label>
-          <button className="primary form-actions" type="submit">
-            <Plus size={16} />
-            Creer le ticket
-          </button>
-        </form>
-      </Panel>
-
       <DataTable
         columns={['Numero', 'Client', 'Responsable', 'Sujet', 'Priorite', 'Statut', 'Cree le']}
         rows={items.map((ticket) => [ticket.number, ticket.customerName, ticket.assignedUserName ?? 'A attribuer', ticket.subject, ticket.priority, ticket.status, formatOrderDate(ticket.createdAt)])}
         onRowClick={(index) => setSelected(items[index])}
       />
+
+      {createOpen && (
+        <div className="modal-backdrop" onClick={onCloseCreate}>
+          <section className="modal-panel service-ticket-create-modal" role="dialog" aria-modal="true" aria-labelledby="service-ticket-create-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">SAV</p>
+                <h2 id="service-ticket-create-title">Nouveau ticket SAV</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onCloseCreate}>
+                <X size={18} />
+              </button>
+            </header>
+            <form className="form-grid" onSubmit={create}>
+              <label className="field">
+                Client
+                <select value={draft.customerId} onChange={(event) => setDraft({ ...draft, customerId: event.target.value })}>
+                  <option value="">Client</option>
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>{customer.companyName}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Produit
+                <select value={draft.productId} onChange={(event) => setDraft({ ...draft, productId: event.target.value })}>
+                  <option value="">Sans produit</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>{product.reference} - {product.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Commande
+                <select value={draft.salesOrderId} onChange={(event) => setDraft({ ...draft, salesOrderId: event.target.value })}>
+                  <option value="">Sans commande</option>
+                  {orders.map((order) => (
+                    <option key={order.id} value={order.id}>{order.number}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Priorite
+                <select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })}>
+                  <option value="Low">Basse</option>
+                  <option value="Normal">Normale</option>
+                  <option value="High">Haute</option>
+                  <option value="Urgent">Urgente</option>
+                </select>
+              </label>
+              <label className="field">
+                Responsable
+                <select value={draft.assignedUserId} onChange={(event) => setDraft({ ...draft, assignedUserId: event.target.value })}>
+                  <option value="">A attribuer</option>
+                  {activeUsers.map((user) => (
+                    <option key={user.id} value={user.id}>{user.displayName}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field wide-field">
+                Sujet
+                <input value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} placeholder="Sujet du ticket" />
+              </label>
+              <label className="field wide-field">
+                Description
+                <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+              </label>
+              <div className="modal-footer form-actions">
+                <button className="secondary" type="button" onClick={onCloseCreate}>Annuler</button>
+                <button className="primary" type="submit">
+                  <Plus size={16} />
+                  Creer le ticket
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
       {selected && (
         <div className="modal-backdrop" onClick={() => setSelected(null)}>

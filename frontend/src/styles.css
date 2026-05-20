@@ -1133,6 +1133,10 @@ h1 {
   min-width: 0;
 }
 
+.topbar-action-button {
+  white-space: nowrap;
+}
+
 .search {
   display: flex;
   align-items: center;
@@ -2082,6 +2086,10 @@ th {
 
 .stock-modal {
   width: min(860px, 100%);
+}
+
+.service-ticket-create-modal {
+  width: min(1080px, 100%);
 }
 
 .quote-modal {
