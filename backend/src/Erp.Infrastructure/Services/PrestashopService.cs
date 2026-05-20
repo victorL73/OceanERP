@@ -4,11 +4,17 @@ using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Xml.Linq;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class PrestashopService(ErpDbContext db, IConfiguration configuration, IPrestashopSyncQueue queue) : IPrestashopService
+public sealed class PrestashopService(ErpDbContext db, IConfiguration configuration, IPrestashopSyncQueue queue, IHttpClientFactory httpClientFactory) : IPrestashopService
 {
+    private const string Provider = "PrestaShop";
+    private const string CustomerThreadModule = "customer_threads";
+    private const string CustomerMessageModule = "customer_messages";
     private const string DefaultPrestashopWarehouseName = "Entrepot principal";
 
     public async Task<IReadOnlyList<PrestashopConnectionDto>> GetConnectionsAsync(CancellationToken cancellationToken)
@@ -115,6 +121,156 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
         return Result<PrestashopSyncLogDto>.Success(MapLog(log));
     }
 
+    public async Task<Result<string?>> PublishServiceTicketMessageAsync(Guid serviceTicketId, string body, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return Result<string?>.Failure("Message SAV obligatoire.");
+        }
+
+        var threadReference = await db.ExternalReferences.FirstOrDefaultAsync(
+            x => x.Provider == Provider && x.Module == CustomerThreadModule && x.EntityId == serviceTicketId,
+            cancellationToken);
+        if (threadReference is null)
+        {
+            return Result<string?>.Success(null);
+        }
+
+        var threadExternalId = ExtractPrestashopId(threadReference, CustomerThreadModule);
+        if (string.IsNullOrWhiteSpace(threadExternalId))
+        {
+            return Result<string?>.Failure("Reference PrestaShop SAV invalide.");
+        }
+
+        var connection = await db.PrestashopConnections
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (connection is null)
+        {
+            return Result<string?>.Failure("Aucune connexion PrestaShop active n'est configuree.");
+        }
+
+        var apiKeyResult = PrestashopSecretProtector.ResolveApiKey(configuration, connection);
+        if (!apiKeyResult.Succeeded)
+        {
+            return Result<string?>.Failure(apiKeyResult.Error ?? "Cle API PrestaShop non configuree.");
+        }
+
+        try
+        {
+            var externalMessageId = await PostCustomerMessageAsync(
+                GetApiBaseUrl(connection.ShopUrl),
+                threadExternalId,
+                apiKeyResult.Value!,
+                body.Trim(),
+                cancellationToken);
+            return Result<string?>.Success(externalMessageId);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return Result<string?>.Failure($"Envoi PrestaShop SAV impossible: {TrimDetail(FullExceptionMessage(ex))}");
+        }
+    }
+
+    private async Task<string?> PostCustomerMessageAsync(string apiBaseUrl, string threadExternalId, string apiKey, string body, CancellationToken cancellationToken)
+    {
+        var document = await GetCustomerMessageSchemaAsync(apiBaseUrl, apiKey, cancellationToken);
+        var messageElement = document.Root?.Element("customer_message") ?? document.Descendants("customer_message").FirstOrDefault();
+        if (messageElement is null)
+        {
+            throw new InvalidOperationException("Schema PrestaShop customer_messages invalide.");
+        }
+
+        RemoveElements(messageElement, "id", "date_add", "date_upd");
+        SetElementValue(messageElement, "id_customer_thread", threadExternalId);
+        SetElementValue(messageElement, "id_employee", await ResolveEmployeeIdAsync(apiBaseUrl, threadExternalId, apiKey, cancellationToken));
+        SetElementValue(messageElement, "message", body);
+        SetElementValue(messageElement, "private", "0");
+        SetElementValue(messageElement, "read", "0");
+
+        var httpClient = httpClientFactory.CreateClient(nameof(PrestashopService));
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{apiBaseUrl}/{CustomerMessageModule}");
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+        request.Content = new StringContent(document.ToString(SaveOptions.DisableFormatting), Encoding.UTF8, "application/xml");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"POST message SAV PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(responseBody)}");
+        }
+
+        if (string.IsNullOrWhiteSpace(responseBody))
+        {
+            return null;
+        }
+
+        var responseDocument = XDocument.Parse(responseBody);
+        return (responseDocument.Root?.Element("customer_message") ?? responseDocument.Descendants("customer_message").FirstOrDefault())
+            ?.Element("id")
+            ?.Value
+            ?.Trim();
+    }
+
+    private async Task<XDocument> GetCustomerMessageSchemaAsync(string apiBaseUrl, string apiKey, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(PrestashopService));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}/{CustomerMessageModule}?schema=blank&output_format=XML");
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (response.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(body))
+        {
+            return XDocument.Parse(body, LoadOptions.PreserveWhitespace);
+        }
+
+        return new XDocument(
+            new XElement("prestashop",
+                new XElement("customer_message",
+                    new XElement("id_customer_thread"),
+                    new XElement("id_employee"),
+                    new XElement("message"),
+                    new XElement("private"),
+                    new XElement("read"))));
+    }
+
+    private async Task<string> ResolveEmployeeIdAsync(string apiBaseUrl, string threadExternalId, string apiKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var document = await GetPrestashopXmlAsync($"{apiBaseUrl}/{CustomerThreadModule}/{threadExternalId}?display=full&output_format=XML", "fil SAV", apiKey, cancellationToken);
+            var threadElement = document.Root?.Element("customer_thread") ?? document.Descendants("customer_thread").FirstOrDefault();
+            var employeeId = threadElement?.Element("id_employee")?.Value?.Trim();
+            return !string.IsNullOrWhiteSpace(employeeId) && employeeId is not "0" ? employeeId : "1";
+        }
+        catch
+        {
+            return "1";
+        }
+    }
+
+    private async Task<XDocument> GetPrestashopXmlAsync(string url, string label, string apiKey, CancellationToken cancellationToken)
+    {
+        var httpClient = httpClientFactory.CreateClient(nameof(PrestashopService));
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        AddPrestashopHeaders(request, apiKey, "application/xml");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"GET {label} PrestaShop HTTP {(int)response.StatusCode} {TrimDetail(body)}");
+        }
+
+        return XDocument.Parse(body, LoadOptions.PreserveWhitespace);
+    }
+
     private static Result ValidateShopUrl(string shopUrl)
     {
         if (string.IsNullOrWhiteSpace(shopUrl))
@@ -209,6 +365,68 @@ public sealed class PrestashopService(ErpDbContext db, IConfiguration configurat
 
     private static bool HasColissimoBridgeToken(PrestashopConnection connection)
         => !string.IsNullOrWhiteSpace(connection.ColissimoBridgeTokenProtectedValue);
+
+    private static string? ExtractPrestashopId(ExternalReference externalReference, string module)
+    {
+        var prefix = $"{module}:";
+        return externalReference.ExternalId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? externalReference.ExternalId[prefix.Length..]
+            : externalReference.ExternalId;
+    }
+
+    private static string GetApiBaseUrl(string shopUrl)
+    {
+        var normalized = shopUrl.Trim().TrimEnd('/');
+        return normalized.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : $"{normalized}/api";
+    }
+
+    private static void RemoveElements(XElement element, params string[] names)
+    {
+        var remove = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var child in element.Elements().Where(x => remove.Contains(x.Name.LocalName)).ToList())
+        {
+            child.Remove();
+        }
+    }
+
+    private static void SetElementValue(XElement parent, string name, string value)
+    {
+        var element = parent.Element(name);
+        if (element is null)
+        {
+            element = new XElement(name);
+            parent.Add(element);
+        }
+
+        element.Value = value;
+    }
+
+    private static void AddPrestashopHeaders(HttpRequestMessage request, string apiKey, string accept)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiKey}:")));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
+    }
+
+    private static string TrimDetail(string detail)
+        => detail.ReplaceLineEndings(" ").Length > 500 ? detail.ReplaceLineEndings(" ")[..500] : detail.ReplaceLineEndings(" ");
+
+    private static string FullExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                messages.Add(current.Message);
+            }
+        }
+
+        return string.Join(" | ", messages.Distinct());
+    }
 
     private static PrestashopConnectionDto MapConnection(PrestashopConnection connection)
         => new(

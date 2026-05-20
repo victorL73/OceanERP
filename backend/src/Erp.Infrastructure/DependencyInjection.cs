@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.AddSingleton<IPrestashopSyncQueue, PrestashopSyncQueue>();
         services.AddScoped<IPrestashopService, PrestashopService>();
         services.TryAddScoped<IPrestashopSyncNotifier, NoopPrestashopSyncNotifier>();
+        services.AddHttpClient();
         services.AddHttpClient<PrestashopSyncExecutor>();
         services.AddHostedService<PrestashopSyncWorker>();
         services.AddHostedService<PrestashopAutoSyncWorker>();

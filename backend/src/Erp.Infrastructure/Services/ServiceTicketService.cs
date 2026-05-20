@@ -1,4 +1,5 @@
 using Erp.Application.Common;
+using Erp.Application.Prestashop;
 using Erp.Application.ServiceTickets;
 using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
@@ -6,8 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService currentUser) : IServiceTicketService
+public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService currentUser, IPrestashopService prestashopService) : IServiceTicketService
 {
+    private const string PrestashopProvider = "PrestaShop";
+    private const string PrestashopCustomerMessageModule = "customer_messages";
     private static readonly string[] AllowedStatuses = ["Open", "InProgress", "WaitingCustomer", "Resolved", "Closed"];
     private static readonly string[] AllowedPriorities = ["Low", "Normal", "High", "Urgent"];
 
@@ -199,12 +202,14 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
     public async Task<Result<ServiceTicketMessageDto>> AddMessageAsync(Guid id, CreateServiceTicketMessageRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Body))
+        var body = NormalizeOptional(request.Body);
+        if (string.IsNullOrWhiteSpace(body))
         {
             return Result<ServiceTicketMessageDto>.Failure("Message obligatoire.");
         }
 
-        if (!await db.ServiceTickets.AnyAsync(x => x.Id == id, cancellationToken))
+        var ticket = await db.ServiceTickets.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (ticket is null)
         {
             return Result<ServiceTicketMessageDto>.Failure("Ticket SAV introuvable.");
         }
@@ -214,16 +219,41 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             return Result<ServiceTicketMessageDto>.Failure("Piece jointe Drive introuvable.");
         }
 
+        string? prestashopMessageId = null;
+        if (!request.IsInternal)
+        {
+            var publishResult = await prestashopService.PublishServiceTicketMessageAsync(ticket.Id, body, cancellationToken);
+            if (!publishResult.Succeeded)
+            {
+                return Result<ServiceTicketMessageDto>.Failure(publishResult.Error!);
+            }
+
+            prestashopMessageId = publishResult.Value;
+        }
+
         var message = new ServiceTicketMessage
         {
             ServiceTicketId = id,
             AuthorUserId = currentUser.UserId,
-            Body = request.Body.Trim(),
+            Body = body,
             IsInternal = request.IsInternal,
             AttachmentDriveItemId = request.AttachmentDriveItemId
         };
 
         db.ServiceTicketMessages.Add(message);
+        ticket.UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (!string.IsNullOrWhiteSpace(prestashopMessageId))
+        {
+            db.ExternalReferences.Add(new ExternalReference
+            {
+                Provider = PrestashopProvider,
+                ExternalId = ExternalKey(PrestashopCustomerMessageModule, prestashopMessageId),
+                Module = PrestashopCustomerMessageModule,
+                EntityId = message.Id
+            });
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         return Result<ServiceTicketMessageDto>.Success(await MapMessageAsync(message, cancellationToken));
     }
@@ -435,4 +465,7 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
         return $"Attribue a {displayName ?? assignedUserId.Value.ToString()}";
     }
+
+    private static string ExternalKey(string module, string externalId)
+        => $"{module}:{externalId}";
 }

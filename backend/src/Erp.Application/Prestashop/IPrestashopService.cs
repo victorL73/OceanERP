@@ -9,4 +9,5 @@ public interface IPrestashopService
     Task<Result<PrestashopConnectionDto>> UpdateConnectionAsync(Guid connectionId, UpdatePrestashopConnectionRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyList<PrestashopSyncLogDto>> GetLogsAsync(CancellationToken cancellationToken);
     Task<Result<PrestashopSyncLogDto>> RunManualSyncAsync(Guid connectionId, CancellationToken cancellationToken);
+    Task<Result<string?>> PublishServiceTicketMessageAsync(Guid serviceTicketId, string body, CancellationToken cancellationToken);
 }
