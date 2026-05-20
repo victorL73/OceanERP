@@ -95,6 +95,7 @@ Variables minimales a changer avant production :
 - `ONLYOFFICE_JWT_SECRET`
 - `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice`
 - `ONLYOFFICE_INTERNAL_BASE_URL=http://erp-api:8080`
+- `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true`
 - `PUBLIC_URL`
 - `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
 - `PRESTASHOP_AUTO_SYNC_ENABLED=true` et `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS=10` activent la synchronisation PrestaShop automatique en quasi temps reel.
@@ -103,7 +104,14 @@ Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
 `SECRETS_ENCRYPTION_KEY` doit rester stable entre les redeploiements : elle sert a relire les cles API PrestaShop et les mots de passe mail chiffres en base.
 
-Pour ONLYOFFICE, garder `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice` pour l'editeur cote navigateur et `ONLYOFFICE_INTERNAL_BASE_URL=http://erp-api:8080` pour le telechargement/callback depuis le conteneur ONLYOFFICE. Si un fichier Office affiche `errorCode -4`, le conteneur Document Server n'arrive pas a telecharger le fichier depuis cette URL interne.
+Pour ONLYOFFICE, garder `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice` pour l'editeur cote navigateur et `ONLYOFFICE_INTERNAL_BASE_URL=http://erp-api:8080` pour le telechargement/callback depuis le conteneur ONLYOFFICE. Comme cette URL est interne au reseau Docker, garder aussi `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true`.
+
+Si un fichier Office affiche `errorCode -4`, le conteneur Document Server n'arrive pas a telecharger le fichier depuis cette URL interne. Apres mise a jour de `.env` ou du compose, recreer ONLYOFFICE :
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate onlyoffice erp-api nginx
+```
 
 Pour activer l'envoi SMTP plus tard, un administrateur renseigne les serveurs dans `Parametres > Boites mail`, cree les boites et saisit les mots de passe. Il est aussi possible de creer une boite avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis d'ajouter dans `.env` :
 

@@ -84,6 +84,7 @@ services:
     environment:
       JWT_ENABLED: "true"
       JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
+      ALLOW_PRIVATE_IP_ADDRESS: ${ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS:-true}
     volumes:
       - oceanerp_onlyoffice_data:/var/www/onlyoffice/Data
       - oceanerp_onlyoffice_logs:/var/log/onlyoffice

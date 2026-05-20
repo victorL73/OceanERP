@@ -65,6 +65,7 @@ Variables importantes :
 - `ONLYOFFICE_JWT_SECRET`
 - `ONLYOFFICE_DOCUMENT_SERVER_URL`
 - `ONLYOFFICE_INTERNAL_BASE_URL`
+- `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS`
 - `EMAIL_ENABLE_SMTP_SENDING`
 - `PRESTASHOP_AUTO_SYNC_ENABLED` active la synchronisation PrestaShop automatique serveur.
 - `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS` definit la cadence invisible de synchronisation des produits, clients, commandes, stocks et messages SAV. Valeur par defaut : `10`.
@@ -102,7 +103,16 @@ Pour l'edition Office, le bouton `Office` du Drive ouvre ONLYOFFICE directement 
 
 `ONLYOFFICE_INTERNAL_BASE_URL` sert uniquement a Document Server pour telecharger le fichier et appeler le callback de sauvegarde. Dans Docker Compose, la valeur recommandee est `http://erp-api:8080`, car le conteneur ONLYOFFICE rejoint alors directement l'API par le reseau Docker interne, sans repasser par Nginx ni par la redirection HTTPS publique. Ne pas remplacer cette valeur par l'URL publique HTTPS sauf si le conteneur ONLYOFFICE peut vraiment joindre cette URL depuis l'interieur du serveur.
 
-La configuration envoyee au Document Server contient un JWT signe par `ONLYOFFICE_JWT_SECRET`, puis les sauvegardes sont versionnees dans Drive. Si ONLYOFFICE affiche `errorCode -4` / `Echec du telechargement`, verifier en priorite `ONLYOFFICE_INTERNAL_BASE_URL`, les logs `oceanerp-onlyoffice` et l'acces interne a `http://erp-api:8080/api/health` depuis le conteneur ONLYOFFICE.
+Comme `ONLYOFFICE_INTERNAL_BASE_URL` pointe vers une adresse Docker privee, le conteneur `onlyoffice/documentserver` doit autoriser ce type d'adresse avec `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true`. Cette variable est deja presente dans `.env.example` et transmise a Document Server par Docker Compose.
+
+La configuration envoyee au Document Server contient un JWT signe par `ONLYOFFICE_JWT_SECRET`, puis les sauvegardes sont versionnees dans Drive. Si ONLYOFFICE affiche `errorCode -4` / `Echec du telechargement`, verifier en priorite `ONLYOFFICE_INTERNAL_BASE_URL`, `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS`, les logs `oceanerp-onlyoffice` et l'acces interne a `http://erp-api:8080/api/health` depuis le conteneur ONLYOFFICE.
+
+Apres ajout ou modification de ces variables, recreer au minimum ONLYOFFICE et l'API :
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate onlyoffice erp-api nginx
+```
 
 Pour imprimer les etiquettes Colissimo officielles depuis l'ERP, le module Colissimo PrestaShop doit exposer un endpoint telechargeable. Quand l'URL est connue, renseigner par exemple :
 
