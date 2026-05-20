@@ -103,14 +103,44 @@ docker compose --env-file .env -f docker-compose.yml ps
 curl http://localhost:8080/api/health
 ```
 
-## 6. Recommandations
+## 6. Stockage externe SFTP
+
+Le module `Sauvegardes` permet de configurer un serveur de stockage externe pour garder une copie hors du serveur ERP.
+
+Depuis l'interface :
+
+- renseigner `Hote`, `Port`, `Utilisateur`, `Mot de passe` et `Chemin distant`.
+- cliquer sur `Tester` pour verifier la connexion SFTP et la creation d'un fichier de test.
+- activer `Envoyer apres chaque sauvegarde` pour copier automatiquement chaque nouvelle archive ZIP.
+- utiliser `Envoyer externe` sur une archive existante pour forcer un transfert manuel.
+
+Le serveur externe doit exposer SFTP, souvent sur le port `22`, et l'utilisateur doit avoir le droit d'ecrire dans le dossier cible. Exemple de dossier distant :
+
+```text
+/backups/oceanerp
+```
+
+L'ERP garde toujours les sauvegardes locales dans `/opt/oceanerp/backups`. En cas de perte du serveur principal, recuperer l'archive ZIP depuis le serveur externe, l'extraire, puis replacer le dossier horodate dans `/opt/oceanerp/backups` avant restauration.
+
+Exemple :
+
+```bash
+mkdir -p /opt/oceanerp/backups/20260520T120000Z
+unzip oceanerp-backup-20260520T120000Z.zip -d /opt/oceanerp/backups/20260520T120000Z
+cd ~/OceanERP/deploy/ubuntu
+./restore.sh /opt/oceanerp/backups/20260520T120000Z
+```
+
+Important : le mot de passe SFTP est masque dans l'interface et n'est jamais renvoye par l'API. Utiliser un compte dedie aux sauvegardes avec des droits limites au dossier distant.
+
+## 7. Recommandations
 
 - Tester regulierement une restauration sur un serveur de preproduction.
 - Copier les sauvegardes hors du serveur ERP.
 - Chiffrer les sauvegardes si elles sortent du reseau interne.
 - Ne jamais supprimer `oceanerp_documents` sans sauvegarde valide.
 
-## 7. Module Sauvegardes dans Docker
+## 8. Module Sauvegardes dans Docker
 
 Pour permettre a l'interface de piloter les scripts, le conteneur `erp-api` monte :
 

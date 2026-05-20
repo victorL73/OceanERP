@@ -3,6 +3,7 @@ import type {
   AuditLog,
   BackupArchive,
   BackupOperationResult,
+  BackupRemoteStorage,
   BackupSchedule,
   CalendarEvent,
   Customer,
@@ -120,6 +121,31 @@ export class ApiClient {
 
   updateBackupSchedule(payload: { enabled: boolean; intervalHours: number }) {
     return this.request<BackupSchedule>('/api/backups/schedule', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  backupRemoteStorage() {
+    return this.request<BackupRemoteStorage>('/api/backups/remote-storage', { auth: true });
+  }
+
+  updateBackupRemoteStorage(payload: {
+    enabled: boolean;
+    uploadAfterBackup: boolean;
+    host: string;
+    port: number;
+    username: string;
+    password?: string | null;
+    clearPassword: boolean;
+    remotePath: string;
+  }) {
+    return this.request<BackupRemoteStorage>('/api/backups/remote-storage', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  testBackupRemoteStorage() {
+    return this.request<BackupOperationResult>('/api/backups/remote-storage/test', { method: 'POST', auth: true });
+  }
+
+  uploadBackup(name: string) {
+    return this.request<BackupOperationResult>(`/api/backups/${encodeURIComponent(name)}/upload`, { method: 'POST', auth: true });
   }
 
   async downloadBackup(name: string) {

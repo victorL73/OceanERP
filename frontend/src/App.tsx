@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, BackupArchive, BackupOperationResult, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
@@ -1682,10 +1682,22 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
   const [operation, setOperation] = useState<BackupOperationResult | null>(null);
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
   const [scheduleDraft, setScheduleDraft] = useState({ enabled: false, intervalHours: 24 });
+  const [remoteStorage, setRemoteStorage] = useState<BackupRemoteStorage | null>(null);
+  const [remoteDraft, setRemoteDraft] = useState({
+    enabled: false,
+    uploadAfterBackup: false,
+    host: '',
+    port: 22,
+    username: '',
+    password: '',
+    clearPassword: false,
+    remotePath: '/backups/oceanerp'
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadSchedule();
+    void loadRemoteStorage();
   }, []);
 
   async function loadSchedule() {
@@ -1698,6 +1710,25 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
     }
   }
 
+  async function loadRemoteStorage() {
+    try {
+      const next = await api.backupRemoteStorage();
+      setRemoteStorage(next);
+      setRemoteDraft({
+        enabled: next.enabled,
+        uploadAfterBackup: next.uploadAfterBackup,
+        host: next.host,
+        port: next.port || 22,
+        username: next.username,
+        password: '',
+        clearPassword: false,
+        remotePath: next.remotePath || '/backups/oceanerp'
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Configuration de stockage externe indisponible');
+    }
+  }
+
   async function runBackup() {
     setBusy('backup');
     setError(null);
@@ -1706,6 +1737,7 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
       const result = await api.createBackup();
       setOperation(result);
       await onChanged();
+      await loadRemoteStorage();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sauvegarde impossible');
     } finally {
@@ -1752,6 +1784,67 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Restauration impossible');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveRemoteStorage() {
+    setBusy('remote-save');
+    setError(null);
+    try {
+      const next = await api.updateBackupRemoteStorage({
+        enabled: remoteDraft.enabled,
+        uploadAfterBackup: remoteDraft.uploadAfterBackup,
+        host: remoteDraft.host,
+        port: Math.max(1, Math.min(65535, Math.round(remoteDraft.port || 22))),
+        username: remoteDraft.username,
+        password: remoteDraft.password.trim() ? remoteDraft.password : null,
+        clearPassword: remoteDraft.clearPassword,
+        remotePath: remoteDraft.remotePath
+      });
+      setRemoteStorage(next);
+      setRemoteDraft((current) => ({ ...current, password: '', clearPassword: false, port: next.port, remotePath: next.remotePath }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Configuration du stockage externe impossible');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function testRemoteStorage() {
+    setBusy('remote-test');
+    setError(null);
+    setOperation(null);
+    try {
+      const result = await api.testBackupRemoteStorage();
+      setOperation(result);
+      await loadRemoteStorage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test SFTP impossible');
+      await loadRemoteStorage();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function uploadRemoteBackup(archive: BackupArchive) {
+    const complete = archive.hasPostgresDump && archive.hasDocumentsArchive;
+    if (!complete) {
+      setError('Cette sauvegarde est incomplete et ne peut pas etre envoyee.');
+      return;
+    }
+
+    setBusy(`remote-upload:${archive.name}`);
+    setError(null);
+    setOperation(null);
+    try {
+      const result = await api.uploadBackup(archive.name);
+      setOperation(result);
+      await loadRemoteStorage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Envoi externe impossible');
+      await loadRemoteStorage();
     } finally {
       setBusy(null);
     }
@@ -1832,6 +1925,101 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
           </div>
         </div>
 
+        <div className="backup-remote">
+          <div className="backup-remote-header">
+            <div>
+              <strong>Stockage externe SFTP</strong>
+              <p>Copie les ZIP de sauvegarde sur un autre serveur pour garder une archive hors du serveur ERP.</p>
+            </div>
+            <div className="backup-actions">
+              <button className="secondary" type="button" disabled={Boolean(busy)} onClick={testRemoteStorage}>
+                <Search size={16} />
+                {busy === 'remote-test' ? 'Test...' : 'Tester'}
+              </button>
+              <button className="secondary" type="button" disabled={Boolean(busy)} onClick={saveRemoteStorage}>
+                <Save size={16} />
+                {busy === 'remote-save' ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+          <div className="backup-remote-grid">
+            <label className="checkbox-line">
+              <input
+                type="checkbox"
+                checked={remoteDraft.enabled}
+                onChange={(event) => setRemoteDraft((current) => ({ ...current, enabled: event.target.checked }))}
+              />
+              Serveur externe actif
+            </label>
+            <label className="checkbox-line">
+              <input
+                type="checkbox"
+                checked={remoteDraft.uploadAfterBackup}
+                onChange={(event) => setRemoteDraft((current) => ({ ...current, uploadAfterBackup: event.target.checked }))}
+              />
+              Envoyer apres chaque sauvegarde
+            </label>
+            <label>
+              Hote
+              <input
+                value={remoteDraft.host}
+                placeholder="backup.mondomaine.fr"
+                onChange={(event) => setRemoteDraft((current) => ({ ...current, host: event.target.value }))}
+              />
+            </label>
+            <label>
+              Port
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={remoteDraft.port}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setRemoteDraft((current) => ({ ...current, port: Number.isFinite(value) ? value : 22 }));
+                }}
+              />
+            </label>
+            <label>
+              Utilisateur
+              <input
+                value={remoteDraft.username}
+                placeholder="oceanerp-backup"
+                onChange={(event) => setRemoteDraft((current) => ({ ...current, username: event.target.value }))}
+              />
+            </label>
+            <label>
+              Mot de passe
+              <input
+                type="password"
+                value={remoteDraft.password}
+                placeholder={remoteStorage?.hasPassword ? 'Laisser vide pour conserver' : 'Mot de passe SFTP'}
+                onChange={(event) => setRemoteDraft((current) => ({ ...current, password: event.target.value, clearPassword: false }))}
+              />
+            </label>
+            <label>
+              Chemin distant
+              <input
+                value={remoteDraft.remotePath}
+                placeholder="/backups/oceanerp"
+                onChange={(event) => setRemoteDraft((current) => ({ ...current, remotePath: event.target.value }))}
+              />
+            </label>
+            <label className="checkbox-line">
+              <input
+                type="checkbox"
+                checked={remoteDraft.clearPassword}
+                onChange={(event) => setRemoteDraft((current) => ({ ...current, clearPassword: event.target.checked, password: '' }))}
+              />
+              Effacer le mot de passe enregistre
+            </label>
+          </div>
+          <div className="backup-remote-status">
+            <span>Dernier test : {remoteStorage?.lastTestAt ? `${formatBackupDate(remoteStorage.lastTestAt)} - ${remoteStorage.lastTestStatus ?? '-'}` : '-'}</span>
+            <span>Dernier envoi : {remoteStorage?.lastUploadAt ? `${formatBackupDate(remoteStorage.lastUploadAt)} - ${remoteStorage.lastUploadStatus ?? '-'}` : '-'}</span>
+          </div>
+        </div>
+
         {error && <div className="alert">{error}</div>}
         {operation && (
           <div className={operation.succeeded ? 'success backup-result' : 'alert backup-result'}>
@@ -1875,6 +2063,18 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
                 >
                   <Upload size={16} />
                   {busy === archive.name ? 'Restauration...' : 'Restaurer'}
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={Boolean(busy) || !complete}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    uploadRemoteBackup(archive);
+                  }}
+                >
+                  <Upload size={16} />
+                  {busy === `remote-upload:${archive.name}` ? 'Envoi...' : 'Envoyer externe'}
                 </button>
               </div>
             ];

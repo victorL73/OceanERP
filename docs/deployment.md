@@ -166,6 +166,8 @@ docker logs oceanerp-postgres --tail=100
 ./backup.sh
 ```
 
+Le module `Sauvegardes` peut aussi envoyer les archives vers un serveur externe SFTP. Configurez ce serveur depuis l'interface administrateur, puis utilisez `Tester` avant d'activer l'envoi automatique apres sauvegarde.
+
 ## HTTPS
 
 Le compose expose Nginx en HTTP. Pour la production :

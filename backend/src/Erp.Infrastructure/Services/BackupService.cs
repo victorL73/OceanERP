@@ -1,11 +1,13 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using Erp.Application.Backups;
 using Erp.Application.Common;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Renci.SshNet;
 
 namespace Erp.Infrastructure.Services;
 
@@ -13,6 +15,7 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
 {
     private static readonly SemaphoreSlim OperationLock = new(1, 1);
     private static readonly SemaphoreSlim ScheduleLock = new(1, 1);
+    private static readonly SemaphoreSlim RemoteStorageLock = new(1, 1);
     private readonly BackupOptions options = options.Value;
 
     public Task<IReadOnlyList<BackupArchiveDto>> GetBackupsAsync(CancellationToken cancellationToken)
@@ -41,7 +44,34 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
             return Result<BackupOperationResultDto>.Failure($"Script de sauvegarde introuvable : {scriptPath}");
         }
 
-        return await RunLockedAsync("backup", scriptPath, [], null, cancellationToken);
+        var result = await RunLockedAsync("backup", scriptPath, [], null, cancellationToken);
+        if (!result.Succeeded || result.Value is null || !result.Value.Succeeded || string.IsNullOrWhiteSpace(result.Value.BackupName))
+        {
+            return result;
+        }
+
+        var remote = await ReadRemoteStorageStateAsync(cancellationToken);
+        if (!remote.Enabled || !remote.UploadAfterBackup)
+        {
+            return result;
+        }
+
+        var uploadResult = await UploadBackupAsync(result.Value.BackupName, cancellationToken);
+        if (!uploadResult.Succeeded || uploadResult.Value is null || !uploadResult.Value.Succeeded)
+        {
+            var message = uploadResult.Error ?? uploadResult.Value?.Message ?? "Erreur inconnue.";
+            return Result<BackupOperationResultDto>.Success(result.Value with
+            {
+                Message = $"{result.Value.Message} Envoi externe impossible : {message}",
+                Output = AppendOutput(result.Value.Output, uploadResult.Value?.Output ?? message)
+            });
+        }
+
+        return Result<BackupOperationResultDto>.Success(result.Value with
+        {
+            Message = $"{result.Value.Message} Envoi externe effectue.",
+            Output = AppendOutput(result.Value.Output, uploadResult.Value.Output)
+        });
     }
 
     public async Task<Result<BackupOperationResultDto>> RestoreBackupAsync(string backupName, CancellationToken cancellationToken)
@@ -80,21 +110,11 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         }
 
         var safeName = Path.GetFileName(backupPathResult.Value);
-        var tempPath = Path.Combine(Path.GetTempPath(), $"oceanerp-backup-{safeName}-{Guid.NewGuid():N}.zip");
+        var tempPath = string.Empty;
 
         try
         {
-            await Task.Run(
-                () =>
-                {
-                    using var archive = ZipFile.Open(tempPath, ZipArchiveMode.Create);
-                    foreach (var filePath in Directory.EnumerateFiles(backupPathResult.Value).OrderBy(Path.GetFileName))
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        archive.CreateEntryFromFile(filePath, Path.GetFileName(filePath), CompressionLevel.Fastest);
-                    }
-                },
-                cancellationToken);
+            tempPath = await CreateBackupZipAsync(backupPathResult.Value, safeName, cancellationToken);
 
             var stream = new FileStream(
                 tempPath,
@@ -111,7 +131,11 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            TryDelete(tempPath);
+            if (!string.IsNullOrWhiteSpace(tempPath))
+            {
+                TryDelete(tempPath);
+            }
+
             logger.LogError(ex, "Backup archive download failed for {BackupName}", backupName);
             return Result<BackupDownloadDto>.Failure($"Telechargement impossible : {ex.Message}");
         }
@@ -151,6 +175,115 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         }
     }
 
+    public async Task<BackupRemoteStorageDto> GetRemoteStorageAsync(CancellationToken cancellationToken)
+    {
+        var state = await ReadRemoteStorageStateAsync(cancellationToken);
+        return ToRemoteStorageDto(state);
+    }
+
+    public async Task<Result<BackupRemoteStorageDto>> UpdateRemoteStorageAsync(UpdateBackupRemoteStorageRequest request, CancellationToken cancellationToken)
+    {
+        var validation = ValidateRemoteStorageRequest(request, requireConnectionFields: request.Enabled);
+        if (!validation.Succeeded)
+        {
+            return Result<BackupRemoteStorageDto>.Failure(validation.Error ?? "Configuration de stockage externe invalide.");
+        }
+
+        await RemoteStorageLock.WaitAsync(cancellationToken);
+        try
+        {
+            var existing = await ReadRemoteStorageStateUnlockedAsync(cancellationToken);
+            var encodedPassword = existing.EncodedPassword;
+            if (request.ClearPassword)
+            {
+                encodedPassword = null;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.Password))
+            {
+                encodedPassword = EncodeSecret(request.Password);
+            }
+
+            var state = existing with
+            {
+                Enabled = request.Enabled,
+                UploadAfterBackup = request.UploadAfterBackup,
+                Host = request.Host.Trim(),
+                Port = NormalizePort(request.Port),
+                Username = request.Username.Trim(),
+                EncodedPassword = encodedPassword,
+                RemotePath = NormalizeRemotePath(request.RemotePath)
+            };
+
+            await WriteRemoteStorageStateUnlockedAsync(state, cancellationToken);
+            return Result<BackupRemoteStorageDto>.Success(ToRemoteStorageDto(state));
+        }
+        finally
+        {
+            RemoteStorageLock.Release();
+        }
+    }
+
+    public async Task<Result<BackupOperationResultDto>> TestRemoteStorageAsync(CancellationToken cancellationToken)
+    {
+        var state = await ReadRemoteStorageStateAsync(cancellationToken);
+        var validation = ValidateRemoteStorageState(state);
+        if (!validation.Succeeded)
+        {
+            return Result<BackupOperationResultDto>.Failure(validation.Error ?? "Configuration SFTP incomplete.");
+        }
+
+        var output = new List<string>();
+        var testResult = await RunRemoteStorageTestAsync(state, output, cancellationToken);
+        var completedAt = DateTimeOffset.UtcNow;
+        await UpdateRemoteStorageStatusAsync(testAt: completedAt, testStatus: testResult.Succeeded ? "Connexion SFTP valide." : testResult.Error, uploadAt: null, uploadStatus: null, cancellationToken);
+
+        return testResult.Succeeded
+            ? Result<BackupOperationResultDto>.Success(new BackupOperationResultDto(true, "Connexion SFTP valide.", null, string.Join(Environment.NewLine, output), completedAt))
+            : Result<BackupOperationResultDto>.Failure(testResult.Error ?? "Connexion SFTP impossible.");
+    }
+
+    public async Task<Result<BackupOperationResultDto>> UploadBackupAsync(string backupName, CancellationToken cancellationToken)
+    {
+        var backupPathResult = ResolveBackupPath(backupName);
+        if (!backupPathResult.Succeeded || backupPathResult.Value is null)
+        {
+            return Result<BackupOperationResultDto>.Failure(backupPathResult.Error ?? "Sauvegarde introuvable.");
+        }
+
+        if (!File.Exists(Path.Combine(backupPathResult.Value, "postgres.sql.gz")) || !File.Exists(Path.Combine(backupPathResult.Value, "documents.tar.gz")))
+        {
+            return Result<BackupOperationResultDto>.Failure("Sauvegarde incomplete : postgres.sql.gz et documents.tar.gz sont obligatoires.");
+        }
+
+        var state = await ReadRemoteStorageStateAsync(cancellationToken);
+        var validation = ValidateRemoteStorageState(state);
+        if (!validation.Succeeded)
+        {
+            return Result<BackupOperationResultDto>.Failure(validation.Error ?? "Configuration SFTP incomplete.");
+        }
+
+        if (!await RemoteStorageLock.WaitAsync(0, cancellationToken))
+        {
+            return Result<BackupOperationResultDto>.Failure("Un transfert de sauvegarde externe est deja en cours.");
+        }
+
+        try
+        {
+            var output = new List<string>();
+            var result = await UploadBackupToRemoteAsync(state, backupName, backupPathResult.Value, output, cancellationToken);
+            var completedAt = DateTimeOffset.UtcNow;
+            await UpdateRemoteStorageStatusUnlockedAsync(null, null, completedAt, result.Succeeded ? result.Value : result.Error, cancellationToken);
+
+            return result.Succeeded
+                ? Result<BackupOperationResultDto>.Success(new BackupOperationResultDto(true, result.Value ?? "Sauvegarde envoyee vers le serveur externe.", backupName, string.Join(Environment.NewLine, output), completedAt))
+                : Result<BackupOperationResultDto>.Failure(result.Error ?? "Envoi externe impossible.");
+        }
+        finally
+        {
+            RemoteStorageLock.Release();
+        }
+    }
+
     public async Task<bool> IsScheduleDueAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
         var state = await ReadScheduleStateAsync(cancellationToken);
@@ -177,6 +310,106 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         {
             ScheduleLock.Release();
         }
+    }
+
+    private async Task<Result<string>> RunRemoteStorageTestAsync(BackupRemoteStorageState state, List<string> output, CancellationToken cancellationToken)
+    {
+        var connection = BuildSftpConnection(state);
+        if (!connection.Succeeded || connection.Value is null)
+        {
+            return Result<string>.Failure(connection.Error ?? "Connexion SFTP impossible.");
+        }
+
+        try
+        {
+            await Task.Run(
+                () =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var client = new SftpClient(connection.Value);
+                    output.Add($"Connexion a {state.Username}@{state.Host}:{state.Port}...");
+                    client.Connect();
+                    EnsureRemoteDirectory(client, state.RemotePath);
+                    var testFile = CombineRemotePath(state.RemotePath, $".oceanerp-test-{Guid.NewGuid():N}.txt");
+                    using var stream = new MemoryStream(Encoding.UTF8.GetBytes($"OceanERP test {DateTimeOffset.UtcNow:O}"));
+                    client.UploadFile(stream, testFile, true);
+                    client.DeleteFile(testFile);
+                    client.Disconnect();
+                    output.Add($"Dossier distant disponible : {state.RemotePath}");
+                },
+                cancellationToken);
+
+            return Result<string>.Success("Connexion SFTP valide.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "External backup storage test failed");
+            return Result<string>.Failure($"Connexion SFTP impossible : {ex.Message}");
+        }
+    }
+
+    private async Task<Result<string>> UploadBackupToRemoteAsync(BackupRemoteStorageState state, string backupName, string backupPath, List<string> output, CancellationToken cancellationToken)
+    {
+        var connection = BuildSftpConnection(state);
+        if (!connection.Succeeded || connection.Value is null)
+        {
+            return Result<string>.Failure(connection.Error ?? "Connexion SFTP impossible.");
+        }
+
+        var safeName = Path.GetFileName(backupPath);
+        var tempPath = string.Empty;
+        var remoteFile = CombineRemotePath(state.RemotePath, $"oceanerp-backup-{safeName}.zip");
+        try
+        {
+            tempPath = await CreateBackupZipAsync(backupPath, safeName, cancellationToken);
+            await Task.Run(
+                () =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var client = new SftpClient(connection.Value);
+                    output.Add($"Connexion a {state.Username}@{state.Host}:{state.Port}...");
+                    client.Connect();
+                    EnsureRemoteDirectory(client, state.RemotePath);
+                    using var stream = File.OpenRead(tempPath);
+                    output.Add($"Envoi de oceanerp-backup-{safeName}.zip vers {remoteFile}...");
+                    client.UploadFile(stream, remoteFile, true);
+                    client.Disconnect();
+                    output.Add("Transfert SFTP termine.");
+                },
+                cancellationToken);
+
+            return Result<string>.Success($"Sauvegarde {backupName} envoyee vers {state.Host}:{remoteFile}.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "External backup upload failed for {BackupName}", backupName);
+            return Result<string>.Failure($"Envoi externe impossible : {ex.Message}");
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(tempPath))
+            {
+                TryDelete(tempPath);
+            }
+        }
+    }
+
+    private async Task<string> CreateBackupZipAsync(string backupPath, string safeName, CancellationToken cancellationToken)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"oceanerp-backup-{safeName}-{Guid.NewGuid():N}.zip");
+        await Task.Run(
+            () =>
+            {
+                using var archive = ZipFile.Open(tempPath, ZipArchiveMode.Create);
+                foreach (var filePath in Directory.EnumerateFiles(backupPath).OrderBy(Path.GetFileName))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    archive.CreateEntryFromFile(filePath, Path.GetFileName(filePath), CompressionLevel.Fastest);
+                }
+            },
+            cancellationToken);
+
+        return tempPath;
     }
 
     private BackupArchiveDto ReadBackupArchive(string directory)
@@ -257,9 +490,114 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         return Path.Combine(backupsDirectory, "schedule.json");
     }
 
+    private async Task<BackupRemoteStorageState> ReadRemoteStorageStateAsync(CancellationToken cancellationToken)
+    {
+        await RemoteStorageLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await ReadRemoteStorageStateUnlockedAsync(cancellationToken);
+        }
+        finally
+        {
+            RemoteStorageLock.Release();
+        }
+    }
+
+    private async Task<BackupRemoteStorageState> ReadRemoteStorageStateUnlockedAsync(CancellationToken cancellationToken)
+    {
+        var path = RemoteStorageFilePath();
+        if (!File.Exists(path))
+        {
+            return DefaultRemoteStorageState();
+        }
+
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            var state = await JsonSerializer.DeserializeAsync<BackupRemoteStorageState>(stream, cancellationToken: cancellationToken);
+            if (state is null)
+            {
+                return DefaultRemoteStorageState();
+            }
+
+            return state with
+            {
+                Port = NormalizePort(state.Port),
+                RemotePath = NormalizeRemotePath(state.RemotePath)
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "External backup storage file could not be read");
+            return DefaultRemoteStorageState();
+        }
+    }
+
+    private async Task WriteRemoteStorageStateUnlockedAsync(BackupRemoteStorageState state, CancellationToken cancellationToken)
+    {
+        var backupsDirectory = FullPath(options.BackupsDirectory);
+        Directory.CreateDirectory(backupsDirectory);
+        await using var stream = File.Create(RemoteStorageFilePath());
+        await JsonSerializer.SerializeAsync(stream, state, new JsonSerializerOptions { WriteIndented = true }, cancellationToken);
+    }
+
+    private async Task UpdateRemoteStorageStatusAsync(DateTimeOffset? testAt, string? testStatus, DateTimeOffset? uploadAt, string? uploadStatus, CancellationToken cancellationToken)
+    {
+        await RemoteStorageLock.WaitAsync(cancellationToken);
+        try
+        {
+            await UpdateRemoteStorageStatusUnlockedAsync(testAt, testStatus, uploadAt, uploadStatus, cancellationToken);
+        }
+        finally
+        {
+            RemoteStorageLock.Release();
+        }
+    }
+
+    private async Task UpdateRemoteStorageStatusUnlockedAsync(DateTimeOffset? testAt, string? testStatus, DateTimeOffset? uploadAt, string? uploadStatus, CancellationToken cancellationToken)
+    {
+        var existing = await ReadRemoteStorageStateUnlockedAsync(cancellationToken);
+        var state = existing with
+        {
+            LastTestAt = testAt ?? existing.LastTestAt,
+            LastTestStatus = testStatus ?? existing.LastTestStatus,
+            LastUploadAt = uploadAt ?? existing.LastUploadAt,
+            LastUploadStatus = uploadStatus ?? existing.LastUploadStatus
+        };
+
+        await WriteRemoteStorageStateUnlockedAsync(state, cancellationToken);
+    }
+
+    private string RemoteStorageFilePath()
+    {
+        var backupsDirectory = FullPath(options.BackupsDirectory);
+        return Path.Combine(backupsDirectory, "remote-storage.json");
+    }
+
     private static BackupScheduleDto ToScheduleDto(BackupScheduleState state)
     {
         return new BackupScheduleDto(state.Enabled, NormalizeInterval(state.IntervalHours), state.LastRunAt, state.Enabled ? state.NextRunAt : null);
+    }
+
+    private static BackupRemoteStorageDto ToRemoteStorageDto(BackupRemoteStorageState state)
+    {
+        return new BackupRemoteStorageDto(
+            state.Enabled,
+            state.UploadAfterBackup,
+            state.Host,
+            NormalizePort(state.Port),
+            state.Username,
+            NormalizeRemotePath(state.RemotePath),
+            !string.IsNullOrWhiteSpace(state.EncodedPassword),
+            state.LastTestAt,
+            state.LastTestStatus,
+            state.LastUploadAt,
+            state.LastUploadStatus);
+    }
+
+    private static BackupRemoteStorageState DefaultRemoteStorageState()
+    {
+        return new BackupRemoteStorageState(false, false, string.Empty, 22, string.Empty, null, "/backups/oceanerp", null, null, null, null);
     }
 
     private static DateTimeOffset CalculateNextRun(DateTimeOffset? lastRunAt, int intervalHours, DateTimeOffset now)
@@ -281,6 +619,149 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
     private static int NormalizeInterval(int hours)
     {
         return Math.Clamp(hours, 1, 24 * 30);
+    }
+
+    private static int NormalizePort(int port)
+    {
+        return Math.Clamp(port <= 0 ? 22 : port, 1, 65535);
+    }
+
+    private static Result ValidateRemoteStorageRequest(UpdateBackupRemoteStorageRequest request, bool requireConnectionFields)
+    {
+        if (request.Port is < 1 or > 65535)
+        {
+            return Result.Failure("Le port SFTP doit etre compris entre 1 et 65535.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RemotePath))
+        {
+            return Result.Failure("Le chemin distant est obligatoire.");
+        }
+
+        var remotePath = NormalizeRemotePath(request.RemotePath);
+        if (remotePath.Contains("..", StringComparison.Ordinal))
+        {
+            return Result.Failure("Le chemin distant ne doit pas contenir '..'.");
+        }
+
+        if (!requireConnectionFields)
+        {
+            return Result.Success();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Host))
+        {
+            return Result.Failure("L'hote SFTP est obligatoire.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Username))
+        {
+            return Result.Failure("L'utilisateur SFTP est obligatoire.");
+        }
+
+        return Result.Success();
+    }
+
+    private static Result ValidateRemoteStorageState(BackupRemoteStorageState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.Host))
+        {
+            return Result.Failure("Configurez l'hote du serveur externe avant de lancer un test ou un envoi.");
+        }
+
+        if (string.IsNullOrWhiteSpace(state.Username))
+        {
+            return Result.Failure("Configurez l'utilisateur du serveur externe avant de lancer un test ou un envoi.");
+        }
+
+        if (string.IsNullOrWhiteSpace(state.EncodedPassword))
+        {
+            return Result.Failure("Configurez le mot de passe SFTP avant de lancer un test ou un envoi.");
+        }
+
+        return Result.Success();
+    }
+
+    private static Result<ConnectionInfo> BuildSftpConnection(BackupRemoteStorageState state)
+    {
+        var password = DecodeSecret(state.EncodedPassword);
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            return Result<ConnectionInfo>.Failure("Mot de passe SFTP manquant.");
+        }
+
+        var connection = new ConnectionInfo(
+            state.Host.Trim(),
+            NormalizePort(state.Port),
+            state.Username.Trim(),
+            new PasswordAuthenticationMethod(state.Username.Trim(), password))
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+
+        return Result<ConnectionInfo>.Success(connection);
+    }
+
+    private static void EnsureRemoteDirectory(SftpClient client, string remotePath)
+    {
+        var normalized = NormalizeRemotePath(remotePath);
+        if (normalized == "/")
+        {
+            return;
+        }
+
+        var current = string.Empty;
+        foreach (var part in normalized.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            current += "/" + part;
+            if (!client.Exists(current))
+            {
+                client.CreateDirectory(current);
+            }
+        }
+    }
+
+    private static string CombineRemotePath(string directory, string fileName)
+    {
+        return $"{NormalizeRemotePath(directory).TrimEnd('/')}/{fileName}";
+    }
+
+    private static string NormalizeRemotePath(string path)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(path) ? "/backups/oceanerp" : path.Trim().Replace('\\', '/');
+        return trimmed.StartsWith("/", StringComparison.Ordinal) ? trimmed : "/" + trimmed;
+    }
+
+    private static string? EncodeSecret(string? value)
+    {
+        return string.IsNullOrEmpty(value) ? null : Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
+    }
+
+    private static string? DecodeSecret(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Encoding.UTF8.GetString(Convert.FromBase64String(value));
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    private static string AppendOutput(string existing, string? extra)
+    {
+        if (string.IsNullOrWhiteSpace(extra))
+        {
+            return existing;
+        }
+
+        return string.IsNullOrWhiteSpace(existing) ? extra : $"{existing}{Environment.NewLine}{extra}";
     }
 
     private static DateTimeOffset? ParseBackupDate(string name)
@@ -475,4 +956,17 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         int IntervalHours,
         DateTimeOffset? LastRunAt,
         DateTimeOffset? NextRunAt);
+
+    private sealed record BackupRemoteStorageState(
+        bool Enabled,
+        bool UploadAfterBackup,
+        string Host,
+        int Port,
+        string Username,
+        string? EncodedPassword,
+        string RemotePath,
+        DateTimeOffset? LastTestAt,
+        string? LastTestStatus,
+        DateTimeOffset? LastUploadAt,
+        string? LastUploadStatus);
 }

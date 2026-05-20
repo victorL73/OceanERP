@@ -61,6 +61,20 @@ export type BackupSchedule = {
   nextRunAt?: string | null;
 };
 
+export type BackupRemoteStorage = {
+  enabled: boolean;
+  uploadAfterBackup: boolean;
+  host: string;
+  port: number;
+  username: string;
+  remotePath: string;
+  hasPassword: boolean;
+  lastTestAt?: string | null;
+  lastTestStatus?: string | null;
+  lastUploadAt?: string | null;
+  lastUploadStatus?: string | null;
+};
+
 export type AuditLog = {
   id: string;
   userId?: string;

@@ -59,8 +59,12 @@ Swagger est activé en environnement `Development`.
 - `POST /api/backups`
 - `GET /api/backups/schedule`
 - `PUT /api/backups/schedule`
+- `GET /api/backups/remote-storage`
+- `PUT /api/backups/remote-storage`
+- `POST /api/backups/remote-storage/test`
 - `GET /api/backups/{name}/download`
 - `POST /api/backups/{name}/restore`
+- `POST /api/backups/{name}/upload`
 
 ## Endpoints Phase 2 ajoutes
 

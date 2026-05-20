@@ -34,6 +34,29 @@ public sealed record UpdateBackupScheduleRequest(
     bool Enabled,
     int IntervalHours);
 
+public sealed record BackupRemoteStorageDto(
+    bool Enabled,
+    bool UploadAfterBackup,
+    string Host,
+    int Port,
+    string Username,
+    string RemotePath,
+    bool HasPassword,
+    DateTimeOffset? LastTestAt,
+    string? LastTestStatus,
+    DateTimeOffset? LastUploadAt,
+    string? LastUploadStatus);
+
+public sealed record UpdateBackupRemoteStorageRequest(
+    bool Enabled,
+    bool UploadAfterBackup,
+    string Host,
+    int Port,
+    string Username,
+    string? Password,
+    bool ClearPassword,
+    string RemotePath);
+
 public interface IBackupService
 {
     Task<IReadOnlyList<BackupArchiveDto>> GetBackupsAsync(CancellationToken cancellationToken);
@@ -42,6 +65,10 @@ public interface IBackupService
     Task<Result<BackupDownloadDto>> OpenBackupDownloadAsync(string backupName, CancellationToken cancellationToken);
     Task<BackupScheduleDto> GetScheduleAsync(CancellationToken cancellationToken);
     Task<Result<BackupScheduleDto>> UpdateScheduleAsync(UpdateBackupScheduleRequest request, CancellationToken cancellationToken);
+    Task<BackupRemoteStorageDto> GetRemoteStorageAsync(CancellationToken cancellationToken);
+    Task<Result<BackupRemoteStorageDto>> UpdateRemoteStorageAsync(UpdateBackupRemoteStorageRequest request, CancellationToken cancellationToken);
+    Task<Result<BackupOperationResultDto>> TestRemoteStorageAsync(CancellationToken cancellationToken);
+    Task<Result<BackupOperationResultDto>> UploadBackupAsync(string backupName, CancellationToken cancellationToken);
     Task<bool> IsScheduleDueAsync(DateTimeOffset now, CancellationToken cancellationToken);
     Task MarkScheduledRunAsync(DateTimeOffset completedAt, CancellationToken cancellationToken);
 }

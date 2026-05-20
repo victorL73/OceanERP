@@ -35,6 +35,27 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpGet("remote-storage")]
+    [Authorize(Policy = "backup.read")]
+    public async Task<ActionResult<BackupRemoteStorageDto>> GetRemoteStorage(CancellationToken cancellationToken)
+        => Ok(await backups.GetRemoteStorageAsync(cancellationToken));
+
+    [HttpPut("remote-storage")]
+    [Authorize(Policy = "backup.write")]
+    public async Task<ActionResult<BackupRemoteStorageDto>> UpdateRemoteStorage(UpdateBackupRemoteStorageRequest request, CancellationToken cancellationToken)
+    {
+        var result = await backups.UpdateRemoteStorageAsync(request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("remote-storage/test")]
+    [Authorize(Policy = "backup.write")]
+    public async Task<ActionResult<BackupOperationResultDto>> TestRemoteStorage(CancellationToken cancellationToken)
+    {
+        var result = await backups.TestRemoteStorageAsync(cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpGet("{name}/download")]
     [Authorize(Policy = "backup.read")]
     public async Task<IActionResult> Download(string name, CancellationToken cancellationToken)
@@ -53,6 +74,14 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
     public async Task<ActionResult<BackupOperationResultDto>> Restore(string name, CancellationToken cancellationToken)
     {
         var result = await backups.RestoreBackupAsync(Uri.UnescapeDataString(name), cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("{name}/upload")]
+    [Authorize(Policy = "backup.write")]
+    public async Task<ActionResult<BackupOperationResultDto>> Upload(string name, CancellationToken cancellationToken)
+    {
+        var result = await backups.UploadBackupAsync(Uri.UnescapeDataString(name), cancellationToken);
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 }

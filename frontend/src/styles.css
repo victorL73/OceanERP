@@ -1332,6 +1332,48 @@ h1 {
   color: #475569;
 }
 
+.backup-remote {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  border: 1px solid #ccfbf1;
+  border-radius: 8px;
+  background: #f0fdfa;
+  padding: 12px;
+}
+
+.backup-remote-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.backup-remote-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.backup-remote-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.backup-remote-grid label:not(.checkbox-line) {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.backup-remote-status {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #475569;
+}
+
 .backup-row-actions {
   display: flex;
   gap: 8px;
@@ -5864,6 +5906,7 @@ button.drive-main {
   .purchase-line-row,
   .quote-line-row,
   .backup-schedule,
+  .backup-remote-grid,
   .purchase-charge-row,
   .signature-create-grid,
   .recipient-editor-row,
