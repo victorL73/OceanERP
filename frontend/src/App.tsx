@@ -10565,34 +10565,42 @@ function useMeetingPeerStreams({
   const syncLocalTracks = useCallback((connection: RTCPeerConnection) => {
     const localTracks = getLocalStreamsRef.current()
       .flatMap((stream) => stream.getTracks().map((track) => ({ stream, track })))
-      .filter(({ track }) => track.readyState === 'live');
-    const liveTrackIds = new Set(localTracks.map(({ track }) => track.id));
+      .filter(({ track }) => track.readyState === 'live' && track.enabled);
 
-    connection.getSenders()
-      .filter((sender) => sender.track && !liveTrackIds.has(sender.track.id))
-      .forEach((sender) => {
-        try {
-          connection.removeTrack(sender);
-        } catch {
-          // La piste a deja pu etre retiree pendant une reconnexion.
+    const syncTrack = (kind: 'audio' | 'video') => {
+      const local = localTracks.find(({ track }) => track.kind === kind);
+      const transceiver = connection.getTransceivers()
+        .find((item) => item.sender.track?.kind === kind || item.receiver.track?.kind === kind);
+
+      if (!local) {
+        if (transceiver?.sender.track) {
+          void transceiver.sender.replaceTrack(null).catch(() => undefined);
+          if (transceiver.direction === 'sendrecv' || transceiver.direction === 'sendonly') {
+            transceiver.direction = 'recvonly';
+          }
         }
-      });
+        return;
+      }
 
-    const sentTrackIds = new Set(
-      connection.getSenders()
-        .map((sender) => sender.track?.id)
-        .filter((trackId): trackId is string => Boolean(trackId))
-    );
-
-    localTracks
-      .filter(({ track }) => !sentTrackIds.has(track.id))
-      .forEach(({ stream, track }) => {
-        try {
-          connection.addTrack(track, stream);
-        } catch {
-          // Une double insertion ne doit pas interrompre toute la salle.
+      if (transceiver) {
+        if (transceiver.sender.track?.id !== local.track.id) {
+          void transceiver.sender.replaceTrack(local.track).catch(() => undefined);
         }
-      });
+        if (transceiver.direction === 'recvonly' || transceiver.direction === 'inactive') {
+          transceiver.direction = 'sendrecv';
+        }
+        return;
+      }
+
+      try {
+        connection.addTrack(local.track, local.stream);
+      } catch {
+        // Une double insertion ne doit pas interrompre toute la salle.
+      }
+    };
+
+    syncTrack('audio');
+    syncTrack('video');
   }, []);
 
   const flushPendingCandidates = useCallback(async (remoteClientId: string, connection: RTCPeerConnection) => {

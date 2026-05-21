@@ -46,7 +46,9 @@ const elements = {
   copyRoomButton: $("copy-room-button"),
   copyInviteButton: $("copy-invite-button"),
   toggleMicButton: $("toggle-mic-button"),
+  microphoneDeviceSelect: $("microphone-device-select"),
   toggleCameraButton: $("toggle-camera-button"),
+  cameraDeviceSelect: $("camera-device-select"),
   shareScreenButton: $("share-screen-button"),
   deleteRoomButton: $("delete-room-button"),
   leaveRoomButton: $("leave-room-button"),
@@ -98,6 +100,9 @@ const state = {
   cameraSegmentationPending: false,
   cameraSegmentationMask: null,
   cameraSegmentationLastFrameAt: 0,
+  mediaDevices: [],
+  selectedMicrophoneDeviceId: readStringStorage("meetocean_microphone_device_id"),
+  selectedCameraDeviceId: readStringStorage("meetocean_camera_device_id"),
   peers: new Map(),
   videoTiles: new Map(),
   transcriptMap: new Map(),
@@ -133,16 +138,37 @@ const state = {
 
 function clientId() {
   try {
-    const existing = localStorage.getItem("meetocean_client_id");
+    localStorage.removeItem("meetocean_client_id");
+  } catch (error) {}
+  try {
+    const existing = sessionStorage.getItem("meetocean_session_client_id");
     if (existing) return existing;
     const generated = crypto.randomUUID
       ? crypto.randomUUID().replace(/-/g, "")
       : `me_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
-    localStorage.setItem("meetocean_client_id", generated);
+    sessionStorage.setItem("meetocean_session_client_id", generated);
     return generated;
   } catch (error) {
     return `me_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
   }
+}
+
+function readStringStorage(key) {
+  try {
+    return localStorage.getItem(key) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function writeStringStorage(key, value) {
+  try {
+    if (value) {
+      localStorage.setItem(key, value);
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch (error) {}
 }
 
 function setVisible(ready) {
@@ -1697,12 +1723,123 @@ function refreshMediaStateFromTracks() {
     && state.localStream.getVideoTracks().some((track) => track.enabled);
 }
 
-async function requestMediaTracks({ audio, video }) {
+function mediaDeviceLabel(device, fallback, index) {
+  return device.label || `${fallback} ${index + 1}`;
+}
+
+function populateDeviceSelect(select, devices, selectedDeviceId, fallbackLabel) {
+  if (!select) return;
+  select.replaceChildren();
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = `${fallbackLabel} par defaut`;
+  select.appendChild(defaultOption);
+
+  devices.forEach((device, index) => {
+    const option = document.createElement("option");
+    option.value = device.deviceId;
+    option.textContent = mediaDeviceLabel(device, fallbackLabel, index);
+    select.appendChild(option);
+  });
+
+  select.value = devices.some((device) => device.deviceId === selectedDeviceId)
+    ? selectedDeviceId
+    : "";
+  select.disabled = devices.length === 0;
+}
+
+function renderMediaDeviceControls() {
+  const microphones = state.mediaDevices.filter((device) => device.kind === "audioinput" && device.deviceId);
+  const cameras = state.mediaDevices.filter((device) => device.kind === "videoinput" && device.deviceId);
+  populateDeviceSelect(elements.microphoneDeviceSelect, microphones, state.selectedMicrophoneDeviceId, "Micro");
+  populateDeviceSelect(elements.cameraDeviceSelect, cameras, state.selectedCameraDeviceId, "Camera");
+}
+
+async function loadMediaDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    renderMediaDeviceControls();
+    return;
+  }
+
+  try {
+    state.mediaDevices = await navigator.mediaDevices.enumerateDevices();
+    const microphoneIds = new Set(
+      state.mediaDevices.filter((device) => device.kind === "audioinput").map((device) => device.deviceId)
+    );
+    const cameraIds = new Set(
+      state.mediaDevices.filter((device) => device.kind === "videoinput").map((device) => device.deviceId)
+    );
+    if (state.selectedMicrophoneDeviceId && !microphoneIds.has(state.selectedMicrophoneDeviceId)) {
+      state.selectedMicrophoneDeviceId = "";
+      writeStringStorage("meetocean_microphone_device_id", "");
+    }
+    if (state.selectedCameraDeviceId && !cameraIds.has(state.selectedCameraDeviceId)) {
+      state.selectedCameraDeviceId = "";
+      writeStringStorage("meetocean_camera_device_id", "");
+    }
+  } catch (error) {
+    state.mediaDevices = [];
+  }
+  renderMediaDeviceControls();
+}
+
+function audioConstraints(useSelectedDevice = true) {
   const constraints = {
-    audio: audio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
-    video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
   };
-  return navigator.mediaDevices.getUserMedia(constraints);
+  if (useSelectedDevice && state.selectedMicrophoneDeviceId) {
+    constraints.deviceId = { exact: state.selectedMicrophoneDeviceId };
+  }
+  return constraints;
+}
+
+function videoConstraints(useSelectedDevice = true) {
+  const constraints = {
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: { ideal: 30, max: 30 },
+  };
+  if (useSelectedDevice && state.selectedCameraDeviceId) {
+    constraints.deviceId = { exact: state.selectedCameraDeviceId };
+  }
+  return constraints;
+}
+
+async function requestMediaTracks({ audio, video }, allowDeviceFallback = true) {
+  const constraints = {
+    audio: audio ? audioConstraints() : false,
+    video: video ? videoConstraints() : false,
+  };
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    void loadMediaDevices();
+    return stream;
+  } catch (error) {
+    const isDeviceSelectionError = error?.name === "OverconstrainedError"
+      || error?.name === "ConstraintNotSatisfiedError"
+      || error?.name === "NotFoundError"
+      || error?.name === "DevicesNotFoundError";
+    if (!allowDeviceFallback || !isDeviceSelectionError) {
+      throw error;
+    }
+
+    if (audio) {
+      state.selectedMicrophoneDeviceId = "";
+      writeStringStorage("meetocean_microphone_device_id", "");
+    }
+    if (video) {
+      state.selectedCameraDeviceId = "";
+      writeStringStorage("meetocean_camera_device_id", "");
+    }
+    renderMediaDeviceControls();
+    return navigator.mediaDevices.getUserMedia({
+      audio: audio ? audioConstraints(false) : false,
+      video: video ? videoConstraints(false) : false,
+    });
+  }
 }
 
 async function ensureLocalMedia(options = {}) {
@@ -1730,13 +1867,16 @@ async function ensureLocalMedia(options = {}) {
 
   setMessage("Demande d'autorisation camera/micro...", "info");
   try {
-    state.cameraStream = await requestMediaTracks({ audio: needsAudio, video: needsVideo });
-    addLocalTracks(state.cameraStream);
+    const capturedStream = await requestMediaTracks({ audio: needsAudio, video: needsVideo });
+    if (capturedStream.getVideoTracks().length > 0) {
+      state.cameraStream = capturedStream;
+    }
+    addLocalTracks(capturedStream);
   } catch (error) {
     if (needsAudio && needsVideo) {
       try {
-        state.cameraStream = await requestMediaTracks({ audio: true, video: false });
-        addLocalTracks(state.cameraStream);
+        const audioStream = await requestMediaTracks({ audio: true, video: false });
+        addLocalTracks(audioStream);
         setMessage("Camera indisponible, audio active.", "info");
       } catch (audioError) {
         throw new Error(mediaAccessMessage(audioError));
@@ -1757,30 +1897,117 @@ async function ensureLocalMedia(options = {}) {
   return state.localStream;
 }
 
+async function changeMicrophoneDevice() {
+  const deviceId = elements.microphoneDeviceSelect?.value || "";
+  state.selectedMicrophoneDeviceId = deviceId;
+  writeStringStorage("meetocean_microphone_device_id", deviceId);
+  if (!state.media.microphone) return;
+
+  try {
+    const stream = await requestMediaTracks({ audio: true, video: false }, false);
+    addLocalTracks(stream);
+    refreshMediaStateFromTracks();
+    attachLocalTracksToPeers();
+    updateControlButtons();
+    renderVideos();
+    void syncNow();
+  } catch (error) {
+    setMessage(error.message || mediaAccessMessage(error), "error", insecureMediaAction());
+    void loadMediaDevices();
+  }
+}
+
+async function changeCameraDevice() {
+  const deviceId = elements.cameraDeviceSelect?.value || "";
+  state.selectedCameraDeviceId = deviceId;
+  writeStringStorage("meetocean_camera_device_id", deviceId);
+  if (!state.media.camera || state.media.screen) return;
+
+  try {
+    stopCameraBackgroundProcessor();
+    state.cameraStream?.getVideoTracks().forEach((track) => track.stop());
+    const stream = await requestMediaTracks({ audio: false, video: true }, false);
+    state.cameraStream = stream;
+    addLocalTracks(stream);
+    await applyCameraBackgroundEffect({ sync: false, quiet: true });
+    refreshMediaStateFromTracks();
+    attachLocalTracksToPeers();
+    updateControlButtons();
+    renderVideos();
+    void syncNow();
+  } catch (error) {
+    setMessage(error.message || mediaAccessMessage(error), "error", insecureMediaAction());
+    void loadMediaDevices();
+  }
+}
+
 function attachLocalTracksToPeers() {
   if (!state.localStream) return;
+  const audioTrack = state.localStream
+    .getAudioTracks()
+    .find((track) => track.readyState === "live" && track.enabled) || null;
+  const videoTrack = state.localStream
+    .getVideoTracks()
+    .find((track) => track.readyState === "live" && track.enabled) || null;
+
   state.peers.forEach((peer) => {
-    const senders = peer.pc.getSenders();
     let needsNegotiation = false;
-    state.localStream.getTracks().forEach((track) => {
-      const alreadySent = senders.some((sender) => sender.track && sender.track.id === track.id);
-      const sameKind = senders.some((sender) => sender.track && sender.track.kind === track.kind);
-      if (!alreadySent && !sameKind) {
-        const reusableTransceiver = peer.pc.getTransceivers()
-          .find((transceiver) => transceiver.receiver?.track?.kind === track.kind && !transceiver.sender.track);
-        if (reusableTransceiver) {
-          void reusableTransceiver.sender.replaceTrack(track);
-          reusableTransceiver.direction = "sendrecv";
-        } else {
-          peer.pc.addTrack(track, state.localStream);
-        }
-        needsNegotiation = true;
-      }
-    });
+    needsNegotiation = syncPeerTrack(peer, "audio", audioTrack) || needsNegotiation;
+    needsNegotiation = syncPeerTrack(peer, "video", videoTrack) || needsNegotiation;
     if (needsNegotiation) {
       requestPeerNegotiation(peer);
     }
   });
+}
+
+function findPeerTransceiver(peer, kind) {
+  return peer.pc.getTransceivers()
+    .find((transceiver) => transceiver.sender?.track?.kind === kind
+      || transceiver.receiver?.track?.kind === kind) || null;
+}
+
+function syncPeerTrack(peer, kind, track) {
+  if (!peer || peer.pc.signalingState === "closed") return false;
+
+  const transceiver = findPeerTransceiver(peer, kind);
+  if (!track) {
+    if (!transceiver?.sender?.track) return false;
+    try {
+      void transceiver.sender.replaceTrack(null).catch(() => {});
+      if (transceiver.direction === "sendrecv" || transceiver.direction === "sendonly") {
+        transceiver.direction = "recvonly";
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  if (transceiver) {
+    if (transceiver.sender.track?.id === track.id && transceiver.sender.track.readyState === "live") {
+      if (transceiver.direction === "recvonly" || transceiver.direction === "inactive") {
+        transceiver.direction = "sendrecv";
+        return true;
+      }
+      return false;
+    }
+    try {
+      void transceiver.sender.replaceTrack(track).catch(() => {});
+      if (transceiver.direction === "recvonly" || transceiver.direction === "inactive") {
+        transceiver.direction = "sendrecv";
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  try {
+    peer.pc.addTrack(track, state.localStream);
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 function requestPeerNegotiation(peer) {
@@ -1805,22 +2032,7 @@ function replaceLocalVideoTrack(track) {
   if (track && !state.localStream.getVideoTracks().some((existing) => existing.id === track.id)) {
     state.localStream.addTrack(track);
   }
-  state.peers.forEach((peer) => {
-    const sender = peer.pc.getSenders().find((item) => item.track && item.track.kind === "video");
-    if (sender) {
-      void sender.replaceTrack(track || null);
-    } else if (track) {
-      const reusableTransceiver = peer.pc.getTransceivers()
-        .find((transceiver) => transceiver.receiver?.track?.kind === "video" && !transceiver.sender.track);
-      if (reusableTransceiver) {
-        void reusableTransceiver.sender.replaceTrack(track);
-        reusableTransceiver.direction = "sendrecv";
-      } else {
-        peer.pc.addTrack(track, state.localStream);
-      }
-      requestPeerNegotiation(peer);
-    }
-  });
+  attachLocalTracksToPeers();
   renderVideos();
 }
 
@@ -1839,6 +2051,7 @@ async function toggleMicrophone() {
     track.enabled = enabled;
   });
   refreshMediaStateFromTracks();
+  attachLocalTracksToPeers();
   updateControlButtons();
   renderVideos();
   if (state.media.microphone) {
@@ -1871,6 +2084,7 @@ async function toggleCamera() {
     });
   }
   refreshMediaStateFromTracks();
+  attachLocalTracksToPeers();
   updateControlButtons();
   renderVideos();
   void syncNow();
@@ -2730,7 +2944,9 @@ function bindEvents() {
   elements.deleteRoomButton.addEventListener("click", () => void deleteCurrentRoom());
   elements.leaveRoomButton.addEventListener("click", () => void leaveRoom());
   elements.toggleMicButton.addEventListener("click", () => void toggleMicrophone());
+  elements.microphoneDeviceSelect?.addEventListener("change", () => void changeMicrophoneDevice());
   elements.toggleCameraButton.addEventListener("click", () => void toggleCamera());
+  elements.cameraDeviceSelect?.addEventListener("change", () => void changeCameraDevice());
   elements.shareScreenButton.addEventListener("click", () => void shareScreen());
   elements.transcriptionToggle.addEventListener("change", () => {
     state.transcriptionEnabled = elements.transcriptionToggle.checked;
@@ -2766,6 +2982,9 @@ function bindEvents() {
     if (!state.room) return;
     cleanupMeeting();
   });
+  if (navigator.mediaDevices) {
+    navigator.mediaDevices.ondevicechange = () => void loadMediaDevices();
+  }
 }
 
 async function loadDashboard(showReadyMessage = true) {
@@ -2807,6 +3026,7 @@ async function boot() {
   updateControlButtons();
   syncScheduledStartInput();
   await loadIceConfiguration();
+  await loadMediaDevices();
   try {
     await loadDashboard();
   } catch (error) {

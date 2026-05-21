@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Meet</title>
   <meta name="description" content="Meet - reunions video, transcription et traduction en temps reel.">
-  <link rel="stylesheet" href="assets/style.css?v=20260506-chat-files">
+  <link rel="stylesheet" href="assets/style.css?v=20260521-device-switch">
   <script defer src="assets/vendor/mediapipe-selfie-segmentation/selfie_segmentation.js?v=20260506"></script>
-  <script defer src="assets/app.js?v=20260506-person-segmentation-timezone"></script>
+  <script defer src="assets/app.js?v=20260521-device-switch"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -120,7 +120,13 @@
             <div class="stage-actions">
               <button class="tool-button" id="copy-invite-button" type="button" title="Copier le lien invite">Inviter</button>
               <button class="tool-button" id="toggle-mic-button" type="button" title="Micro">Micro</button>
+              <select class="device-select" id="microphone-device-select" title="Choisir le micro" aria-label="Choisir le micro">
+                <option value="">Micro par defaut</option>
+              </select>
               <button class="tool-button" id="toggle-camera-button" type="button" title="Camera">Camera</button>
+              <select class="device-select" id="camera-device-select" title="Choisir la camera" aria-label="Choisir la camera">
+                <option value="">Camera par defaut</option>
+              </select>
               <button class="tool-button" id="share-screen-button" type="button" title="Partage d'ecran">Ecran</button>
               <button class="tool-button danger-text" id="delete-room-button" type="button" title="Supprimer la reunion">Supprimer</button>
               <button class="ghost-button danger-text" id="leave-room-button" type="button">Quitter</button>
