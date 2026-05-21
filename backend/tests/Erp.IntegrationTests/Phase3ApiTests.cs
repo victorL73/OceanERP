@@ -184,6 +184,25 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(HttpStatusCode.Unauthorized, unauthorizedResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task OnlyOfficeConfig_UsesFastCoEditingForSpreadsheets()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var file = await UploadDriveFileAsync(
+            client,
+            "catalogue.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+        var config = await client.GetFromJsonAsync<OnlyOfficeConfigDto>($"/api/onlyoffice/files/{file.Id}/config");
+
+        Assert.NotNull(config);
+        Assert.Equal("cell", config!.DocumentType);
+        Assert.Equal("fast", config.EditorConfig.CoEditing?.Mode);
+        Assert.False(config.EditorConfig.Customization?.Autosave ?? true);
+        Assert.False(config.EditorConfig.Customization?.Forcesave ?? true);
+        Assert.False(config.EditorConfig.Customization?.Comments ?? true);
+    }
+
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
     {
         var client = factory.CreateClient(new() { BaseAddress = new Uri("https://localhost") });
