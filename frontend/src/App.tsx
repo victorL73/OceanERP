@@ -7713,6 +7713,22 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
     await onChanged();
   }
 
+  async function markOpenedMessagesRead(messageIds: string[], selectedDetail: EmailMessage) {
+    const unreadIds = [...new Set(messageIds.filter(Boolean))];
+    if (unreadIds.length === 0) {
+      return selectedDetail;
+    }
+
+    try {
+      const updatedMessages = await Promise.all(unreadIds.map((id) => api.markEmailRead(id, true)));
+      await onChangedRef.current();
+      return updatedMessages.find((message) => message.id === selectedDetail.id) ?? { ...selectedDetail, isRead: true };
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Marquage automatique du mail impossible.');
+      return selectedDetail;
+    }
+  }
+
   async function deleteSelectedMessage() {
     if (!selectedMessage) {
       return;
@@ -7732,7 +7748,7 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
     }
   }
 
-  async function openMessage(messageId?: string, threadKey?: string) {
+  async function openMessage(messageId?: string, threadKey?: string, threadUnreadMessageIds: string[] = []) {
     if (!messageId) {
       return;
     }
@@ -7741,7 +7757,16 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
     setSelectedThreadKey(threadKey ?? null);
     setSelectedMessageDetail(messages.find((message) => message.id === messageId) ?? null);
     try {
-      setSelectedMessageDetail(await api.emailMessage(messageId));
+      const detail = await api.emailMessage(messageId);
+      setSelectedMessageDetail(detail);
+
+      const autoReadIds = new Set(threadUnreadMessageIds);
+      if (detail.direction === 'Incoming' && !detail.isRead) {
+        autoReadIds.add(detail.id);
+      }
+
+      const nextDetail = await markOpenedMessagesRead([...autoReadIds], detail);
+      setSelectedMessageDetail((current) => (current?.id === detail.id ? nextDetail : current));
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Chargement du mail impossible.');
     }
@@ -7754,7 +7779,11 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
   }
 
   function openThread(thread: EmailThread) {
-    void openMessage(thread.latest.id, thread.key);
+    const unreadIncomingMessageIds = thread.messages
+      .filter((message) => message.direction === 'Incoming' && !message.isRead)
+      .map((message) => message.id);
+
+    void openMessage(thread.latest.id, thread.key, unreadIncomingMessageIds);
   }
 
   function toggleThreadSelection(threadKey: string, checked: boolean) {
