@@ -9867,20 +9867,28 @@ const meetingLanguageOptions = [
   { code: 'pt-PT', label: 'Portugais' }
 ];
 
-const meetClientIdStorageKey = 'oceanerp.meet.clientId';
+const meetClientIdStorageKey = 'oceanerp.meet.sessionClientId';
+
+function createMeetClientId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+}
 
 function getMeetClientId() {
   try {
-    const existing = localStorage.getItem(meetClientIdStorageKey);
+    const existing = sessionStorage.getItem(meetClientIdStorageKey);
     if (existing) {
       return existing;
     }
 
-    const next = crypto.randomUUID();
-    localStorage.setItem(meetClientIdStorageKey, next);
+    const next = createMeetClientId();
+    sessionStorage.setItem(meetClientIdStorageKey, next);
     return next;
   } catch {
-    return `client-${Math.random().toString(16).slice(2)}`;
+    return createMeetClientId();
   }
 }
 
@@ -9918,6 +9926,7 @@ type MeetingPeerConnectionState = {
   makingOffer: boolean;
   ignoreOffer: boolean;
   settingRemoteAnswer: boolean;
+  localMediaRevision: number;
 };
 
 type MeetingPeerSignalPayload = {
@@ -9956,6 +9965,7 @@ function useMeetingPeerStreams({
   const sendSignalRef = useRef(sendSignal);
   const getLocalStreamsRef = useRef(getLocalStreams);
   const onErrorRef = useRef(onError);
+  const mediaRevisionRef = useRef(mediaRevision);
   const roomId = roomState?.room.id ?? null;
   const signals = roomState?.signals ?? [];
   const remoteParticipants = useMemo(
@@ -9978,6 +9988,10 @@ function useMeetingPeerStreams({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    mediaRevisionRef.current = mediaRevision;
+  }, [mediaRevision]);
 
   const closePeer = useCallback((remoteClientId: string) => {
     peersRef.current.get(remoteClientId)?.connection.close();
@@ -10086,6 +10100,17 @@ function useMeetingPeerStreams({
     }
   }, []);
 
+  const requestMediaRenegotiation = useCallback((remoteClientId: string, peer: MeetingPeerConnectionState) => {
+    syncLocalTracks(peer.connection);
+    const currentMediaRevision = mediaRevisionRef.current;
+    if (peer.localMediaRevision === currentMediaRevision || peer.connection.signalingState !== 'stable') {
+      return;
+    }
+
+    peer.localMediaRevision = currentMediaRevision;
+    void createPeerOffer(remoteClientId, peer);
+  }, [createPeerOffer, syncLocalTracks]);
+
   const ensurePeer = useCallback((remoteClientId: string) => {
     const existing = peersRef.current.get(remoteClientId);
     if (existing) {
@@ -10102,12 +10127,19 @@ function useMeetingPeerStreams({
       connection,
       makingOffer: false,
       ignoreOffer: false,
-      settingRemoteAnswer: false
+      settingRemoteAnswer: false,
+      localMediaRevision: -1
     };
     peersRef.current.set(remoteClientId, peer);
 
     connection.onnegotiationneeded = () => {
       void createPeerOffer(remoteClientId, peer);
+    };
+
+    connection.onsignalingstatechange = () => {
+      if (connection.signalingState === 'stable') {
+        requestMediaRenegotiation(remoteClientId, peer);
+      }
     };
 
     try {
@@ -10127,9 +10159,16 @@ function useMeetingPeerStreams({
 
     connection.ontrack = (event) => {
       const stream = event.streams[0] ?? new MediaStream([event.track]);
+      if (!stream.getTracks().some((track) => track.id === event.track.id)) {
+        try {
+          stream.addTrack(event.track);
+        } catch {
+          // La piste peut deja appartenir au flux sur certains navigateurs.
+        }
+      }
       const streamId = stream.id || `${remoteClientId}-${event.track.id}`;
       const kind = inferMeetingRemoteStreamKind(stream, event.track);
-      setRemoteStreams((current) => {
+      const publishRemoteStream = () => setRemoteStreams((current) => {
         const list = current[remoteClientId] ?? [];
         const nextStream = { id: streamId, stream, kind };
         const index = list.findIndex((item) => item.id === streamId);
@@ -10138,11 +10177,17 @@ function useMeetingPeerStreams({
           : [...list, nextStream];
         return { ...current, [remoteClientId]: nextList };
       });
+
+      publishRemoteStream();
+      event.track.addEventListener('unmute', publishRemoteStream);
+      event.track.addEventListener('mute', publishRemoteStream);
       event.track.addEventListener('ended', () => {
         setRemoteStreams((current) => {
           const list = (current[remoteClientId] ?? []).filter((item) => item.id !== streamId);
           return { ...current, [remoteClientId]: list };
         });
+        event.track.removeEventListener('unmute', publishRemoteStream);
+        event.track.removeEventListener('mute', publishRemoteStream);
       }, { once: true });
     };
 
@@ -10161,7 +10206,7 @@ function useMeetingPeerStreams({
     };
 
     return peer;
-  }, [closePeer, createPeerOffer, queueOutgoingCandidate, syncLocalTracks]);
+  }, [closePeer, createPeerOffer, queueOutgoingCandidate, requestMediaRenegotiation, syncLocalTracks]);
 
   useEffect(() => {
     processedSignalsRef.current.clear();
@@ -10190,10 +10235,10 @@ function useMeetingPeerStreams({
     remoteParticipants.forEach((participant) => {
       const peer = ensurePeer(participant.clientId);
       if (peer) {
-        syncLocalTracks(peer.connection);
+        requestMediaRenegotiation(participant.clientId, peer);
       }
     });
-  }, [closePeer, ensurePeer, mediaRevision, remoteParticipantKey, roomId, syncLocalTracks]);
+  }, [closePeer, ensurePeer, mediaRevision, remoteParticipantKey, requestMediaRenegotiation, roomId]);
 
   useEffect(() => {
     if (!roomId || signals.length === 0) {
