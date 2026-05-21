@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Erp.Application.Ai;
 using Erp.Application.Common;
@@ -134,7 +135,8 @@ public sealed class FlowceanCompatController(
         var action = request.Action?.Trim().ToLowerInvariant();
         if (action == "create")
         {
-            var name = string.IsNullOrWhiteSpace(request.Name) ? "Nouvel espace" : request.Name.Trim();
+            var requestedName = string.IsNullOrWhiteSpace(request.Name) ? "Nouvel espace" : request.Name.Trim();
+            var name = await UniqueWorkspaceNameAsync(requestedName, cancellationToken);
             var slug = await UniqueSlugAsync(Slugify(name), cancellationToken);
             var workspace = new FlowceanWorkspace
             {
@@ -147,8 +149,40 @@ public sealed class FlowceanCompatController(
 
             db.FlowceanWorkspaces.Add(workspace);
             await db.SaveChangesAsync(cancellationToken);
-            var directory = await GetDirectoryPayloadAsync(slug, cancellationToken);
-            return StatusCode(StatusCodes.Status201Created, directory);
+            return StatusCode(StatusCodes.Status201Created, await GetDirectoryPayloadAsync(slug, cancellationToken));
+        }
+
+        if (action == "import")
+        {
+            if (request.State.ValueKind is not JsonValueKind.Object)
+            {
+                return BadRequest(new { ok = false, message = "Fichier Flowcean invalide." });
+            }
+
+            var requestedName = !string.IsNullOrWhiteSpace(request.Name)
+                ? request.Name.Trim()
+                : ExtractWorkspaceName(request.State) ?? "Espace importe";
+            var name = await UniqueWorkspaceNameAsync(requestedName, cancellationToken);
+            var slug = await UniqueSlugAsync(Slugify(name), cancellationToken);
+            var workspace = new FlowceanWorkspace
+            {
+                Name = name,
+                Slug = slug,
+                OwnerUserId = currentUser.UserId,
+                DataJson = NormalizeImportedFlowceanState(request.State, name, slug),
+                Version = 1
+            };
+
+            db.FlowceanWorkspaces.Add(workspace);
+            db.FlowceanWorkspaceEvents.Add(new FlowceanWorkspaceEvent
+            {
+                FlowceanWorkspaceId = workspace.Id,
+                ActorUserId = currentUser.UserId,
+                EventType = "workspace.imported",
+                PayloadJson = JsonSerializer.Serialize(new { name, slug }, JsonOptions)
+            });
+            await db.SaveChangesAsync(cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, await GetDirectoryPayloadAsync(slug, cancellationToken));
         }
 
         if (action is "delete_workspace")
@@ -350,6 +384,10 @@ public sealed class FlowceanCompatController(
             .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
             .ThenBy(x => x.Name)
             .ToListAsync(cancellationToken);
+        var normalizedPreferredSlug = string.IsNullOrWhiteSpace(preferredSlug) ? null : NormalizeSlug(preferredSlug);
+        var preferredWorkspace = normalizedPreferredSlug is null
+            ? workspaces.FirstOrDefault()
+            : workspaces.FirstOrDefault(x => x.Slug == normalizedPreferredSlug) ?? workspaces.FirstOrDefault();
 
         return new
         {
@@ -357,7 +395,8 @@ public sealed class FlowceanCompatController(
             workspaces = workspaces.Select(workspace => PublicWorkspace(workspace, isAdmin)).ToList(),
             deletedWorkspaces = Array.Empty<object>(),
             pendingInvitations = Array.Empty<object>(),
-            preferredWorkspaceSlug = string.IsNullOrWhiteSpace(preferredSlug) ? workspaces.FirstOrDefault()?.Slug : NormalizeSlug(preferredSlug)
+            workspace = preferredWorkspace is null ? null : PublicWorkspace(preferredWorkspace, isAdmin),
+            preferredWorkspaceSlug = preferredWorkspace?.Slug
         };
     }
 
@@ -612,6 +651,57 @@ public sealed class FlowceanCompatController(
         return slug;
     }
 
+    private async Task<string> UniqueWorkspaceNameAsync(string requestedName, CancellationToken cancellationToken)
+    {
+        var root = string.IsNullOrWhiteSpace(requestedName) ? "Espace importe" : requestedName.Trim();
+        var candidate = root;
+        var suffix = 2;
+        while (await db.FlowceanWorkspaces.AnyAsync(x => x.Name.ToLower() == candidate.ToLower(), cancellationToken))
+        {
+            candidate = $"{root} {suffix++}";
+        }
+
+        return candidate;
+    }
+
+    private static string? ExtractWorkspaceName(JsonElement state)
+    {
+        if (state.TryGetProperty("workspace", out var workspace)
+            && workspace.ValueKind == JsonValueKind.Object
+            && workspace.TryGetProperty("name", out var name)
+            && name.ValueKind == JsonValueKind.String)
+        {
+            return name.GetString();
+        }
+
+        return null;
+    }
+
+    private static string NormalizeImportedFlowceanState(JsonElement state, string name, string slug)
+    {
+        JsonObject root;
+        try
+        {
+            root = JsonNode.Parse(state.GetRawText()) as JsonObject ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            root = new JsonObject();
+        }
+
+        var workspace = root["workspace"] as JsonObject ?? new JsonObject();
+        workspace["name"] = name;
+        root["workspace"] = workspace;
+
+        var meta = root["meta"] as JsonObject ?? new JsonObject();
+        meta["workspaceSlug"] = slug;
+        meta["source"] = "oceanerp-flowcean-import";
+        meta["importedAt"] = DateTimeOffset.UtcNow.ToString("O");
+        root["meta"] = meta;
+
+        return root.ToJsonString(JsonOptions);
+    }
+
     private static string NormalizeSlug(string? slug)
         => Slugify(string.IsNullOrWhiteSpace(slug) ? "main" : slug);
 
@@ -671,6 +761,7 @@ public sealed record FlowceanCompatWorkspaceAction(
     string? Action,
     string? Name,
     string? WorkspaceSlug,
+    JsonElement State,
     int? UserId,
     string? Email,
     string? Role,

@@ -10637,25 +10637,42 @@ function exportDocumentPagePdf(pageId = state.ui.activePageId) {
   toast("Export PDF prepare. Choisissez \"Enregistrer en PDF\" dans la fenetre d'impression.");
 }
 
-function importWorkspace(file) {
+async function importWorkspace(file) {
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
+  try {
+    let parsed;
     try {
-      const parsed = JSON.parse(String(reader.result));
-      recordUndoSnapshot("Import workspace");
-      state = normalizeState(parsed);
-      persistNow("Import termine");
-      render();
-      toast("Workspace importe avec succes.");
+      parsed = JSON.parse(await file.text());
     } catch (error) {
       console.error(error);
       toast("Import impossible: JSON invalide.");
-    } finally {
-      elements.importInput.value = "";
+      return;
     }
-  };
-  reader.readAsText(file);
+
+    const importedState = normalizeState(parsed);
+    const fallbackName = file.name ? file.name.replace(/\.json$/i, "") : "Espace importe";
+    const payload = await apiRequest(WORKSPACES_API_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "import",
+        name: importedState.workspace?.name || fallbackName,
+        state: importedState,
+      }),
+    });
+    const nextSlug = applyWorkspaceDirectory(payload, payload.preferredWorkspaceSlug || payload.workspace?.slug);
+    if (nextSlug) {
+      await switchWorkspace(nextSlug, { skipSave: true, toastMessage: "Workspace importe avec succes." });
+    } else {
+      await refreshWorkspaceDirectory();
+      render();
+      toast("Workspace importe avec succes.");
+    }
+  } catch (error) {
+    console.error(error);
+    toast(error.message || "Import impossible.");
+  } finally {
+    elements.importInput.value = "";
+  }
 }
 
 function toast(message) {
