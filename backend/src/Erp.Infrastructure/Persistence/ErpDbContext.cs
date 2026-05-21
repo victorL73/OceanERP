@@ -68,6 +68,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
     public DbSet<EmailDistributionList> EmailDistributionLists => Set<EmailDistributionList>();
     public DbSet<EmailDistributionListMember> EmailDistributionListMembers => Set<EmailDistributionListMember>();
+    public DbSet<AiSettings> AiSettings => Set<AiSettings>();
     public DbSet<QuoteDocumentSettings> QuoteDocumentSettings => Set<QuoteDocumentSettings>();
     public DbSet<PrestashopConnection> PrestashopConnections => Set<PrestashopConnection>();
     public DbSet<PrestashopSyncLog> PrestashopSyncLogs => Set<PrestashopSyncLog>();
@@ -490,6 +491,17 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.Name).HasMaxLength(160);
             entity.Property(x => x.Email).HasMaxLength(320);
             entity.HasOne<EmailDistributionList>().WithMany(x => x.Members).HasForeignKey(x => x.EmailDistributionListId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AiSettings>(entity =>
+        {
+            entity.Property(x => x.Provider).HasMaxLength(80);
+            entity.Property(x => x.EndpointUrl).HasMaxLength(500);
+            entity.Property(x => x.Model).HasMaxLength(160);
+            entity.Property(x => x.ApiKeySecretName).HasMaxLength(160);
+            entity.Property(x => x.ApiKeyProtectedValue).HasMaxLength(2000);
+            entity.Property(x => x.Temperature).HasPrecision(4, 2);
+            entity.Property(x => x.SystemPrompt).HasMaxLength(8000);
         });
 
         modelBuilder.Entity<QuoteDocumentSettings>(entity =>

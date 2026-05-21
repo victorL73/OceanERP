@@ -1,5 +1,6 @@
 import type {
   AuthResponse,
+  AiSettings,
   AuditLog,
   BackupArchive,
   BackupOperationResult,
@@ -319,6 +320,25 @@ export class ApiClient {
     footerText?: string;
   }) {
     return this.request<QuoteSettings>('/api/quotes/settings', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  aiSettings() {
+    return this.request<AiSettings>('/api/ai/settings', { auth: true });
+  }
+
+  updateAiSettings(payload: {
+    isEnabled: boolean;
+    provider: string;
+    endpointUrl: string;
+    model: string;
+    apiKey?: string | null;
+    clearApiKey: boolean;
+    apiKeySecretName?: string | null;
+    temperature: number;
+    maxTokens: number;
+    systemPrompt?: string | null;
+  }) {
+    return this.request<AiSettings>('/api/ai/settings', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
   uploadQuoteLogo(file: File) {

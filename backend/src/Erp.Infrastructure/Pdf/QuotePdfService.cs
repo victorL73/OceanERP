@@ -147,7 +147,7 @@ public sealed class QuotePdfService : IQuotePdfService
 
                             if (ShouldShowSignatureBox(quote))
                             {
-                                column.Item().Width(300).Border(1).BorderColor(Colors.Teal.Lighten1).Padding(14).Column(signature =>
+                                column.Item().Border(1).BorderColor(Colors.Teal.Lighten1).Padding(14).Column(signature =>
                                 {
                                     signature.Spacing(5);
                                     signature.Item().Text("Signe electroniquement").FontSize(9).Bold().FontColor(PrimaryColor);

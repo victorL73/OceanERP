@@ -32,8 +32,9 @@ Les migrations presentes dans `backend/src/Erp.Infrastructure/Persistence/Migrat
 - `ServiceTicketAssignment`
 - `PrestashopColissimoConnectionSettings`
 - `MeetRooms`
+- `AiSettings`
 
-Les tables recentes ajoutent notamment les listes de diffusion email, les salles Meet, les signaux WebRTC, le chat Meet, les espaces Flowcean, les parametres SAV, les donnees Colissimo, les champs clients enrichis, les avoirs facture et les reglages avances de sauvegarde. Le module Tresorerie est calcule depuis les ventes, achats, paiements, factures et mouvements existants : il n'a pas besoin d'une table de solde manuel pour rester raccord avec les donnees source.
+Les tables recentes ajoutent notamment les listes de diffusion email, les salles Meet, les signaux WebRTC, le chat Meet, les espaces Flowcean, les parametres SAV, les donnees Colissimo, les champs clients enrichis, les avoirs facture, les reglages avances de sauvegarde et les parametres IA Groq. Le module Tresorerie est calcule depuis les ventes, achats, paiements, factures et mouvements existants : il n'a pas besoin d'une table de solde manuel pour rester raccord avec les donnees source.
 
 La migration initiale est disponible dans `backend/src/Erp.Infrastructure/Persistence/Migrations`.
 
@@ -45,6 +46,7 @@ La migration initiale est disponible dans `backend/src/Erp.Infrastructure/Persis
 - `Products`, `ProductCategories`, `ProductSuppliers`.
 - `Quotes`, `QuoteLines`, `QuoteDocuments`, `QuoteStatusHistories`.
 - `QuoteDocumentSettings` pour la personnalisation PDF des devis.
+- `AiSettings` pour la configuration administrateur Groq : fournisseur, endpoint, modele, secret, temperature, tokens et prompt systeme.
 - `DriveFolders`, `DriveItems`, `DriveFileVersions`, `DrivePermissions`, `DriveShares`, `DriveActivityLogs`, `DocumentLinks`.
 - `Notifications`, `NotificationPreferences`.
 

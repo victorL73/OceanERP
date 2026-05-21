@@ -50,6 +50,7 @@ La Phase 3 ajoute maintenant un socle exploitable et extensible pour :
 - Meet : salles de reunion, invite public sans compte ERP, signaux WebRTC, TURN, chat, pieces jointes, transcription et traduction ;
 - Sauvegardes : lancement manuel, telechargement, restauration, planification, heure locale, retention et stockage externe SFTP ;
 - Tresorerie : solde utile, TVA et mouvements calcules depuis les donnees commerciales et achats ;
+- Parametres IA : onglet administrateur dedie a Groq, pret pour brancher les futures fonctions d'assistance sans exposer la cle API au frontend ;
 - Factur-X : export XML preparatoire depuis les factures et les avoirs pour preparer l'etape PDF/A-3 + XML embarque ;
 - Electron avance : choix serveur sans rebuild, notifications natives Windows et support `electron-updater`.
 

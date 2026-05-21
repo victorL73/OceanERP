@@ -1,4 +1,5 @@
 using Erp.Application.Auth;
+using Erp.Application.Ai;
 using Erp.Application.Backups;
 using Erp.Application.Calendar;
 using Erp.Application.Customers;
@@ -62,6 +63,7 @@ public static class DependencyInjection
         services.AddScoped<IQuoteService, QuoteService>();
         services.AddScoped<QuoteDocumentDriveLinker>();
         services.AddScoped<IQuoteSettingsService, QuoteSettingsService>();
+        services.AddScoped<IAiSettingsService, AiSettingsService>();
         services.AddScoped<IQuotePdfService, QuotePdfService>();
         services.AddScoped<IInvoicePdfService, InvoicePdfService>();
         services.AddScoped<ISalesOrderShipmentPdfService, SalesOrderShipmentPdfService>();

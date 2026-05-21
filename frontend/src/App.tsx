@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
+import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'treasury' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
@@ -190,6 +190,7 @@ export default function App() {
   const [products, setProducts] = useState<PagedResult<Product> | null>(null);
   const [quotes, setQuotes] = useState<PagedResult<Quote> | null>(null);
   const [quoteSettings, setQuoteSettings] = useState<QuoteSettings | null>(null);
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
   const [folders, setFolders] = useState<DriveFolder[]>([]);
   const [files, setFiles] = useState<DriveItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -316,6 +317,9 @@ export default function App() {
         }
         if (user.roles.includes('Administrator') && hasPermission(user, 'quotes.read')) {
           setQuoteSettings(await api.quoteSettings());
+        }
+        if (user.roles.includes('Administrator')) {
+          setAiSettings(await api.aiSettings());
         }
         if (hasPermission(user, 'auth.users.write') && hasPermission(user, 'service.write')) {
           setServiceAssignmentSettings(await api.serviceTicketAssignmentSettings());
@@ -725,6 +729,7 @@ export default function App() {
             mailAccounts={mailAccounts}
             mailServerSettings={mailServerSettings}
             quoteSettings={quoteSettings}
+            aiSettings={aiSettings}
             serviceAssignmentSettings={serviceAssignmentSettings}
             onUsersRolesChanged={() => load('settings')}
             onPrestashopChanged={() => load('settings')}
@@ -733,6 +738,7 @@ export default function App() {
             onMailAccountsChanged={() => load('settings')}
             onMailServerSettingsChanged={() => load('settings')}
             onQuoteSettingsChanged={() => load('settings')}
+            onAiSettingsChanged={() => load('settings')}
             onServiceSettingsChanged={() => load('settings')}
             onUserChanged={setCurrentUser}
             onSignedOut={() => {
@@ -2444,6 +2450,7 @@ function Settings({
   mailAccounts,
   mailServerSettings,
   quoteSettings,
+  aiSettings,
   serviceAssignmentSettings,
   onUsersRolesChanged,
   onPrestashopChanged,
@@ -2452,6 +2459,7 @@ function Settings({
   onMailAccountsChanged,
   onMailServerSettingsChanged,
   onQuoteSettingsChanged,
+  onAiSettingsChanged,
   onServiceSettingsChanged,
   onUserChanged,
   onSignedOut
@@ -2467,6 +2475,7 @@ function Settings({
   mailAccounts: MailAccount[];
   mailServerSettings: MailServerSettings | null;
   quoteSettings: QuoteSettings | null;
+  aiSettings: AiSettings | null;
   serviceAssignmentSettings: ServiceTicketAssignmentSettings | null;
   onUsersRolesChanged: () => Promise<void>;
   onPrestashopChanged: () => Promise<void>;
@@ -2475,6 +2484,7 @@ function Settings({
   onMailAccountsChanged: () => Promise<void>;
   onMailServerSettingsChanged: () => Promise<void>;
   onQuoteSettingsChanged: () => Promise<void>;
+  onAiSettingsChanged: () => Promise<void>;
   onServiceSettingsChanged: () => Promise<void>;
   onUserChanged: (user: User) => void;
   onSignedOut: () => void;
@@ -2485,8 +2495,9 @@ function Settings({
   const canManageEmails = hasPermission(currentUser, 'emails.read') && hasPermission(currentUser, 'emails.write');
   const isAdministrator = Boolean(currentUser?.roles.includes('Administrator'));
   const canManageQuoteSettings = isAdministrator && hasPermission(currentUser, 'quotes.read') && hasPermission(currentUser, 'quotes.write');
+  const canManageAiSettings = isAdministrator;
   const canManageServiceAssignments = isAdministrator && hasPermission(currentUser, 'service.write') && hasPermission(currentUser, 'auth.users.write');
-  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'access' | 'audit' | 'warehouses' | 'prestashop' | 'service'>(() => readStoredChoice('oceanerp.settings.activeTab', 'account', ['account', 'emails', 'quotes', 'access', 'audit', 'warehouses', 'prestashop', 'service'] as const));
+  const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'ai' | 'access' | 'audit' | 'warehouses' | 'prestashop' | 'service'>(() => readStoredChoice('oceanerp.settings.activeTab', 'account', ['account', 'emails', 'quotes', 'ai', 'access', 'audit', 'warehouses', 'prestashop', 'service'] as const));
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -2501,10 +2512,10 @@ function Settings({
   }, [currentUser]);
 
   useEffect(() => {
-    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'quotes' && !canManageQuoteSettings) || ((activeTab === 'access' || activeTab === 'audit') && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop) || (activeTab === 'service' && !canManageServiceAssignments)) {
+    if ((activeTab === 'emails' && !canManageEmails) || (activeTab === 'quotes' && !canManageQuoteSettings) || (activeTab === 'ai' && !canManageAiSettings) || ((activeTab === 'access' || activeTab === 'audit') && !canManageUsers) || (activeTab === 'warehouses' && !canManageWarehouses) || (activeTab === 'prestashop' && !canManagePrestashop) || (activeTab === 'service' && !canManageServiceAssignments)) {
       setActiveTab('account');
     }
-  }, [activeTab, canManageEmails, canManagePrestashop, canManageQuoteSettings, canManageServiceAssignments, canManageUsers, canManageWarehouses]);
+  }, [activeTab, canManageAiSettings, canManageEmails, canManagePrestashop, canManageQuoteSettings, canManageServiceAssignments, canManageUsers, canManageWarehouses]);
 
   useEffect(() => {
     storeChoice('oceanerp.settings.activeTab', activeTab);
@@ -2546,6 +2557,7 @@ function Settings({
     { key: 'account' as const, label: 'Compte' },
     ...(canManageEmails ? [{ key: 'emails' as const, label: 'Boites mail' }] : []),
     ...(canManageQuoteSettings ? [{ key: 'quotes' as const, label: 'Devis' }] : []),
+    ...(canManageAiSettings ? [{ key: 'ai' as const, label: 'IA' }] : []),
     ...(canManageUsers ? [{ key: 'access' as const, label: 'Utilisateurs/Roles' }] : []),
     ...(canManageUsers ? [{ key: 'audit' as const, label: 'Journal audit' }] : []),
     ...(canManageWarehouses ? [{ key: 'warehouses' as const, label: 'Entrepots' }] : []),
@@ -2596,6 +2608,7 @@ function Settings({
 
         {activeTab === 'emails' && canManageEmails && <MailAccountSettings accounts={mailAccounts} serverSettings={mailServerSettings} users={users} currentUser={currentUser} canAssignUsers={canManageUsers} canManageServerSettings={isAdministrator} onChanged={onMailAccountsChanged} onServerSettingsChanged={onMailServerSettingsChanged} />}
         {activeTab === 'quotes' && canManageQuoteSettings && <QuoteSettingsPanel settings={quoteSettings} onChanged={onQuoteSettingsChanged} />}
+        {activeTab === 'ai' && canManageAiSettings && <AiSettingsPanel settings={aiSettings} onChanged={onAiSettingsChanged} />}
         {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
         {activeTab === 'audit' && canManageUsers && <AuditLogs logs={auditLogs} />}
         {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
@@ -2603,6 +2616,118 @@ function Settings({
         {activeTab === 'service' && canManageServiceAssignments && <ServiceAssignmentSettingsPanel users={users} settings={serviceAssignmentSettings} onChanged={onServiceSettingsChanged} />}
       </section>
     </>
+  );
+}
+
+function AiSettingsPanel({ settings, onChanged }: { settings: AiSettings | null; onChanged: () => Promise<void> }) {
+  const [isEnabled, setIsEnabled] = useState(settings?.isEnabled ?? false);
+  const [provider, setProvider] = useState(settings?.provider ?? 'groq');
+  const [endpointUrl, setEndpointUrl] = useState(settings?.endpointUrl ?? 'https://api.groq.com/openai/v1');
+  const [model, setModel] = useState(settings?.model ?? 'llama-3.3-70b-versatile');
+  const [apiKeySecretName, setApiKeySecretName] = useState(settings?.apiKeySecretName ?? 'GROQ_API_KEY');
+  const [apiKey, setApiKey] = useState('');
+  const [clearApiKey, setClearApiKey] = useState(false);
+  const [temperature, setTemperature] = useState(String(settings?.temperature ?? 0.2));
+  const [maxTokens, setMaxTokens] = useState(String(settings?.maxTokens ?? 4096));
+  const [systemPrompt, setSystemPrompt] = useState(settings?.systemPrompt ?? '');
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsEnabled(settings?.isEnabled ?? false);
+    setProvider(settings?.provider ?? 'groq');
+    setEndpointUrl(settings?.endpointUrl ?? 'https://api.groq.com/openai/v1');
+    setModel(settings?.model ?? 'llama-3.3-70b-versatile');
+    setApiKeySecretName(settings?.apiKeySecretName ?? 'GROQ_API_KEY');
+    setApiKey('');
+    setClearApiKey(false);
+    setTemperature(String(settings?.temperature ?? 0.2));
+    setMaxTokens(String(settings?.maxTokens ?? 4096));
+    setSystemPrompt(settings?.systemPrompt ?? '');
+    setFeedback(null);
+  }, [settings]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setFeedback(null);
+
+    try {
+      await api.updateAiSettings({
+        isEnabled,
+        provider,
+        endpointUrl,
+        model,
+        apiKey: apiKey.trim() || null,
+        clearApiKey,
+        apiKeySecretName: apiKeySecretName.trim() || null,
+        temperature: Number(temperature),
+        maxTokens: Number(maxTokens),
+        systemPrompt: systemPrompt.trim() || null
+      });
+      setApiKey('');
+      setClearApiKey(false);
+      setFeedback('Parametres IA enregistres.');
+      await onChanged();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Enregistrement impossible.');
+    }
+  }
+
+  return (
+    <Panel title="IA Groq">
+      <form className="stack-form" onSubmit={submit}>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} />
+          Activer la configuration IA
+        </label>
+        <div className="form-grid">
+          <label className="field">
+            Fournisseur
+            <input required value={provider} onChange={(event) => setProvider(event.target.value)} placeholder="groq" />
+          </label>
+          <label className="field">
+            URL API
+            <input required value={endpointUrl} onChange={(event) => setEndpointUrl(event.target.value)} placeholder="https://api.groq.com/openai/v1" />
+          </label>
+          <label className="field">
+            Modele
+            <input required value={model} onChange={(event) => setModel(event.target.value)} placeholder="llama-3.3-70b-versatile" />
+          </label>
+          <label className="field">
+            Nom du secret
+            <input value={apiKeySecretName} onChange={(event) => setApiKeySecretName(event.target.value)} placeholder="GROQ_API_KEY" />
+          </label>
+          <label className="field">
+            Nouvelle cle API Groq
+            <input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings?.hasApiKey ? 'Cle deja configuree' : 'gsk_...'} />
+          </label>
+          <label className="field">
+            Temperature
+            <input type="number" min="0" max="2" step="0.1" value={temperature} onChange={(event) => setTemperature(event.target.value)} />
+          </label>
+          <label className="field">
+            Max tokens
+            <input type="number" min="1" max="32768" step="1" value={maxTokens} onChange={(event) => setMaxTokens(event.target.value)} />
+          </label>
+        </div>
+        <label className="field wide-field">
+          Prompt systeme par defaut
+          <textarea rows={6} value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} placeholder="Consignes globales pour les futures fonctions IA..." />
+        </label>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={clearApiKey} onChange={(event) => setClearApiKey(event.target.checked)} />
+          Supprimer la cle API stockee
+        </label>
+        <button className="primary form-actions" type="submit">
+          <Save size={16} />
+          Enregistrer
+        </button>
+      </form>
+      <p className="panel-note">
+        La cle Groq n'est jamais renvoyee a l'interface. Elle peut etre stockee protegee en base ou fournie par variable serveur avec le nom indique.
+      </p>
+      {settings?.hasApiKey && <div className="inline-message">Cle Groq configuree.</div>}
+      {feedback && <div className="inline-message">{feedback}</div>}
+    </Panel>
   );
 }
 

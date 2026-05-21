@@ -3,6 +3,7 @@
 ## Mise a jour securite 2026-05-21
 
 - Les cles PrestaShop sont gerees depuis `Parametres > PrestaShop` par un administrateur ; elles ne doivent pas etre dupliquees dans `.env` en production courante.
+- Les parametres IA Groq sont geres depuis `Parametres > IA` par un administrateur. La cle API n'est jamais renvoyee par l'API ; elle peut etre protegee en base ou referencee par un secret serveur comme `GROQ_API_KEY`.
 - Les mots de passe de boites mail et les secrets SFTP de sauvegarde sont proteges cote serveur et ne sont pas renvoyes en clair par l'API.
 - Les sauvegardes peuvent etre copiees vers un stockage externe SFTP avec un compte dedie et un dossier distant limite.
 - Meet expose une page invite publique separee : l'invite saisit seulement son nom et ne recoit aucun acces au reste de l'ERP.
@@ -25,6 +26,7 @@
 - Boites mail creees par un administrateur : adresse, mot de passe ou secret sont geres par l'admin, puis les utilisateurs autorises peuvent utiliser la boite et maintenir une signature HTML.
 - Mots de passe de boites mail stockes sous forme protegee avec `Secrets:EncryptionKey` ou references par secret d'environnement.
 - Personnalisation des devis reservee aux administrateurs : logo stocke hors base de donnees, metadonnees uniquement en PostgreSQL.
+- Parametrage IA reserve aux administrateurs, avec fournisseur Groq impose pour le socle actuel, validation de l'URL API, du modele, de la temperature et de la limite de tokens.
 - Signature electronique interne tracee : lien unique, token hash en base, OTP email, expiration, acceptation des conditions, hash SHA-256 du document, IP, user-agent, horodatage et preuve.
 - ONLYOFFICE integre via URL temporaire signee et callback serveur, avec versioning Drive et stockage fichier hors PostgreSQL.
 - Audit logs de connexion.

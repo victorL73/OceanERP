@@ -24,6 +24,7 @@ Les groupes REST suivants sont exposes par l'API actuelle. Swagger reste la refe
 - `api/meetings` : salles Meet, invitations, signaux WebRTC, chat, pieces jointes, transcription et acces public invite.
 - `api/backups` : sauvegardes, telechargement, restauration, planification, retention et stockage externe SFTP.
 - `api/treasury` : resume tresorerie et mouvements calcules.
+- `api/ai` : parametres IA Groq reserves aux administrateurs.
 - `api/notifications` : notifications, creation interne et marquage lu.
 - `api/dashboard` : indicateurs du tableau de bord.
 - `api/health` : controle de sante.
@@ -95,6 +96,8 @@ Swagger est activé en environnement `Development`.
 - `GET /api/backups/{name}/download`
 - `POST /api/backups/{name}/restore`
 - `POST /api/backups/{name}/upload`
+- `GET /api/ai/settings`
+- `PUT /api/ai/settings`
 
 ## Endpoints Phase 2 ajoutes
 
@@ -171,6 +174,8 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 La Phase 3 ajoute les permissions `service.*`, `calendar.*`, `signatures.*` et `onlyoffice.*`.
 
 La supervision serveur ajoute la permission `backup.manage` pour consulter les sauvegardes, lancer une sauvegarde, telecharger une archive ZIP, restaurer une sauvegarde et regler la planification periodique. Le planning expose l'activation, la frequence en heures, l'heure locale de reference et le nombre de jours de conservation.
+
+Les endpoints `/api/ai/settings` sont reserves au role `Administrator`. Ils preparent l'integration Groq : fournisseur, URL compatible OpenAI, modele, temperature, limite de tokens, prompt systeme et reference de secret. La cle API peut etre enregistree sous forme protegee ou fournie par variable serveur, mais elle n'est jamais renvoyee a l'interface.
 
 ## Endpoints Phase 3 ajoutes
 

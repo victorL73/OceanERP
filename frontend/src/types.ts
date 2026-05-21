@@ -577,6 +577,20 @@ export type MailServerSettings = {
   isConfigured: boolean;
 };
 
+export type AiSettings = {
+  id?: string;
+  isEnabled: boolean;
+  provider: string;
+  endpointUrl: string;
+  model: string;
+  apiKeySecretName?: string;
+  hasApiKey: boolean;
+  temperature: number;
+  maxTokens: number;
+  systemPrompt?: string;
+  updatedAt?: string;
+};
+
 export type EmailSyncAccountResult = {
   mailAccountId: string;
   email: string;
