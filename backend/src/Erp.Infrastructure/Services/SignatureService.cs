@@ -340,7 +340,7 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             if (!await db.SignedDocuments.AnyAsync(x => x.SignatureRequestId == signatureRequest.Id, cancellationToken))
             {
                 var certificateBytes = GenerateSignatureCertificatePdf(signatureRequest, driveItem, recipient, evidence, signatureImage, signatureImageSha256);
-                var signedDocumentBytes = await BuildSignedDocumentPdfAsync(driveItem, certificateBytes, cancellationToken);
+                var signedDocumentBytes = await BuildSignedDocumentPdfAsync(driveItem, certificateBytes, recipient, evidence, signatureImage, cancellationToken);
                 await using var certificateStream = new MemoryStream(signedDocumentBytes);
                 var signedFileName = $"signed-{Path.GetFileNameWithoutExtension(driveItem.Name)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.pdf";
                 var stored = await fileStorageService.SaveAsync("signatures", signedFileName, certificateStream, cancellationToken);
@@ -360,7 +360,13 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         return Result<SignatureRequestDto>.Success(await MapAsync(signatureRequest, BuildRelativeSigningUrl, cancellationToken));
     }
 
-    private async Task<byte[]> BuildSignedDocumentPdfAsync(DriveItem driveItem, byte[] certificateBytes, CancellationToken cancellationToken)
+    private async Task<byte[]> BuildSignedDocumentPdfAsync(
+        DriveItem driveItem,
+        byte[] certificateBytes,
+        SignatureRecipient recipient,
+        SignatureEvidence evidence,
+        byte[]? signatureImage,
+        CancellationToken cancellationToken)
     {
         if (!driveItem.MimeType.Contains("pdf", StringComparison.OrdinalIgnoreCase))
         {
@@ -371,6 +377,7 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
         Directory.CreateDirectory(temporaryDirectory);
         var sourcePath = Path.Combine(temporaryDirectory, "source.pdf");
         var certificatePath = Path.Combine(temporaryDirectory, "certificate.pdf");
+        var overlayPath = Path.Combine(temporaryDirectory, "visible-signature.pdf");
         var outputPath = Path.Combine(temporaryDirectory, "signed.pdf");
 
         try
@@ -382,12 +389,30 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             }
 
             await File.WriteAllBytesAsync(certificatePath, certificateBytes, cancellationToken);
-            DocumentOperation.LoadFile(sourcePath).MergeFile(certificatePath).Save(outputPath);
+            await File.WriteAllBytesAsync(overlayPath, GenerateVisibleSignatureOverlayPdf(recipient, evidence, signatureImage), cancellationToken);
+            DocumentOperation
+                .LoadFile(sourcePath)
+                .OverlayFile(new DocumentOperation.LayerConfiguration
+                {
+                    FilePath = overlayPath,
+                    TargetPages = "1",
+                    SourcePages = "1"
+                })
+                .MergeFile(certificatePath)
+                .Save(outputPath);
             return await File.ReadAllBytesAsync(outputPath, cancellationToken);
         }
         catch
         {
-            return certificateBytes;
+            try
+            {
+                DocumentOperation.LoadFile(sourcePath).MergeFile(certificatePath).Save(outputPath);
+                return await File.ReadAllBytesAsync(outputPath, cancellationToken);
+            }
+            catch
+            {
+                return certificateBytes;
+            }
         }
         finally
         {
@@ -400,6 +425,43 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
                 // Temporary cleanup should not block signature completion.
             }
         }
+    }
+
+    private static byte[] GenerateVisibleSignatureOverlayPdf(SignatureRecipient recipient, SignatureEvidence evidence, byte[]? signatureImage)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+        var signer = string.IsNullOrWhiteSpace(recipient.Name) ? recipient.Email : $"{recipient.Name} <{recipient.Email}>";
+        var signedAt = recipient.SignedAt ?? evidence.CreatedAt;
+        const string primaryColor = "#00524C";
+
+        return Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(30);
+                page.DefaultTextStyle(x => x.FontSize(7).FontColor("#14212B"));
+
+                page.Content().AlignBottom().AlignLeft().Width(250).MinHeight(86).Background(Colors.White).Border(1).BorderColor(Colors.Teal.Lighten1).Padding(8).Column(column =>
+                {
+                    column.Spacing(3);
+                    column.Item().Text("Signature electronique").FontSize(8).Bold().FontColor(primaryColor);
+
+                    if (signatureImage is { Length: > 0 })
+                    {
+                        column.Item().Height(34).Image(signatureImage).FitArea();
+                    }
+                    else
+                    {
+                        column.Item().Height(34).AlignMiddle().Text(signer).FontSize(10).Italic().FontColor(Colors.Grey.Darken2);
+                    }
+
+                    column.Item().Text($"Signe par {signer}").FontSize(7);
+                    column.Item().Text($"Le {signedAt:dd/MM/yyyy HH:mm}").FontSize(7).FontColor(Colors.Grey.Darken1);
+                    column.Item().Text("Preuve tracee dans OceanERP").FontSize(6).FontColor(Colors.Grey.Darken1);
+                });
+            });
+        }).GeneratePdf();
     }
 
     private async Task<SignatureRecipient?> FindRecipientByTokenAsync(string token, CancellationToken cancellationToken)
