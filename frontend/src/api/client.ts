@@ -32,6 +32,7 @@ import type {
   PrestashopSyncLog,
   Product,
   ProductSupplier,
+  PublicServiceTicket,
   PublicSignature,
   PurchaseOrder,
   Quote,
@@ -41,6 +42,8 @@ import type {
   SalesOrder,
   ServiceTicket,
   ServiceTicketAssignmentSettings,
+  ServiceTicketMessage,
+  ServiceTicketPublicLink,
   SignatureRequest,
   StockItem,
   StockMovement,
@@ -719,7 +722,7 @@ export class ApiClient {
     return this.request<MailServerSettings>('/api/emails/server-settings', { auth: true });
   }
 
-  updateMailServerSettings(payload: { smtpHost: string; smtpPort: number; imapHost: string; imapPort: number; useSsl: boolean; imapAutoSyncEnabled?: boolean; imapSyncIntervalMinutes?: number }) {
+  updateMailServerSettings(payload: { smtpHost: string; smtpPort: number; imapHost: string; imapPort: number; useSsl: boolean; imapAutoSyncEnabled?: boolean; imapSyncIntervalMinutes?: number; defaultSystemMailAccountId?: string | null }) {
     return this.request<MailServerSettings>('/api/emails/server-settings', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
@@ -887,7 +890,27 @@ export class ApiClient {
   }
 
   addServiceTicketMessage(ticketId: string, payload: { body: string; isInternal?: boolean; attachmentDriveItemId?: string | null }) {
-    return this.request(`/api/service-tickets/${ticketId}/messages`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+    return this.request<ServiceTicketMessage>(`/api/service-tickets/${ticketId}/messages`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  addServiceTicketWatcher(ticketId: string, userId: string) {
+    return this.request<ServiceTicket>(`/api/service-tickets/${ticketId}/watchers`, { method: 'POST', auth: true, body: JSON.stringify({ userId }) });
+  }
+
+  removeServiceTicketWatcher(ticketId: string, userId: string) {
+    return this.request<ServiceTicket>(`/api/service-tickets/${ticketId}/watchers/${userId}`, { method: 'DELETE', auth: true });
+  }
+
+  createServiceTicketPublicLink(ticketId: string, expiresInDays = 30) {
+    return this.request<ServiceTicketPublicLink>(`/api/service-tickets/${ticketId}/public-link`, { method: 'POST', auth: true, body: JSON.stringify({ expiresInDays }) });
+  }
+
+  publicServiceTicket(token: string) {
+    return this.request<PublicServiceTicket>(`/api/public/service-tickets/${encodeURIComponent(token)}`);
+  }
+
+  addPublicServiceTicketMessage(token: string, payload: { authorName: string; authorEmail: string; body: string }) {
+    return this.request<ServiceTicketMessage>(`/api/public/service-tickets/${encodeURIComponent(token)}/messages`, { method: 'POST', body: JSON.stringify(payload) });
   }
 
   calendarEvents(from?: string, to?: string) {

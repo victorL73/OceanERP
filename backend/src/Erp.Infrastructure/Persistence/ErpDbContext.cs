@@ -77,6 +77,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<ServiceTicketMessage> ServiceTicketMessages => Set<ServiceTicketMessage>();
     public DbSet<ServiceTicketStatusHistory> ServiceTicketStatusHistories => Set<ServiceTicketStatusHistory>();
     public DbSet<ServiceTicketInitialResponder> ServiceTicketInitialResponders => Set<ServiceTicketInitialResponder>();
+    public DbSet<ServiceTicketWatcher> ServiceTicketWatchers => Set<ServiceTicketWatcher>();
+    public DbSet<ServiceTicketPublicLink> ServiceTicketPublicLinks => Set<ServiceTicketPublicLink>();
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
     public DbSet<CalendarReminder> CalendarReminders => Set<CalendarReminder>();
     public DbSet<CalendarEventLink> CalendarEventLinks => Set<CalendarEventLink>();
@@ -435,6 +437,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.ImapHost).HasMaxLength(240);
             entity.Property(x => x.ImapSyncIntervalMinutes).HasDefaultValue(5);
             entity.Property(x => x.ImapAutoSyncEnabled).HasDefaultValue(true);
+            entity.HasOne<MailAccount>().WithMany().HasForeignKey(x => x.DefaultSystemMailAccountId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<MailAccountAccess>(entity =>
@@ -571,10 +574,29 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<ServiceTicketWatcher>(entity =>
+        {
+            entity.HasIndex(x => new { x.ServiceTicketId, x.UserId }).IsUnique();
+            entity.HasIndex(x => x.UserId);
+            entity.HasOne<ServiceTicket>().WithMany().HasForeignKey(x => x.ServiceTicketId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ServiceTicketPublicLink>(entity =>
+        {
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => x.ServiceTicketId);
+            entity.Property(x => x.TokenHash).HasMaxLength(128);
+            entity.HasOne<ServiceTicket>().WithMany().HasForeignKey(x => x.ServiceTicketId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<ServiceTicketMessage>(entity =>
         {
             entity.HasIndex(x => x.ServiceTicketId);
             entity.Property(x => x.Body).HasMaxLength(10000);
+            entity.Property(x => x.ExternalAuthorName).HasMaxLength(180);
+            entity.Property(x => x.ExternalAuthorEmail).HasMaxLength(320);
             entity.HasOne<ServiceTicket>().WithMany().HasForeignKey(x => x.ServiceTicketId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.AuthorUserId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<DriveItem>().WithMany().HasForeignKey(x => x.AttachmentDriveItemId).OnDelete(DeleteBehavior.SetNull);

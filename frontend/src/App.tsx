@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
+import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'treasury' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
@@ -133,6 +133,15 @@ function readPublicMeetToken() {
   return token?.trim() || null;
 }
 
+function readPublicServiceTicketToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const match = window.location.pathname.match(/^\/sav-public\/([^/]+)$/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 type PrestashopSyncCompletedEvent = {
   connectionId: string;
   shopUrl: string;
@@ -173,6 +182,7 @@ function serviceTicketFiltersToQuery(filters: ServiceTicketFilters) {
 export default function App() {
   const publicSignatureToken = useMemo(readPublicSignatureToken, []);
   const publicMeetToken = useMemo(readPublicMeetToken, []);
+  const publicServiceTicketToken = useMemo(readPublicServiceTicketToken, []);
   const [isAuthenticated, setAuthenticated] = useState(Boolean(api.token));
   const [view, setView] = useState<ViewKey>(() => readStoredChoice('oceanerp.activeView', 'dashboard', appViewKeys));
   const [error, setError] = useState<string | null>(null);
@@ -601,6 +611,10 @@ export default function App() {
     return <PublicSignaturePage token={publicSignatureToken} />;
   }
 
+  if (publicServiceTicketToken) {
+    return <PublicServiceTicketPage token={publicServiceTicketToken} />;
+  }
+
   if (!isAuthenticated && publicMeetToken) {
     return <PublicMeetPage token={publicMeetToken} />;
   }
@@ -750,7 +764,7 @@ export default function App() {
         )}
         {view === 'customers' && <Customers items={customers?.items ?? []} createOpen={customerCreateOpen} onCloseCreate={() => setCustomerCreateOpen(false)} onChanged={() => load('customers')} />}
         {view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
-        {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('quotes')} />}
+        {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} mailServerSettings={mailServerSettings} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('quotes')} />}
         {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('orders')} />}
         {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
@@ -985,6 +999,117 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             Connexion
           </button>
         </form>
+      </section>
+    </main>
+  );
+}
+
+function PublicServiceTicketPage({ token }: { token: string }) {
+  const [ticket, setTicket] = useState<PublicServiceTicket | null>(null);
+  const [form, setForm] = useState({ authorName: '', authorEmail: '', body: '' });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadTicket = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setTicket(await api.publicServiceTicket(token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lien SAV invalide ou expire.');
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadTicket();
+  }, [loadTicket]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!form.authorName.trim() || !form.authorEmail.trim() || !form.body.trim()) {
+      setError('Nom, email et message sont obligatoires.');
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+    try {
+      await api.addPublicServiceTicketMessage(token, {
+        authorName: form.authorName.trim(),
+        authorEmail: form.authorEmail.trim(),
+        body: form.body.trim()
+      });
+      setForm((current) => ({ ...current, body: '' }));
+      setNotice('Message envoye au service SAV.');
+      await loadTicket();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Envoi impossible.');
+    }
+  }
+
+  return (
+    <main className="login-screen public-ticket-screen">
+      <section className="public-signature-panel public-ticket-panel">
+        <div className="brand large">
+          <div className="brand-mark">OE</div>
+          <div>
+            <strong>OceanERP</strong>
+            <span>Portail SAV client</span>
+          </div>
+        </div>
+        {loading && <div className="empty-state">Chargement du ticket...</div>}
+        {error && <div className="alert">{error}</div>}
+        {notice && <div className="inline-message">{notice}</div>}
+        {ticket && (
+          <>
+            <div className="public-ticket-heading">
+              <p className="eyebrow">Ticket SAV</p>
+              <h1>{ticket.number}</h1>
+              <p>{ticket.subject}</p>
+            </div>
+            <div className="detail-grid">
+              <DetailItem label="Client" value={ticket.customerName} />
+              <DetailItem label="Priorite" value={ticket.priority} />
+              <DetailItem label="Statut" value={ticket.status} />
+              <DetailItem label="Description" value={ticket.description ?? '-'} />
+            </div>
+            <Panel title="Conversation">
+              {ticket.messages.map((item) => (
+                <article className="document-link-row" key={item.id}>
+                  <span>{formatOrderDate(item.createdAt)}</span>
+                  <strong>{item.authorName ?? item.authorEmail ?? 'OceanERP'}</strong>
+                  <span>{item.body}</span>
+                </article>
+              ))}
+              {ticket.messages.length === 0 && <p className="panel-note">Aucun message pour le moment.</p>}
+            </Panel>
+            <Panel title="Repondre au SAV">
+              <form className="form-grid" onSubmit={submit}>
+                <label className="field">
+                  Nom
+                  <input value={form.authorName} onChange={(event) => setForm({ ...form, authorName: event.target.value })} placeholder="Votre nom" />
+                </label>
+                <label className="field">
+                  Email
+                  <input type="email" value={form.authorEmail} onChange={(event) => setForm({ ...form, authorEmail: event.target.value })} placeholder="vous@exemple.fr" />
+                </label>
+                <label className="field wide-field">
+                  Message
+                  <textarea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Votre reponse..." />
+                </label>
+                <div className="form-actions">
+                  <button className="primary" type="submit">
+                    <Mail size={16} />
+                    Envoyer
+                  </button>
+                </div>
+              </form>
+            </Panel>
+          </>
+        )}
       </section>
     </main>
   );
@@ -2970,6 +3095,7 @@ function MailAccountSettings({
   const [useSsl, setUseSsl] = useState(serverSettings?.useSsl ?? true);
   const [imapAutoSyncEnabled, setImapAutoSyncEnabled] = useState(serverSettings?.imapAutoSyncEnabled ?? true);
   const [imapSyncIntervalMinutes, setImapSyncIntervalMinutes] = useState(String(serverSettings?.imapSyncIntervalMinutes ?? 5));
+  const [defaultSystemMailAccountId, setDefaultSystemMailAccountId] = useState(serverSettings?.defaultSystemMailAccountId ?? '');
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [passwordSecretName, setPasswordSecretName] = useState('');
@@ -2987,6 +3113,7 @@ function MailAccountSettings({
     setUseSsl(serverSettings?.useSsl ?? true);
     setImapAutoSyncEnabled(serverSettings?.imapAutoSyncEnabled ?? true);
     setImapSyncIntervalMinutes(String(serverSettings?.imapSyncIntervalMinutes ?? 5));
+    setDefaultSystemMailAccountId(serverSettings?.defaultSystemMailAccountId ?? '');
   }, [serverSettings]);
 
   function resetAccountForm() {
@@ -3026,7 +3153,8 @@ function MailAccountSettings({
         imapPort: Number(imapPort),
         useSsl,
         imapAutoSyncEnabled,
-        imapSyncIntervalMinutes: Number(imapSyncIntervalMinutes)
+        imapSyncIntervalMinutes: Number(imapSyncIntervalMinutes),
+        defaultSystemMailAccountId: defaultSystemMailAccountId || null
       });
       setFeedback('Serveurs SMTP/IMAP mis a jour.');
       await onServerSettingsChanged();
@@ -3146,6 +3274,17 @@ function MailAccountSettings({
               <span>Frequence IMAP automatique (minutes, 0 = rapide)</span>
               <input required type="number" min="0" max="1440" value={imapSyncIntervalMinutes} onChange={(event) => setImapSyncIntervalMinutes(event.target.value)} />
             </label>
+            <label className="field">
+              <span>Boite expediteur ERP</span>
+              <select value={defaultSystemMailAccountId} onChange={(event) => setDefaultSystemMailAccountId(event.target.value)}>
+                <option value="">Aucune boite par defaut</option>
+                {accounts.filter((account) => account.isActive).map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.displayName ? `${account.displayName} <${account.email}>` : account.email}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="form-actions">
               <button className="primary" type="submit">
                 <Save size={16} />
@@ -3153,7 +3292,7 @@ function MailAccountSettings({
               </button>
             </div>
           </form>
-          <p className="panel-note">Ces serveurs sont communs a toutes les boites. Les utilisateurs ne gerent pas les hotes SMTP/IMAP. Mettez 0 pour une releve serveur rapide toutes les 15 secondes.</p>
+          <p className="panel-note">Ces serveurs sont communs a toutes les boites. La boite expediteur ERP sert de reference pour les devis, signatures, messages SAV et futurs envois automatiques.</p>
         </Panel>
       )}
 
@@ -4777,7 +4916,7 @@ function nextQuoteStatuses(status: string) {
   return map[status] ?? [];
 }
 
-function Quotes({ items, customers, products, mailAccounts, warehouses, isAdministrator, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; mailAccounts: MailAccount[]; warehouses: Warehouse[]; isAdministrator: boolean; onChanged: () => Promise<void> }) {
+function Quotes({ items, customers, products, mailAccounts, mailServerSettings, warehouses, isAdministrator, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; mailAccounts: MailAccount[]; mailServerSettings: MailServerSettings | null; warehouses: Warehouse[]; isAdministrator: boolean; onChanged: () => Promise<void> }) {
   const [customerId, setCustomerId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [validUntil, setValidUntil] = useState(defaultQuoteValidUntil());
@@ -5022,8 +5161,9 @@ function Quotes({ items, customers, products, mailAccounts, warehouses, isAdmini
   function openEmailModal(quote: Quote) {
     const recipientEmail = quoteRecipientEmail(quote);
     const greetingName = quoteGreetingName(quote);
+    const defaultMailAccount = activeMailAccounts.find((account) => account.id === mailServerSettings?.defaultSystemMailAccountId);
     setEmailQuoteId(quote.id);
-    setMailAccountId(activeMailAccounts[0]?.id ?? '');
+    setMailAccountId((defaultMailAccount ?? activeMailAccounts[0])?.id ?? '');
     setEmailTo(recipientEmail);
     setEmailCc('');
     setEmailBcc('');
@@ -10230,6 +10370,9 @@ function ServiceTickets({
   const [selected, setSelected] = useState<ServiceTicket | null>(null);
   const [message, setMessage] = useState('');
   const [searchDraft, setSearchDraft] = useState(filters.search);
+  const [watcherUserId, setWatcherUserId] = useState('');
+  const [publicLink, setPublicLink] = useState<ServiceTicketPublicLink | null>(null);
+  const [publicLinkNotice, setPublicLinkNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     customerId: '',
     productId: '',
@@ -10306,6 +10449,52 @@ function ServiceTickets({
     await onChanged();
   }
 
+  function openTicket(ticket: ServiceTicket) {
+    setSelected(ticket);
+    setWatcherUserId('');
+    setPublicLink(null);
+    setPublicLinkNotice(null);
+  }
+
+  async function addWatcher(event: FormEvent) {
+    event.preventDefault();
+    if (!selected || !watcherUserId) {
+      return;
+    }
+
+    const updated = await api.addServiceTicketWatcher(selected.id, watcherUserId);
+    setSelected(updated);
+    setWatcherUserId('');
+    await onChanged();
+  }
+
+  async function removeWatcher(userId: string) {
+    if (!selected) {
+      return;
+    }
+
+    const updated = await api.removeServiceTicketWatcher(selected.id, userId);
+    setSelected(updated);
+    await onChanged();
+  }
+
+  async function createPublicLink() {
+    if (!selected) {
+      return;
+    }
+
+    setPublicLinkNotice(null);
+    const link = await api.createServiceTicketPublicLink(selected.id, 30);
+    setPublicLink(link);
+    const absoluteUrl = `${window.location.origin}${link.urlPath}`;
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      setPublicLinkNotice('Lien client copie dans le presse-papiers.');
+    } catch {
+      setPublicLinkNotice('Lien client genere.');
+    }
+  }
+
   return (
     <>
       <Panel title="Filtres SAV">
@@ -10372,7 +10561,7 @@ function ServiceTickets({
       <DataTable
         columns={['Numero', 'Client', 'Responsable', 'Sujet', 'Priorite', 'Statut', 'Cree le']}
         rows={items.map((ticket) => [ticket.number, ticket.customerName, ticket.assignedUserName ?? 'A attribuer', ticket.subject, ticket.priority, ticket.status, formatOrderDate(ticket.createdAt)])}
-        onRowClick={(index) => setSelected(items[index])}
+        onRowClick={(index) => openTicket(items[index])}
       />
 
       {createOpen && (
@@ -10487,6 +10676,52 @@ function ServiceTickets({
                 </label>
               </form>
             </Panel>
+            <Panel title="Personnes qui suivent ce ticket">
+              <form className="form-grid compact-form" onSubmit={addWatcher}>
+                <label className="field">
+                  Ajouter un utilisateur
+                  <select value={watcherUserId} onChange={(event) => setWatcherUserId(event.target.value)}>
+                    <option value="">Utilisateur</option>
+                    {activeUsers
+                      .filter((user) => !selected.watchers.some((watcher) => watcher.userId === user.id))
+                      .map((user) => (
+                        <option key={user.id} value={user.id}>{user.displayName}</option>
+                      ))}
+                  </select>
+                </label>
+                <button className="secondary" type="submit" disabled={!watcherUserId}>
+                  <Plus size={15} />
+                  Ajouter
+                </button>
+              </form>
+              {selected.watchers.map((watcher) => (
+                <article className="document-link-row" key={watcher.userId}>
+                  <strong>{watcher.displayName}</strong>
+                  <span>{watcher.email}</span>
+                  <button className="danger" type="button" onClick={() => removeWatcher(watcher.userId)}>
+                    <Trash2 size={15} />
+                    Retirer
+                  </button>
+                </article>
+              ))}
+              {selected.watchers.length === 0 && <p className="panel-note">Aucun suiveur configure.</p>}
+            </Panel>
+            <Panel title="Acces client hors ERP">
+              <div className="module-actions">
+                <button className="secondary" type="button" onClick={createPublicLink}>
+                  <Link2 size={15} />
+                  Generer un lien client
+                </button>
+              </div>
+              {publicLink && (
+                <article className="document-link-row">
+                  <span>{`${window.location.origin}${publicLink.urlPath}`}</span>
+                  <small>Expire le {formatOrderDate(publicLink.expiresAt)}</small>
+                </article>
+              )}
+              {publicLinkNotice && <div className="inline-message">{publicLinkNotice}</div>}
+              <p className="panel-note">Le client peut repondre au ticket depuis ce lien, sans acces au reste de l'ERP.</p>
+            </Panel>
             <div className="module-actions">
               {['Open', 'InProgress', 'WaitingCustomer', 'Resolved', 'Closed'].map((status) => (
                 <button key={status} className="secondary" type="button" onClick={() => changeStatus(selected, status)}>{status}</button>
@@ -10506,7 +10741,8 @@ function ServiceTickets({
               {selected.messages.map((item) => (
                 <article className="document-link-row" key={item.id}>
                   <span>{formatOrderDate(item.createdAt)}</span>
-                  <strong>{item.authorName ?? 'OceanERP'}</strong>
+                  <strong>{item.authorName ?? item.authorEmail ?? 'OceanERP'}</strong>
+                  <small>{item.isInternal ? 'Interne' : 'Client'}{item.authorEmail ? ` - ${item.authorEmail}` : ''}</small>
                   <span>{item.body}</span>
                 </article>
               ))}

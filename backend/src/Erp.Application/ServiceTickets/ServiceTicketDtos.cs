@@ -20,25 +20,34 @@ public sealed record ServiceTicketDto(
     string Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
+    IReadOnlyList<ServiceTicketWatcherDto> Watchers,
     IReadOnlyList<ServiceTicketMessageDto> Messages,
     IReadOnlyList<ServiceTicketStatusHistoryDto> StatusHistory);
+
+public sealed record ServiceTicketWatcherDto(Guid UserId, string DisplayName, string Email, DateTimeOffset AddedAt);
 
 public sealed record ServiceTicketMessageDto(
     Guid Id,
     Guid? AuthorUserId,
     string? AuthorName,
+    string? AuthorEmail,
     string Body,
     bool IsInternal,
     Guid? AttachmentDriveItemId,
     DateTimeOffset CreatedAt);
 
 public sealed record ServiceTicketStatusHistoryDto(Guid Id, string Status, string? Comment, Guid? ChangedByUserId, string? ChangedByName, DateTimeOffset ChangedAt);
+public sealed record ServiceTicketPublicLinkDto(string Token, DateTimeOffset ExpiresAt, string UrlPath);
+public sealed record PublicServiceTicketDto(Guid Id, string Number, string Subject, string? Description, string Priority, string Status, string CustomerName, IReadOnlyList<ServiceTicketMessageDto> Messages);
 
 public sealed record CreateServiceTicketRequest(Guid CustomerId, string Subject, string? Description, Guid? ProductId = null, Guid? SalesOrderId = null, string Priority = "Normal", Guid? AssignedUserId = null);
 public sealed record UpdateServiceTicketRequest(string Subject, string? Description, Guid? ProductId, Guid? SalesOrderId, string Priority, string Status, Guid? AssignedUserId = null);
 public sealed record AssignServiceTicketRequest(Guid? AssignedUserId);
 public sealed record UpdateServiceTicketStatusRequest(string Status, string? Comment = null);
 public sealed record CreateServiceTicketMessageRequest(string Body, bool IsInternal = false, Guid? AttachmentDriveItemId = null);
+public sealed record AddServiceTicketWatcherRequest(Guid UserId);
+public sealed record CreateServiceTicketPublicLinkRequest(int ExpiresInDays = 30);
+public sealed record CreatePublicServiceTicketMessageRequest(string AuthorName, string AuthorEmail, string Body);
 public sealed record ServiceTicketAssignmentSettingsDto(IReadOnlyList<Guid> InitialResponderUserIds);
 public sealed record UpdateServiceTicketAssignmentSettingsRequest(IReadOnlyList<Guid> InitialResponderUserIds);
 
@@ -51,6 +60,12 @@ public interface IServiceTicketService
     Task<Result<ServiceTicketDto>> AssignAsync(Guid id, AssignServiceTicketRequest request, CancellationToken cancellationToken);
     Task<Result<ServiceTicketDto>> ChangeStatusAsync(Guid id, UpdateServiceTicketStatusRequest request, CancellationToken cancellationToken);
     Task<Result<ServiceTicketMessageDto>> AddMessageAsync(Guid id, CreateServiceTicketMessageRequest request, CancellationToken cancellationToken);
+    Task<Result<ServiceTicketDto>> AddWatcherAsync(Guid id, AddServiceTicketWatcherRequest request, CancellationToken cancellationToken);
+    Task<Result<ServiceTicketDto>> RemoveWatcherAsync(Guid id, Guid userId, CancellationToken cancellationToken);
+    Task<Result<ServiceTicketPublicLinkDto>> CreatePublicLinkAsync(Guid id, CreateServiceTicketPublicLinkRequest request, CancellationToken cancellationToken);
+    Task<Result<PublicServiceTicketDto>> GetPublicAsync(string token, CancellationToken cancellationToken);
+    Task<Result<ServiceTicketDto>> GetInternalByPublicTokenAsync(string token, CancellationToken cancellationToken);
+    Task<Result<ServiceTicketMessageDto>> AddPublicMessageAsync(string token, CreatePublicServiceTicketMessageRequest request, CancellationToken cancellationToken);
     Task<ServiceTicketAssignmentSettingsDto> GetAssignmentSettingsAsync(CancellationToken cancellationToken);
     Task<Result<ServiceTicketAssignmentSettingsDto>> UpdateAssignmentSettingsAsync(UpdateServiceTicketAssignmentSettingsRequest request, CancellationToken cancellationToken);
 }

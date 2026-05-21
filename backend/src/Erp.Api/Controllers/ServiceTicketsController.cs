@@ -1,4 +1,5 @@
 using Erp.Api.Services;
+using Erp.Application.Common;
 using Erp.Application.Notifications;
 using Erp.Application.ServiceTickets;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +10,7 @@ namespace Erp.Api.Controllers;
 [ApiController]
 [Route("api/service-tickets")]
 [Authorize]
-public sealed class ServiceTicketsController(IServiceTicketService tickets, IRealtimeNotificationPublisher notifications) : ControllerBase
+public sealed class ServiceTicketsController(IServiceTicketService tickets, IRealtimeNotificationPublisher notifications, ICurrentUserService currentUser) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = "service.read")]
@@ -66,7 +67,7 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
             return BadRequest(new { error = result.Error });
         }
 
-        if (result.Value!.AssignedUserId.HasValue)
+        if (result.Value!.AssignedUserId.HasValue && result.Value.AssignedUserId.Value != currentUser.UserId.GetValueOrDefault())
         {
             await PublishToUsersAsync(
                 [result.Value.AssignedUserId.Value],
@@ -85,6 +86,11 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
     public async Task<ActionResult<ServiceTicketDto>> ChangeStatus(Guid id, UpdateServiceTicketStatusRequest request, CancellationToken cancellationToken)
     {
         var result = await tickets.ChangeStatusAsync(id, request, cancellationToken);
+        if (result.Succeeded && result.Value is not null)
+        {
+            await NotifyTicketStakeholdersAsync(result.Value, "service.status", "Statut SAV modifie", currentUser.UserId, cancellationToken);
+        }
+
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
@@ -101,10 +107,34 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
         var ticket = await tickets.GetAsync(id, cancellationToken);
         if (ticket.Succeeded && ticket.Value is not null)
         {
-            await NotifyTicketMessageAsync(ticket.Value, cancellationToken);
+            await NotifyTicketMessageAsync(ticket.Value, currentUser.UserId, cancellationToken);
         }
 
         return Ok(result.Value);
+    }
+
+    [HttpPost("{id:guid}/watchers")]
+    [Authorize(Policy = "service.write")]
+    public async Task<ActionResult<ServiceTicketDto>> AddWatcher(Guid id, AddServiceTicketWatcherRequest request, CancellationToken cancellationToken)
+    {
+        var result = await tickets.AddWatcherAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpDelete("{id:guid}/watchers/{userId:guid}")]
+    [Authorize(Policy = "service.write")]
+    public async Task<ActionResult<ServiceTicketDto>> RemoveWatcher(Guid id, Guid userId, CancellationToken cancellationToken)
+    {
+        var result = await tickets.RemoveWatcherAsync(id, userId, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("{id:guid}/public-link")]
+    [Authorize(Policy = "service.write")]
+    public async Task<ActionResult<ServiceTicketPublicLinkDto>> CreatePublicLink(Guid id, CreateServiceTicketPublicLinkRequest request, CancellationToken cancellationToken)
+    {
+        var result = await tickets.CreatePublicLinkAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
     [HttpGet("settings/assignment")]
@@ -123,26 +153,40 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
     private async Task NotifyTicketCreatedAsync(ServiceTicketDto ticket, CancellationToken cancellationToken)
     {
         var title = ticket.AssignedUserId.HasValue ? "Nouveau ticket SAV attribue" : "Nouveau ticket SAV a attribuer";
-        await NotifyTicketStakeholdersAsync(ticket, "service.created", title, cancellationToken);
+        await NotifyTicketStakeholdersAsync(ticket, "service.created", title, currentUser.UserId, cancellationToken);
     }
 
-    private async Task NotifyTicketMessageAsync(ServiceTicketDto ticket, CancellationToken cancellationToken)
-        => await NotifyTicketStakeholdersAsync(ticket, "service.message", "Nouveau message SAV", cancellationToken);
+    private async Task NotifyTicketMessageAsync(ServiceTicketDto ticket, Guid? excludedUserId, CancellationToken cancellationToken)
+        => await NotifyTicketStakeholdersAsync(ticket, "service.message", "Nouveau message SAV", excludedUserId, cancellationToken);
 
-    private async Task NotifyTicketStakeholdersAsync(ServiceTicketDto ticket, string type, string title, CancellationToken cancellationToken)
+    private async Task NotifyTicketStakeholdersAsync(ServiceTicketDto ticket, string type, string title, Guid? excludedUserId, CancellationToken cancellationToken)
     {
-        var recipients = ticket.AssignedUserId.HasValue
-            ? [ticket.AssignedUserId.Value]
-            : (await tickets.GetAssignmentSettingsAsync(cancellationToken)).InitialResponderUserIds;
+        var recipients = new HashSet<Guid>(ticket.Watchers.Select(x => x.UserId));
+        if (ticket.AssignedUserId.HasValue)
+        {
+            recipients.Add(ticket.AssignedUserId.Value);
+        }
+
+        if (!ticket.AssignedUserId.HasValue)
+        {
+            foreach (var userId in (await tickets.GetAssignmentSettingsAsync(cancellationToken)).InitialResponderUserIds)
+            {
+                recipients.Add(userId);
+            }
+        }
+
+        if (excludedUserId.HasValue)
+        {
+            recipients.Remove(excludedUserId.Value);
+        }
 
         var message = $"{ticket.Number} - {ticket.Subject}";
         if (recipients.Count == 0)
         {
-            await notifications.PublishAsync(new CreateNotificationRequest(null, type, title, message, "/service"), cancellationToken);
             return;
         }
 
-        await PublishToUsersAsync(recipients, type, title, message, "/service", cancellationToken);
+        await PublishToUsersAsync(recipients.ToList(), type, title, message, "/service", cancellationToken);
     }
 
     private async Task PublishToUsersAsync(IReadOnlyList<Guid> userIds, string type, string title, string message, string linkUrl, CancellationToken cancellationToken)

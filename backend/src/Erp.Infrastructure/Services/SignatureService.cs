@@ -58,14 +58,10 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
             return Result<SignatureRequestDto>.Failure("La date d'expiration doit etre future.");
         }
 
-        var mailAccountId = await db.MailAccounts
-            .Where(x => x.IsActive)
-            .OrderBy(x => x.Email)
-            .Select(x => (Guid?)x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+        var mailAccountId = await ResolveSystemMailAccountIdAsync(cancellationToken);
         if (mailAccountId is null)
         {
-            return Result<SignatureRequestDto>.Failure("Configurez une boite mail active avant de creer une demande de signature OTP.");
+            return Result<SignatureRequestDto>.Failure("Configurez une boite mail active et l'expediteur ERP par defaut avant de creer une demande de signature OTP.");
         }
 
         var signatureRequest = new SignatureRequest
@@ -527,6 +523,33 @@ public sealed class SignatureService(ErpDbContext db, IFileStorageService fileSt
 
         var stream = await fileStorageService.OpenReadAsync(driveItem.StoragePath, cancellationToken);
         return Result<SignatureDocumentStream>.Success(new SignatureDocumentStream(stream, driveItem.MimeType, driveItem.Name));
+    }
+
+    private async Task<Guid?> ResolveSystemMailAccountIdAsync(CancellationToken cancellationToken)
+    {
+        var configuredDefault = await db.MailServerSettings
+            .AsNoTracking()
+            .OrderByDescending(x => x.UpdatedAt)
+            .Select(x => x.DefaultSystemMailAccountId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (configuredDefault.HasValue)
+        {
+            var isActive = await db.MailAccounts
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == configuredDefault.Value && x.IsActive, cancellationToken);
+            if (isActive)
+            {
+                return configuredDefault.Value;
+            }
+        }
+
+        return await db.MailAccounts
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Email)
+            .Select(x => (Guid?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private static string? NormalizeSignatureStatus(string status)

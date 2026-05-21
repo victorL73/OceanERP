@@ -4,6 +4,8 @@ using Erp.Application.ServiceTickets;
 using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Erp.Infrastructure.Services;
 
@@ -113,6 +115,9 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             });
         }
 
+        await AddWatcherIfMissingAsync(ticket.Id, currentUser.UserId, cancellationToken);
+        await AddWatcherIfMissingAsync(ticket.Id, ticket.AssignedUserId, cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
         return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));
     }
@@ -162,6 +167,8 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
                 Comment = await BuildAssignmentCommentAsync(ticket.AssignedUserId, cancellationToken),
                 ChangedByUserId = currentUser.UserId
             });
+
+            await AddWatcherIfMissingAsync(ticket.Id, ticket.AssignedUserId, cancellationToken);
         }
 
         if (statusChanged && string.Equals(ticket.Status, "Closed", StringComparison.OrdinalIgnoreCase))
@@ -198,6 +205,7 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
         ticket.AssignedUserId = request.AssignedUserId;
         ticket.UpdatedAt = DateTimeOffset.UtcNow;
+        await AddWatcherIfMissingAsync(ticket.Id, ticket.AssignedUserId, cancellationToken);
         db.ServiceTicketStatusHistories.Add(new ServiceTicketStatusHistory
         {
             ServiceTicketId = ticket.Id,
@@ -293,6 +301,7 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
         db.ServiceTicketMessages.Add(message);
         ticket.UpdatedAt = DateTimeOffset.UtcNow;
+        await AddWatcherIfMissingAsync(ticket.Id, currentUser.UserId, cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(prestashopMessageId))
         {
@@ -306,6 +315,137 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        return Result<ServiceTicketMessageDto>.Success(await MapMessageAsync(message, cancellationToken));
+    }
+
+    public async Task<Result<ServiceTicketDto>> AddWatcherAsync(Guid id, AddServiceTicketWatcherRequest request, CancellationToken cancellationToken)
+    {
+        var ticket = await db.ServiceTickets.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (ticket is null)
+        {
+            return Result<ServiceTicketDto>.Failure("Ticket SAV introuvable.");
+        }
+
+        if (!await db.Users.AnyAsync(x => x.Id == request.UserId && x.IsActive, cancellationToken))
+        {
+            return Result<ServiceTicketDto>.Failure("Utilisateur introuvable ou inactif.");
+        }
+
+        await AddWatcherIfMissingAsync(ticket.Id, request.UserId, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));
+    }
+
+    public async Task<Result<ServiceTicketDto>> RemoveWatcherAsync(Guid id, Guid userId, CancellationToken cancellationToken)
+    {
+        var ticket = await db.ServiceTickets.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (ticket is null)
+        {
+            return Result<ServiceTicketDto>.Failure("Ticket SAV introuvable.");
+        }
+
+        var watcher = await db.ServiceTicketWatchers
+            .FirstOrDefaultAsync(x => x.ServiceTicketId == id && x.UserId == userId, cancellationToken);
+        if (watcher is not null)
+        {
+            db.ServiceTicketWatchers.Remove(watcher);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return Result<ServiceTicketDto>.Success(await MapAsync(ticket, cancellationToken));
+    }
+
+    public async Task<Result<ServiceTicketPublicLinkDto>> CreatePublicLinkAsync(Guid id, CreateServiceTicketPublicLinkRequest request, CancellationToken cancellationToken)
+    {
+        if (!await db.ServiceTickets.AnyAsync(x => x.Id == id, cancellationToken))
+        {
+            return Result<ServiceTicketPublicLinkDto>.Failure("Ticket SAV introuvable.");
+        }
+
+        var token = GenerateToken();
+        var expiresAt = DateTimeOffset.UtcNow.AddDays(Math.Clamp(request.ExpiresInDays, 1, 365));
+        db.ServiceTicketPublicLinks.Add(new ServiceTicketPublicLink
+        {
+            ServiceTicketId = id,
+            TokenHash = HashToken(token),
+            ExpiresAt = expiresAt,
+            CreatedByUserId = currentUser.UserId
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Result<ServiceTicketPublicLinkDto>.Success(new(token, expiresAt, $"/sav-public/{Uri.EscapeDataString(token)}"));
+    }
+
+    public async Task<Result<PublicServiceTicketDto>> GetPublicAsync(string token, CancellationToken cancellationToken)
+    {
+        var resolved = await ResolvePublicTicketAsync(token, cancellationToken);
+        if (!resolved.Succeeded)
+        {
+            return Result<PublicServiceTicketDto>.Failure(resolved.Error!);
+        }
+
+        var ticket = resolved.Value!;
+        var customerName = await db.Customers
+            .Where(x => x.Id == ticket.CustomerId)
+            .Select(x => x.CompanyName)
+            .FirstOrDefaultAsync(cancellationToken) ?? ticket.CustomerId.ToString();
+        var messages = await db.ServiceTicketMessages
+            .Where(x => x.ServiceTicketId == ticket.Id && !x.IsInternal)
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return Result<PublicServiceTicketDto>.Success(new PublicServiceTicketDto(
+            ticket.Id,
+            ticket.Number,
+            ticket.Subject,
+            ticket.Description,
+            ticket.Priority,
+            ticket.Status,
+            customerName,
+            await MapMessagesAsync(messages, cancellationToken)));
+    }
+
+    public async Task<Result<ServiceTicketDto>> GetInternalByPublicTokenAsync(string token, CancellationToken cancellationToken)
+    {
+        var resolved = await ResolvePublicTicketAsync(token, cancellationToken);
+        return resolved.Succeeded
+            ? Result<ServiceTicketDto>.Success(await MapAsync(resolved.Value!, cancellationToken))
+            : Result<ServiceTicketDto>.Failure(resolved.Error!);
+    }
+
+    public async Task<Result<ServiceTicketMessageDto>> AddPublicMessageAsync(string token, CreatePublicServiceTicketMessageRequest request, CancellationToken cancellationToken)
+    {
+        var body = NormalizeOptional(request.Body);
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return Result<ServiceTicketMessageDto>.Failure("Message obligatoire.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.AuthorName) || string.IsNullOrWhiteSpace(request.AuthorEmail))
+        {
+            return Result<ServiceTicketMessageDto>.Failure("Nom et email obligatoires.");
+        }
+
+        var resolved = await ResolvePublicTicketAsync(token, cancellationToken);
+        if (!resolved.Succeeded)
+        {
+            return Result<ServiceTicketMessageDto>.Failure(resolved.Error!);
+        }
+
+        var ticket = resolved.Value!;
+        var message = new ServiceTicketMessage
+        {
+            ServiceTicketId = ticket.Id,
+            ExternalAuthorName = request.AuthorName.Trim(),
+            ExternalAuthorEmail = request.AuthorEmail.Trim(),
+            Body = body,
+            IsInternal = false
+        };
+
+        db.ServiceTicketMessages.Add(message);
+        ticket.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+
         return Result<ServiceTicketMessageDto>.Success(await MapMessageAsync(message, cancellationToken));
     }
 
@@ -405,6 +545,11 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             : null;
         var messages = await db.ServiceTicketMessages.Where(x => x.ServiceTicketId == ticket.Id).OrderByDescending(x => x.CreatedAt).ToListAsync(cancellationToken);
         var histories = await db.ServiceTicketStatusHistories.Where(x => x.ServiceTicketId == ticket.Id).OrderByDescending(x => x.ChangedAt).ToListAsync(cancellationToken);
+        var watchers = await db.ServiceTicketWatchers
+            .Where(x => x.ServiceTicketId == ticket.Id)
+            .Join(db.Users, watcher => watcher.UserId, user => user.Id, (watcher, user) => new ServiceTicketWatcherDto(user.Id, user.DisplayName, user.Email, watcher.AddedAt))
+            .OrderBy(x => x.DisplayName)
+            .ToListAsync(cancellationToken);
 
         return new ServiceTicketDto(
             ticket.Id,
@@ -424,6 +569,7 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
             ticket.Status,
             ticket.CreatedAt,
             ticket.UpdatedAt,
+            watchers,
             await MapMessagesAsync(messages, cancellationToken),
             await MapHistoryAsync(histories, cancellationToken));
     }
@@ -441,10 +587,19 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
     private async Task<ServiceTicketMessageDto> MapMessageAsync(ServiceTicketMessage message, CancellationToken cancellationToken)
     {
-        var authorName = message.AuthorUserId.HasValue
-            ? await db.Users.Where(x => x.Id == message.AuthorUserId.Value).Select(x => x.DisplayName).FirstOrDefaultAsync(cancellationToken)
-            : null;
-        return new ServiceTicketMessageDto(message.Id, message.AuthorUserId, authorName, message.Body, message.IsInternal, message.AttachmentDriveItemId, message.CreatedAt);
+        string? authorName = message.ExternalAuthorName;
+        string? authorEmail = message.ExternalAuthorEmail;
+        if (message.AuthorUserId.HasValue)
+        {
+            var author = await db.Users
+                .Where(x => x.Id == message.AuthorUserId.Value)
+                .Select(x => new { x.DisplayName, x.Email })
+                .FirstOrDefaultAsync(cancellationToken);
+            authorName = author?.DisplayName;
+            authorEmail = author?.Email;
+        }
+
+        return new ServiceTicketMessageDto(message.Id, message.AuthorUserId, authorName, authorEmail, message.Body, message.IsInternal, message.AttachmentDriveItemId, message.CreatedAt);
     }
 
     private async Task<IReadOnlyList<ServiceTicketStatusHistoryDto>> MapHistoryAsync(IReadOnlyList<ServiceTicketStatusHistory> histories, CancellationToken cancellationToken)
@@ -516,6 +671,55 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
 
         return $"Attribue a {displayName ?? assignedUserId.Value.ToString()}";
     }
+
+    private async Task AddWatcherIfMissingAsync(Guid ticketId, Guid? userId, CancellationToken cancellationToken)
+    {
+        if (!userId.HasValue || userId.Value == Guid.Empty)
+        {
+            return;
+        }
+
+        var exists = await db.ServiceTicketWatchers
+            .AnyAsync(x => x.ServiceTicketId == ticketId && x.UserId == userId.Value, cancellationToken);
+        if (!exists)
+        {
+            db.ServiceTicketWatchers.Add(new ServiceTicketWatcher
+            {
+                ServiceTicketId = ticketId,
+                UserId = userId.Value
+            });
+        }
+    }
+
+    private async Task<Result<ServiceTicket>> ResolvePublicTicketAsync(string token, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return Result<ServiceTicket>.Failure("Lien SAV invalide.");
+        }
+
+        var tokenHash = HashToken(token);
+        var link = await db.ServiceTicketPublicLinks.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.TokenHash == tokenHash && !x.IsRevoked && x.ExpiresAt > DateTimeOffset.UtcNow, cancellationToken);
+        if (link is null)
+        {
+            return Result<ServiceTicket>.Failure("Lien SAV invalide ou expire.");
+        }
+
+        var ticket = await db.ServiceTickets.FirstOrDefaultAsync(x => x.Id == link.ServiceTicketId, cancellationToken);
+        return ticket is null
+            ? Result<ServiceTicket>.Failure("Ticket SAV introuvable.")
+            : Result<ServiceTicket>.Success(ticket);
+    }
+
+    private static string GenerateToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return "sav_" + Convert.ToBase64String(bytes).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+    }
+
+    private static string HashToken(string token)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token.Trim())));
 
     private static string ExternalKey(string module, string externalId)
         => $"{module}:{externalId}";

@@ -47,6 +47,12 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             return Result<MailServerSettingsDto>.Failure("L'intervalle de synchronisation IMAP doit etre compris entre 0 et 1440 minutes. La valeur 0 active le mode rapide.");
         }
 
+        if (request.DefaultSystemMailAccountId.HasValue
+            && !await db.MailAccounts.AnyAsync(x => x.Id == request.DefaultSystemMailAccountId.Value && x.IsActive, cancellationToken))
+        {
+            return Result<MailServerSettingsDto>.Failure("Boite mail expediteur ERP introuvable ou inactive.");
+        }
+
         var settings = await db.MailServerSettings
             .OrderBy(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
@@ -56,7 +62,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             db.MailServerSettings.Add(settings);
         }
 
-        ApplyServerSettings(settings, request.SmtpHost, request.SmtpPort, request.ImapHost, request.ImapPort, request.UseSsl, request.ImapAutoSyncEnabled, request.ImapSyncIntervalMinutes);
+        ApplyServerSettings(settings, request.SmtpHost, request.SmtpPort, request.ImapHost, request.ImapPort, request.UseSsl, request.ImapAutoSyncEnabled, request.ImapSyncIntervalMinutes, request.DefaultSystemMailAccountId);
 
         var accounts = await db.MailAccounts.ToListAsync(cancellationToken);
         foreach (var account in accounts)
@@ -1207,7 +1213,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
             : Result<MailServerValues>.Failure("Serveurs SMTP/IMAP non configures.");
     }
 
-    private static void ApplyServerSettings(MailServerSettings settings, string smtpHost, int smtpPort, string imapHost, int imapPort, bool useSsl, bool imapAutoSyncEnabled, int imapSyncIntervalMinutes)
+    private static void ApplyServerSettings(MailServerSettings settings, string smtpHost, int smtpPort, string imapHost, int imapPort, bool useSsl, bool imapAutoSyncEnabled, int imapSyncIntervalMinutes, Guid? defaultSystemMailAccountId)
     {
         settings.SmtpHost = smtpHost.Trim();
         settings.SmtpPort = smtpPort;
@@ -1216,6 +1222,7 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         settings.UseSsl = useSsl;
         settings.ImapAutoSyncEnabled = imapAutoSyncEnabled;
         settings.ImapSyncIntervalMinutes = Math.Clamp(imapSyncIntervalMinutes, 0, 1440);
+        settings.DefaultSystemMailAccountId = defaultSystemMailAccountId;
     }
 
     private static void ApplyAccount(MailAccount account, string email, MailServerValues serverValues, string? userName, string? passwordSecretName, string? displayName, string? signatureHtml, bool isActive)
@@ -1567,8 +1574,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
 
     private static MailServerSettingsDto Map(MailServerSettings? settings)
         => settings is null
-            ? new MailServerSettingsDto(null, string.Empty, 587, string.Empty, 993, true, true, 5, false)
-            : new MailServerSettingsDto(settings.Id, settings.SmtpHost, settings.SmtpPort, settings.ImapHost, settings.ImapPort, settings.UseSsl, settings.ImapAutoSyncEnabled, Math.Clamp(settings.ImapSyncIntervalMinutes, 0, 1440), IsServerConfigured(settings));
+            ? new MailServerSettingsDto(null, string.Empty, 587, string.Empty, 993, true, true, 5, null, false)
+            : new MailServerSettingsDto(settings.Id, settings.SmtpHost, settings.SmtpPort, settings.ImapHost, settings.ImapPort, settings.UseSsl, settings.ImapAutoSyncEnabled, Math.Clamp(settings.ImapSyncIntervalMinutes, 0, 1440), settings.DefaultSystemMailAccountId, IsServerConfigured(settings));
 
     private static MailAccountDto Map(MailAccount account)
         => new(account.Id, account.Email, account.DisplayName, account.SignatureHtml, account.SmtpHost, account.SmtpPort, account.ImapHost, account.ImapPort, account.UseSsl, account.UserName, account.PasswordSecretName, HasPassword(account), account.IsActive, account.Accesses.Select(x => x.UserId).OrderBy(x => x).ToList());

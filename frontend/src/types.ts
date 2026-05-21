@@ -574,6 +574,7 @@ export type MailServerSettings = {
   useSsl: boolean;
   imapAutoSyncEnabled: boolean;
   imapSyncIntervalMinutes: number;
+  defaultSystemMailAccountId?: string;
   isConfigured: boolean;
 };
 
@@ -687,6 +688,7 @@ export type ServiceTicketMessage = {
   id: string;
   authorUserId?: string;
   authorName?: string;
+  authorEmail?: string;
   body: string;
   isInternal: boolean;
   attachmentDriveItemId?: string;
@@ -700,6 +702,19 @@ export type ServiceTicketStatusHistory = {
   changedByUserId?: string;
   changedByName?: string;
   changedAt: string;
+};
+
+export type ServiceTicketWatcher = {
+  userId: string;
+  displayName: string;
+  email: string;
+  addedAt: string;
+};
+
+export type ServiceTicketPublicLink = {
+  token: string;
+  expiresAt: string;
+  urlPath: string;
 };
 
 export type ServiceTicket = {
@@ -722,10 +737,22 @@ export type ServiceTicket = {
   updatedAt?: string;
   messages: ServiceTicketMessage[];
   statusHistory: ServiceTicketStatusHistory[];
+  watchers: ServiceTicketWatcher[];
 };
 
 export type ServiceTicketAssignmentSettings = {
   initialResponderUserIds: string[];
+};
+
+export type PublicServiceTicket = {
+  id: string;
+  number: string;
+  subject: string;
+  description?: string;
+  priority: string;
+  status: string;
+  customerName: string;
+  messages: ServiceTicketMessage[];
 };
 
 export type CalendarReminder = {
