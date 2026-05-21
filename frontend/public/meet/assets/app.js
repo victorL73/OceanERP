@@ -67,10 +67,12 @@ const elements = {
   clearTranscriptButton: $("clear-transcript-button"),
 };
 
-const ICE_SERVERS = [
+const DEFAULT_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
 ];
+
+let iceServers = [...DEFAULT_ICE_SERVERS];
 
 const state = {
   clientId: clientId(),
@@ -259,6 +261,35 @@ async function erpFetch(path, options = {}, includeAuth = true) {
     throw error;
   }
   return payload;
+}
+
+function normalizeIceServer(server) {
+  if (!server) return null;
+  const urls = Array.isArray(server.urls)
+    ? server.urls.filter(Boolean)
+    : typeof server.urls === "string"
+      ? [server.urls]
+      : [];
+
+  if (urls.length === 0) return null;
+
+  return {
+    urls,
+    ...(server.username ? { username: server.username } : {}),
+    ...(server.credential ? { credential: server.credential } : {}),
+  };
+}
+
+async function loadIceConfiguration() {
+  try {
+    const payload = await erpFetch(`${API_URL}/ice`, { method: "GET" }, false);
+    const configuredServers = (payload.iceServers || payload.ice_servers || [])
+      .map(normalizeIceServer)
+      .filter(Boolean);
+    iceServers = configuredServers.length > 0 ? configuredServers : [...DEFAULT_ICE_SERVERS];
+  } catch (error) {
+    iceServers = [...DEFAULT_ICE_SERVERS];
+  }
 }
 
 function numericId(kind, rawId) {
@@ -1233,6 +1264,14 @@ function renderParticipants() {
   });
 }
 
+function playVideoElement(video) {
+  if (!video || !video.srcObject) return;
+  const result = video.play?.();
+  if (result && typeof result.catch === "function") {
+    result.catch(() => {});
+  }
+}
+
 function ensureVideoTile(clientIdValue, label, stream, local = false) {
   let entry = state.videoTiles.get(clientIdValue);
   if (!entry) {
@@ -1244,6 +1283,8 @@ function ensureVideoTile(clientIdValue, label, stream, local = false) {
     video.autoplay = true;
     video.playsInline = true;
     video.muted = local;
+    video.addEventListener("loadedmetadata", () => playVideoElement(video));
+    video.addEventListener("canplay", () => playVideoElement(video));
 
     const placeholder = document.createElement("div");
     placeholder.className = "video-placeholder";
@@ -1258,6 +1299,7 @@ function ensureVideoTile(clientIdValue, label, stream, local = false) {
     meta.append(name, status);
 
     tile.append(video, placeholder, meta);
+    tile.addEventListener("click", () => playVideoElement(video));
     elements.videoGrid.appendChild(tile);
     entry = { tile, video, placeholder, name, status };
     state.videoTiles.set(clientIdValue, entry);
@@ -1265,6 +1307,7 @@ function ensureVideoTile(clientIdValue, label, stream, local = false) {
 
   if (entry.video.srcObject !== stream) {
     entry.video.srcObject = stream || null;
+    playVideoElement(entry.video);
   }
   entry.name.textContent = label;
   entry.placeholder.querySelector("span").textContent = initials(label);
@@ -1281,6 +1324,9 @@ function ensureVideoTile(clientIdValue, label, stream, local = false) {
   entry.status.textContent = participant?.microphoneEnabled ? mediaLabel : `${mediaLabel} - muet`;
   entry.tile.classList.toggle("is-local", local);
   entry.tile.classList.toggle("is-video-off", !hasVideo);
+  if (hasVideo) {
+    playVideoElement(entry.video);
+  }
 
   return entry;
 }
@@ -1695,14 +1741,38 @@ function attachLocalTracksToPeers() {
   if (!state.localStream) return;
   state.peers.forEach((peer) => {
     const senders = peer.pc.getSenders();
+    let needsNegotiation = false;
     state.localStream.getTracks().forEach((track) => {
       const alreadySent = senders.some((sender) => sender.track && sender.track.id === track.id);
       const sameKind = senders.some((sender) => sender.track && sender.track.kind === track.kind);
       if (!alreadySent && !sameKind) {
-        peer.pc.addTrack(track, state.localStream);
+        const reusableTransceiver = peer.pc.getTransceivers()
+          .find((transceiver) => transceiver.receiver?.track?.kind === track.kind && !transceiver.sender.track);
+        if (reusableTransceiver) {
+          void reusableTransceiver.sender.replaceTrack(track);
+          reusableTransceiver.direction = "sendrecv";
+        } else {
+          peer.pc.addTrack(track, state.localStream);
+        }
+        needsNegotiation = true;
       }
     });
+    if (needsNegotiation) {
+      requestPeerNegotiation(peer);
+    }
   });
+}
+
+function requestPeerNegotiation(peer) {
+  if (!peer || !state.room || peer.pc.signalingState === "closed") return;
+  peer.lastNegotiationRequestedAt = Date.now();
+  peer.pendingNegotiation = true;
+  peer.offerSent = false;
+  window.clearTimeout(peer.negotiationTimer);
+  peer.negotiationTimer = window.setTimeout(() => {
+    peer.negotiationTimer = null;
+    void makeOffer(peer);
+  }, 120);
 }
 
 function replaceLocalVideoTrack(track) {
@@ -1720,7 +1790,15 @@ function replaceLocalVideoTrack(track) {
     if (sender) {
       void sender.replaceTrack(track || null);
     } else if (track) {
-      peer.pc.addTrack(track, state.localStream);
+      const reusableTransceiver = peer.pc.getTransceivers()
+        .find((transceiver) => transceiver.receiver?.track?.kind === "video" && !transceiver.sender.track);
+      if (reusableTransceiver) {
+        void reusableTransceiver.sender.replaceTrack(track);
+        reusableTransceiver.direction = "sendrecv";
+      } else {
+        peer.pc.addTrack(track, state.localStream);
+      }
+      requestPeerNegotiation(peer);
     }
   });
   renderVideos();
@@ -1823,7 +1901,9 @@ function createPeer(participant) {
   const existing = state.peers.get(clientIdValue);
   if (existing) return existing;
 
-  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  const pc = new RTCPeerConnection({ iceServers });
+  pc.addTransceiver("audio", { direction: "recvonly" });
+  pc.addTransceiver("video", { direction: "recvonly" });
   const remoteStream = new MediaStream();
   const peer = {
     clientId: clientIdValue,
@@ -1831,7 +1911,10 @@ function createPeer(participant) {
     remoteStream,
     offerSent: false,
     makingOffer: false,
+    pendingNegotiation: false,
     pendingCandidates: [],
+    negotiationTimer: null,
+    lastNegotiationRequestedAt: 0,
   };
 
   pc.onicecandidate = (event) => {
@@ -1841,6 +1924,17 @@ function createPeer(participant) {
     });
   };
 
+  pc.onnegotiationneeded = () => {
+    requestPeerNegotiation(peer);
+  };
+
+  pc.onsignalingstatechange = () => {
+    if (pc.signalingState === "stable" && peer.pendingNegotiation) {
+      requestPeerNegotiation(peer);
+    }
+    renderVideos();
+  };
+
   pc.ontrack = (event) => {
     const stream = event.streams[0];
     const tracks = stream ? stream.getTracks() : [event.track];
@@ -1848,11 +1942,33 @@ function createPeer(participant) {
       if (!remoteStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
         remoteStream.addTrack(track);
       }
+      track.onunmute = () => {
+        renderVideos();
+        const tile = state.videoTiles.get(clientIdValue);
+        playVideoElement(tile?.video);
+      };
+      track.onended = () => {
+        renderVideos();
+      };
     });
     renderVideos();
+    const tile = state.videoTiles.get(clientIdValue);
+    playVideoElement(tile?.video);
   };
 
   pc.onconnectionstatechange = () => {
+    if (["failed", "disconnected"].includes(pc.connectionState)) {
+      pc.restartIce?.();
+      requestPeerNegotiation(peer);
+    }
+    renderVideos();
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    if (["failed", "disconnected"].includes(pc.iceConnectionState)) {
+      pc.restartIce?.();
+      requestPeerNegotiation(peer);
+    }
     renderVideos();
   };
 
@@ -1862,10 +1978,38 @@ function createPeer(participant) {
   return peer;
 }
 
+function hasLiveRemoteTrack(peer, kind) {
+  return Boolean(peer?.remoteStream?.getTracks().some((track) => track.kind === kind && track.readyState === "live"));
+}
+
+function ensurePeerMediaHealth() {
+  const now = Date.now();
+  state.participants
+    .filter((participant) => participant.clientId !== state.clientId)
+    .forEach((participant) => {
+      const peer = state.peers.get(participant.clientId);
+      if (!peer || peer.pc.signalingState === "closed") return;
+
+      const expectsVideo = participant.cameraEnabled || participant.screenEnabled;
+      const expectsAudio = participant.microphoneEnabled;
+      const missingExpectedMedia = (expectsVideo && !hasLiveRemoteTrack(peer, "video"))
+        || (expectsAudio && !hasLiveRemoteTrack(peer, "audio"));
+
+      if (!missingExpectedMedia) return;
+      if (now - peer.lastNegotiationRequestedAt < 5000) return;
+      requestPeerNegotiation(peer);
+    });
+}
+
 async function makeOffer(peer) {
-  if (!state.room || !state.localStream || peer.makingOffer || peer.pc.signalingState !== "stable") return;
+  if (!state.room || peer.makingOffer || peer.pc.signalingState === "closed") return;
+  if (peer.pc.signalingState !== "stable") {
+    requestPeerNegotiation(peer);
+    return;
+  }
   peer.makingOffer = true;
   try {
+    peer.pendingNegotiation = false;
     const offer = await peer.pc.createOffer();
     await peer.pc.setLocalDescription(offer);
     await sendSignal(peer.clientId, "offer", {
@@ -1873,6 +2017,7 @@ async function makeOffer(peer) {
     });
     peer.offerSent = true;
   } catch (error) {
+    console.error(error);
     setMessage("Connexion video impossible avec un participant.", "error");
   } finally {
     peer.makingOffer = false;
@@ -1880,7 +2025,7 @@ async function makeOffer(peer) {
 }
 
 function syncPeersWithParticipants() {
-  if (!state.room || !state.localStream) return;
+  if (!state.room) return;
   const remoteParticipants = state.participants.filter((participant) => participant.clientId !== state.clientId);
   const activeIds = new Set(remoteParticipants.map((participant) => participant.clientId));
 
@@ -1944,6 +2089,14 @@ async function handleSignal(signal) {
   try {
     if (signal.signalType === "offer") {
       const description = payload.description || payload.sdp || payload;
+      const offerCollision = peer.makingOffer || peer.pc.signalingState !== "stable";
+      const polite = !shouldInitiate(senderId);
+      if (offerCollision) {
+        if (!polite) return;
+        try {
+          await peer.pc.setLocalDescription({ type: "rollback" });
+        } catch (rollbackError) {}
+      }
       await peer.pc.setRemoteDescription(new RTCSessionDescription(description));
       attachLocalTracksToPeers();
       await flushPendingCandidates(peer);
@@ -1952,6 +2105,7 @@ async function handleSignal(signal) {
       await sendSignal(senderId, "answer", {
         description: peer.pc.localDescription,
       });
+      peer.offerSent = false;
       return;
     }
 
@@ -1960,6 +2114,9 @@ async function handleSignal(signal) {
       if (peer.pc.signalingState !== "stable") {
         await peer.pc.setRemoteDescription(new RTCSessionDescription(description));
         await flushPendingCandidates(peer);
+      }
+      if (peer.pendingNegotiation) {
+        requestPeerNegotiation(peer);
       }
       return;
     }
@@ -2000,6 +2157,7 @@ async function applySyncPayload(payload) {
     renderChatMessages();
   }
   syncPeersWithParticipants();
+  ensurePeerMediaHealth();
   renderVideos();
 
   if (Array.isArray(payload.signals)) {
@@ -2628,6 +2786,7 @@ async function boot() {
   renderTranscripts();
   updateControlButtons();
   syncScheduledStartInput();
+  await loadIceConfiguration();
   try {
     await loadDashboard();
   } catch (error) {

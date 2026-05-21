@@ -70,6 +70,8 @@ Variables importantes :
 - `EMAIL_ENABLE_SMTP_SENDING`
 - `PRESTASHOP_AUTO_SYNC_ENABLED` active la synchronisation PrestaShop automatique serveur.
 - `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS` definit la cadence invisible de synchronisation des produits, clients, commandes, stocks et messages SAV. Valeur par defaut : `10`.
+- `MEET_STUN_URLS` liste les serveurs STUN utilises par Meet.
+- `MEET_TURN_URLS`, `MEET_TURN_USERNAME` et `MEET_TURN_CREDENTIAL` configurent un serveur TURN si les flux camera/ecran ne passent pas entre deux reseaux.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
 - `BACKUP_RETENTION_DAYS`
 - `BACKUP_SCHEDULE_ENABLED` active la sauvegarde automatique serveur au demarrage si aucun planning n'a encore ete enregistre depuis l'interface.
@@ -99,6 +101,25 @@ Les hotes SMTP/IMAP ne sont pas definis dans `.env` : un administrateur les rens
 Dans `Parametres > Boites mail`, la frequence IMAP automatique est exprimee en minutes. La valeur `0` active la releve serveur rapide toutes les 15 secondes; a utiliser si les boites doivent apparaitre presque immediatement dans l'ERP.
 
 Le logo des devis configure dans `Parametres > Devis` est stocke dans le volume `oceanerp_documents`; il est donc inclus dans les sauvegardes documents.
+
+### Meet / WebRTC
+
+Le module Meet utilise WebRTC. Par defaut, OceanERP annonce les serveurs STUN publics `stun:stun.l.google.com:19302` et `stun:stun1.l.google.com:19302` via `MEET_STUN_URLS`.
+
+Si deux participants sont sur des reseaux differents et voient un ecran noir alors que la camera est active, il faut configurer un serveur TURN accessible depuis Internet :
+
+```env
+MEET_TURN_URLS=turn:votre-domaine:3478?transport=udp,turn:votre-domaine:3478?transport=tcp
+MEET_TURN_USERNAME=utilisateur-turn
+MEET_TURN_CREDENTIAL=mot-de-passe-turn
+```
+
+Apres modification, recreer l'API et le frontend pour que la salle Meet relise la configuration :
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
+```
 
 Pour l'edition Office, le bouton `Office` du Drive ouvre ONLYOFFICE directement dans OceanERP pour les fichiers DOCX, XLSX et PPTX compatibles. `PUBLIC_URL` reste l'URL HTTPS publique de l'ERP. `ONLYOFFICE_DOCUMENT_SERVER_URL` vaut generalement `/onlyoffice` derriere Nginx : c'est l'URL chargee par le navigateur pour afficher l'editeur.
 

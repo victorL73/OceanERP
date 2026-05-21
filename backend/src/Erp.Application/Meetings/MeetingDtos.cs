@@ -4,6 +4,10 @@ namespace Erp.Application.Meetings;
 
 public sealed record MeetingLanguageDto(string Code, string Label);
 
+public sealed record MeetingIceServerDto(string[] Urls, string? Username = null, string? Credential = null);
+
+public sealed record MeetingIceConfigurationDto(IReadOnlyList<MeetingIceServerDto> IceServers);
+
 public sealed record MeetingRoomDto(
     Guid Id,
     string Code,
@@ -124,6 +128,7 @@ public sealed record LeaveMeetingRoomRequest(string ClientId);
 
 public interface IMeetingService
 {
+    MeetingIceConfigurationDto IceConfiguration();
     Task<MeetingDashboardDto> DashboardAsync(CancellationToken cancellationToken);
     Task<Result<MeetingRoomStateDto>> GetAsync(Guid roomId, string? clientId, DateTimeOffset? since, CancellationToken cancellationToken);
     Task<Result<MeetingRoomStateDto>> CreateAsync(CreateMeetingRoomRequest request, CancellationToken cancellationToken);

@@ -101,6 +101,8 @@ Variables minimales a changer avant production :
 - `PUBLIC_URL`
 - `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
 - `PRESTASHOP_AUTO_SYNC_ENABLED=true` et `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS=10` activent la synchronisation PrestaShop automatique en quasi temps reel.
+- `MEET_STUN_URLS` configure les serveurs STUN utilises par les salles Meet.
+- `MEET_TURN_URLS`, `MEET_TURN_USERNAME`, `MEET_TURN_CREDENTIAL` configurent un serveur TURN quand les flux camera/ecran doivent traverser des reseaux differents.
 
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
@@ -113,6 +115,21 @@ Si un fichier Office affiche `errorCode -4`, le conteneur Document Server n'arri
 ```bash
 cd ~/OceanERP/deploy/ubuntu
 docker compose --env-file .env -f docker-compose.yml up -d --force-recreate onlyoffice erp-api nginx
+```
+
+Pour Meet, un ecran noir distant avec camera active signifie souvent que WebRTC ne parvient pas a etablir le chemin reseau direct. Garder `MEET_STUN_URLS` et ajouter un TURN si les participants sont hors reseau local :
+
+```env
+MEET_TURN_URLS=turn:votre-domaine:3478?transport=udp,turn:votre-domaine:3478?transport=tcp
+MEET_TURN_USERNAME=utilisateur-turn
+MEET_TURN_CREDENTIAL=mot-de-passe-turn
+```
+
+Apres modification, recreer l'API et le frontend :
+
+```bash
+cd ~/OceanERP/deploy/ubuntu
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
 ```
 
 Pour activer l'envoi SMTP plus tard, un administrateur renseigne les serveurs dans `Parametres > Boites mail`, cree les boites et saisit les mots de passe. Il est aussi possible de creer une boite avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis d'ajouter dans `.env` :

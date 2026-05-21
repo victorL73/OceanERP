@@ -9,6 +9,11 @@ namespace Erp.Api.Controllers;
 [Authorize]
 public sealed class MeetingsController(IMeetingService meetings) : ControllerBase
 {
+    [HttpGet("ice")]
+    [AllowAnonymous]
+    public ActionResult<MeetingIceConfigurationDto> IceConfiguration()
+        => Ok(meetings.IceConfiguration());
+
     [HttpGet("dashboard")]
     [Authorize(Policy = "meet.read")]
     public async Task<ActionResult<MeetingDashboardDto>> Dashboard(CancellationToken cancellationToken)

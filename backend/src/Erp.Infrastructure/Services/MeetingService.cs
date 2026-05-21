@@ -6,10 +6,11 @@ using Erp.Application.Meetings;
 using Erp.Domain.FutureModules;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentUser, IFileStorageService fileStorage) : IMeetingService
+public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentUser, IFileStorageService fileStorage, IConfiguration configuration) : IMeetingService
 {
     private const int PresenceTtlSeconds = 45;
     private const int SignalTtlMinutes = 3;
@@ -24,6 +25,30 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
         new("it-IT", "Italien"),
         new("pt-PT", "Portugais")
     ];
+
+    public MeetingIceConfigurationDto IceConfiguration()
+    {
+        var servers = new List<MeetingIceServerDto>();
+        var stunUrls = SplitConfigUrls(configuration["MEET_STUN_URLS"]);
+        if (stunUrls.Count == 0)
+        {
+            stunUrls.Add("stun:stun.l.google.com:19302");
+            stunUrls.Add("stun:stun1.l.google.com:19302");
+        }
+
+        servers.Add(new MeetingIceServerDto(stunUrls.ToArray()));
+
+        var turnUrls = SplitConfigUrls(configuration["MEET_TURN_URLS"]);
+        if (turnUrls.Count > 0)
+        {
+            servers.Add(new MeetingIceServerDto(
+                turnUrls.ToArray(),
+                NormalizeConfigValue(configuration["MEET_TURN_USERNAME"]),
+                NormalizeConfigValue(configuration["MEET_TURN_CREDENTIAL"])));
+        }
+
+        return new MeetingIceConfigurationDto(servers);
+    }
 
     public async Task<MeetingDashboardDto> DashboardAsync(CancellationToken cancellationToken)
     {
@@ -565,6 +590,16 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
 
     private static string Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
+    private static List<string> SplitConfigUrls(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? new List<string>()
+            : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+
+    private static string? NormalizeConfigValue(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string NormalizeLanguage(string? value)
     {
