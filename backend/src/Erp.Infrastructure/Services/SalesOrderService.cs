@@ -92,7 +92,7 @@ public sealed class SalesOrderService(
             Status = "Draft"
         };
 
-        db.SalesOrders.Add(order);
+        var validatedLines = new List<SalesOrderLine>();
         foreach (var line in request.Lines)
         {
             var validated = await BuildLineAsync(order.Id, line, cancellationToken);
@@ -101,10 +101,56 @@ public sealed class SalesOrderService(
                 return Result<SalesOrderDto>.Failure(validated.Error!);
             }
 
-            db.SalesOrderLines.Add(validated.Value!);
+            validatedLines.Add(validated.Value!);
         }
 
+        order.WarehouseId ??= await ResolveWarehouseIdFromLinesAsync(validatedLines, cancellationToken);
+        db.SalesOrders.Add(order);
+        db.SalesOrderLines.AddRange(validatedLines);
         db.SalesOrderStatusHistories.Add(new SalesOrderStatusHistory { SalesOrderId = order.Id, Status = order.Status });
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<SalesOrderDto>.Success(await MapAsync(order, cancellationToken));
+    }
+
+    public async Task<Result<SalesOrderDto>> UpdateAsync(Guid id, UpdateSalesOrderRequest request, CancellationToken cancellationToken)
+    {
+        var order = await db.SalesOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (order is null)
+        {
+            return Result<SalesOrderDto>.Failure("Sales order not found.");
+        }
+
+        if (!await db.Customers.AnyAsync(x => x.Id == request.CustomerId, cancellationToken))
+        {
+            return Result<SalesOrderDto>.Failure("Customer not found.");
+        }
+
+        if (request.WarehouseId.HasValue && !await db.Warehouses.AnyAsync(x => x.Id == request.WarehouseId.Value, cancellationToken))
+        {
+            return Result<SalesOrderDto>.Failure("Warehouse not found.");
+        }
+
+        order.CustomerId = request.CustomerId;
+        order.WarehouseId = request.WarehouseId ?? await ResolveWarehouseIdFromOrderLinesAsync(order.Id, cancellationToken);
+        order.PaymentMethod = NullIfWhiteSpace(request.PaymentMethod);
+        order.PaymentModule = NullIfWhiteSpace(request.PaymentModule);
+        order.PaidTotal = request.PaidTotal;
+        order.ProductsTotal = request.ProductsTotal;
+        order.ShippingTotal = request.ShippingTotal;
+        order.ShippingWeightKg = request.ShippingWeightKg;
+        order.InvoiceReference = NullIfWhiteSpace(request.InvoiceReference);
+        order.ShippingServiceName = NullIfWhiteSpace(request.ShippingServiceName);
+        order.ShippingCarrierName = NullIfWhiteSpace(request.ShippingCarrierName);
+        order.ShippingTrackingNumber = NullIfWhiteSpace(request.ShippingTrackingNumber);
+        order.ShippingAddressName = NullIfWhiteSpace(request.ShippingAddress?.Name);
+        order.ShippingAddressLine1 = NullIfWhiteSpace(request.ShippingAddress?.Line1);
+        order.ShippingAddressLine2 = NullIfWhiteSpace(request.ShippingAddress?.Line2);
+        order.ShippingPostalCode = NullIfWhiteSpace(request.ShippingAddress?.PostalCode);
+        order.ShippingCity = NullIfWhiteSpace(request.ShippingAddress?.City);
+        order.ShippingCountry = NullIfWhiteSpace(request.ShippingAddress?.Country);
+        order.ShippingPhone = NullIfWhiteSpace(request.ShippingAddress?.Phone);
+        order.ShippingEmail = NullIfWhiteSpace(request.ShippingAddress?.Email);
+
         await db.SaveChangesAsync(cancellationToken);
         return Result<SalesOrderDto>.Success(await MapAsync(order, cancellationToken));
     }
@@ -646,6 +692,7 @@ public sealed class SalesOrderService(
             return Result.Success();
         }
 
+        order.WarehouseId ??= await ResolveWarehouseIdFromOrderLinesAsync(order.Id, cancellationToken);
         if (!order.WarehouseId.HasValue)
         {
             return Result.Failure("Un entrepot est obligatoire avant de reserver ou expedier les lignes produit.");
@@ -676,6 +723,44 @@ public sealed class SalesOrderService(
             .GroupBy(x => x.ProductId!.Value)
             .Select(x => new StockOrderLine(x.Key, x.Sum(line => line.Quantity)))
             .ToListAsync(cancellationToken);
+
+    private async Task<Guid?> ResolveWarehouseIdFromOrderLinesAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        var lines = await db.SalesOrderLines
+            .AsNoTracking()
+            .Where(x => x.SalesOrderId == orderId && x.ProductId != null)
+            .ToListAsync(cancellationToken);
+
+        return await ResolveWarehouseIdFromLinesAsync(lines, cancellationToken);
+    }
+
+    private async Task<Guid?> ResolveWarehouseIdFromLinesAsync(IEnumerable<SalesOrderLine> lines, CancellationToken cancellationToken)
+    {
+        var productIds = lines
+            .Where(x => x.ProductId.HasValue)
+            .Select(x => x.ProductId!.Value)
+            .Distinct()
+            .ToArray();
+
+        if (productIds.Length == 0)
+        {
+            return null;
+        }
+
+        var stockItems = await db.StockItems
+            .AsNoTracking()
+            .Where(x => productIds.Contains(x.ProductId))
+            .Select(x => new { x.ProductId, x.WarehouseId, x.QuantityOnHand, x.QuantityReserved })
+            .ToListAsync(cancellationToken);
+
+        return stockItems
+            .GroupBy(x => x.WarehouseId)
+            .OrderByDescending(x => x.Select(item => item.ProductId).Distinct().Count())
+            .ThenByDescending(x => x.Sum(item => item.QuantityOnHand - item.QuantityReserved))
+            .ThenByDescending(x => x.Sum(item => item.QuantityOnHand))
+            .Select(x => (Guid?)x.Key)
+            .FirstOrDefault();
+    }
 
     private async Task<Result> ReserveAsync(SalesOrder order, IReadOnlyList<StockOrderLine> lines, CancellationToken cancellationToken)
     {
@@ -819,8 +904,9 @@ public sealed class SalesOrderService(
     private async Task<SalesOrderDto> MapAsync(SalesOrder order, CancellationToken cancellationToken)
     {
         var customer = await db.Customers.Include(x => x.Addresses).FirstOrDefaultAsync(x => x.Id == order.CustomerId, cancellationToken);
-        var warehouseName = order.WarehouseId.HasValue
-            ? await db.Warehouses.Where(x => x.Id == order.WarehouseId.Value).Select(x => x.Name).FirstOrDefaultAsync(cancellationToken)
+        var resolvedWarehouseId = order.WarehouseId ?? await ResolveWarehouseIdFromOrderLinesAsync(order.Id, cancellationToken);
+        var warehouseName = resolvedWarehouseId.HasValue
+            ? await db.Warehouses.Where(x => x.Id == resolvedWarehouseId.Value).Select(x => x.Name).FirstOrDefaultAsync(cancellationToken)
             : null;
         var lineDtos = await MapLinesAsync(order.Id, cancellationToken);
         var statusHistory = await db.SalesOrderStatusHistories
@@ -839,7 +925,7 @@ public sealed class SalesOrderService(
             order.Number,
             order.CustomerId,
             customer?.CompanyName,
-            order.WarehouseId,
+            resolvedWarehouseId,
             warehouseName,
             order.Status,
             order.ExternalStatusName,
@@ -894,6 +980,9 @@ public sealed class SalesOrderService(
 
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))?.Trim();
+
+    private static string? NullIfWhiteSpace(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static bool IsColissimoCarrier(string? carrierName)
         => !string.IsNullOrWhiteSpace(carrierName) && carrierName.Contains("colissimo", StringComparison.OrdinalIgnoreCase);

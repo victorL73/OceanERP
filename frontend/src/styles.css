@@ -2495,6 +2495,20 @@ th {
   gap: 16px;
 }
 
+.order-edit-form {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid #dbe3ea;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.order-edit-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .customer-main-form {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }

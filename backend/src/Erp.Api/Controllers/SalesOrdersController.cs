@@ -30,6 +30,14 @@ public sealed class SalesOrdersController(ISalesOrderService orders) : Controlle
         return result.Succeeded ? CreatedAtAction(nameof(Get), new { id = result.Value!.Id }, result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = "orders.write")]
+    public async Task<ActionResult<SalesOrderDto>> Update(Guid id, UpdateSalesOrderRequest request, CancellationToken cancellationToken)
+    {
+        var result = await orders.UpdateAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpPost("from-quote")]
     [Authorize(Policy = "orders.write")]
     public async Task<ActionResult<SalesOrderDto>> CreateFromQuote(CreateSalesOrderFromQuoteRequest request, CancellationToken cancellationToken)

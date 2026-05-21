@@ -506,6 +506,33 @@ export class ApiClient {
     return this.request<SalesOrder>('/api/orders', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  updateOrder(orderId: string, payload: {
+    customerId: string;
+    warehouseId?: string | null;
+    paymentMethod?: string | null;
+    paymentModule?: string | null;
+    paidTotal?: number | null;
+    productsTotal?: number | null;
+    shippingTotal?: number | null;
+    shippingWeightKg?: number | null;
+    invoiceReference?: string | null;
+    shippingServiceName?: string | null;
+    shippingCarrierName?: string | null;
+    shippingTrackingNumber?: string | null;
+    shippingAddress?: {
+      name?: string | null;
+      line1?: string | null;
+      line2?: string | null;
+      postalCode?: string | null;
+      city?: string | null;
+      country?: string | null;
+      phone?: string | null;
+      email?: string | null;
+    } | null;
+  }) {
+    return this.request<SalesOrder>(`/api/orders/${orderId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
   createOrderFromQuote(quoteId: string, warehouseId?: string | null) {
     return this.request<SalesOrder>('/api/orders/from-quote', { method: 'POST', auth: true, body: JSON.stringify({ quoteId, warehouseId }) });
   }

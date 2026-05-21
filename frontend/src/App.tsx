@@ -5405,16 +5405,31 @@ function Orders({ items, customers, warehouses, isAdministrator, onChanged }: { 
     }
   }
 
+  async function updateOrder(order: SalesOrder, payload: SalesOrderEditPayload): Promise<string | null> {
+    setMessage(null);
+    try {
+      const updated = await api.updateOrder(order.id, payload);
+      setSelectedOrderId(updated.id);
+      await onChanged();
+      return null;
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Modification de la commande impossible.';
+      setMessage(error);
+      return error;
+    }
+  }
+
   return (
     <>
       <div className="sync-note">Les commandes sont creees depuis un devis signe ou importees depuis PrestaShop.</div>
       {message && <div className="inline-message">{message}</div>}
       <DataTable
-        columns={['Numero', 'Date', 'Client', 'Transporteur', 'Statut', 'Total', 'Actions']}
+        columns={['Numero', 'Date', 'Client', 'Entrepot', 'Transporteur', 'Statut', 'Total', 'Actions']}
         rows={items.map((item) => [
           item.number,
           formatOrderDate(item.orderedAt ?? item.createdAt),
           item.customerName ?? customerById.get(item.customerId)?.companyName ?? item.customerId,
+          item.warehouseName ?? (item.warehouseId ? warehouseById.get(item.warehouseId)?.name : undefined) ?? '-',
           orderShippingLabel(item),
           item.externalStatusName ?? salesOrderStatusLabel(item.status),
           `${item.total.toFixed(2)} EUR`,
@@ -5467,10 +5482,13 @@ function Orders({ items, customers, warehouses, isAdministrator, onChanged }: { 
           order={selectedOrder}
           customer={customerById.get(selectedOrder.customerId)}
           warehouse={selectedOrder.warehouseId ? warehouseById.get(selectedOrder.warehouseId) : undefined}
+          customers={customers}
+          warehouses={warehouses}
           onClose={() => setSelectedOrderId(null)}
           onPrintShipmentSlip={() => openShipmentSlip(selectedOrder)}
           onPrintColissimoLabel={() => openColissimoLabel(selectedOrder)}
           onChangeStatus={(status) => changeStatus(selectedOrder, status)}
+          onUpdateOrder={(payload) => updateOrder(selectedOrder, payload)}
           onDeleteOrder={isAdministrator ? () => deleteOrder(selectedOrder) : undefined}
         />
       )}
@@ -5512,23 +5530,149 @@ function canPrintOrderColissimoLabel(order: SalesOrder) {
   );
 }
 
+type SalesOrderEditPayload = {
+  customerId: string;
+  warehouseId?: string | null;
+  paymentMethod?: string | null;
+  paymentModule?: string | null;
+  paidTotal?: number | null;
+  productsTotal?: number | null;
+  shippingTotal?: number | null;
+  shippingWeightKg?: number | null;
+  invoiceReference?: string | null;
+  shippingServiceName?: string | null;
+  shippingCarrierName?: string | null;
+  shippingTrackingNumber?: string | null;
+  shippingAddress?: {
+    name?: string | null;
+    line1?: string | null;
+    line2?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+    country?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  } | null;
+};
+
+type SalesOrderEditDraft = {
+  customerId: string;
+  warehouseId: string;
+  paymentMethod: string;
+  paymentModule: string;
+  paidTotal: string;
+  productsTotal: string;
+  shippingTotal: string;
+  shippingWeightKg: string;
+  invoiceReference: string;
+  shippingServiceName: string;
+  shippingCarrierName: string;
+  shippingTrackingNumber: string;
+  shippingName: string;
+  shippingLine1: string;
+  shippingLine2: string;
+  shippingPostalCode: string;
+  shippingCity: string;
+  shippingCountry: string;
+  shippingPhone: string;
+  shippingEmail: string;
+};
+
+function salesOrderNumberDraft(value?: number | null) {
+  return value === undefined || value === null ? '' : String(value).replace('.', ',');
+}
+
+function salesOrderNullableNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed.replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function salesOrderNullIfBlank(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function salesOrderToEditDraft(order: SalesOrder): SalesOrderEditDraft {
+  const address = order.shippingAddress;
+  return {
+    customerId: order.customerId,
+    warehouseId: order.warehouseId ?? '',
+    paymentMethod: order.paymentMethod ?? '',
+    paymentModule: order.paymentModule ?? '',
+    paidTotal: salesOrderNumberDraft(order.paidTotal),
+    productsTotal: salesOrderNumberDraft(order.productsTotal),
+    shippingTotal: salesOrderNumberDraft(order.shippingTotal),
+    shippingWeightKg: salesOrderNumberDraft(order.shippingWeightKg),
+    invoiceReference: order.invoiceReference ?? '',
+    shippingServiceName: order.shippingServiceName ?? '',
+    shippingCarrierName: order.shippingCarrierName ?? '',
+    shippingTrackingNumber: order.shippingTrackingNumber ?? '',
+    shippingName: address?.name ?? '',
+    shippingLine1: address?.line1 ?? '',
+    shippingLine2: address?.line2 ?? '',
+    shippingPostalCode: address?.postalCode ?? '',
+    shippingCity: address?.city ?? '',
+    shippingCountry: address?.country ?? '',
+    shippingPhone: address?.phone ?? '',
+    shippingEmail: address?.email ?? ''
+  };
+}
+
+function salesOrderEditDraftToPayload(draft: SalesOrderEditDraft): SalesOrderEditPayload {
+  return {
+    customerId: draft.customerId,
+    warehouseId: draft.warehouseId || null,
+    paymentMethod: salesOrderNullIfBlank(draft.paymentMethod),
+    paymentModule: salesOrderNullIfBlank(draft.paymentModule),
+    paidTotal: salesOrderNullableNumber(draft.paidTotal),
+    productsTotal: salesOrderNullableNumber(draft.productsTotal),
+    shippingTotal: salesOrderNullableNumber(draft.shippingTotal),
+    shippingWeightKg: salesOrderNullableNumber(draft.shippingWeightKg),
+    invoiceReference: salesOrderNullIfBlank(draft.invoiceReference),
+    shippingServiceName: salesOrderNullIfBlank(draft.shippingServiceName),
+    shippingCarrierName: salesOrderNullIfBlank(draft.shippingCarrierName),
+    shippingTrackingNumber: salesOrderNullIfBlank(draft.shippingTrackingNumber),
+    shippingAddress: {
+      name: salesOrderNullIfBlank(draft.shippingName),
+      line1: salesOrderNullIfBlank(draft.shippingLine1),
+      line2: salesOrderNullIfBlank(draft.shippingLine2),
+      postalCode: salesOrderNullIfBlank(draft.shippingPostalCode),
+      city: salesOrderNullIfBlank(draft.shippingCity),
+      country: salesOrderNullIfBlank(draft.shippingCountry),
+      phone: salesOrderNullIfBlank(draft.shippingPhone),
+      email: salesOrderNullIfBlank(draft.shippingEmail)
+    }
+  };
+}
+
 function SalesOrderDetailModal({
   order,
   customer,
   warehouse,
+  customers,
+  warehouses,
   onClose,
   onPrintShipmentSlip,
   onPrintColissimoLabel,
   onChangeStatus,
+  onUpdateOrder,
   onDeleteOrder
 }: {
   order: SalesOrder;
   customer?: Customer;
   warehouse?: Warehouse;
+  customers: Customer[];
+  warehouses: Warehouse[];
   onClose: () => void;
   onPrintShipmentSlip: () => Promise<string | null>;
   onPrintColissimoLabel: () => Promise<string | null>;
   onChangeStatus: (status: string) => Promise<string | null>;
+  onUpdateOrder: (payload: SalesOrderEditPayload) => Promise<string | null>;
   onDeleteOrder?: () => Promise<string | null>;
 }) {
   const address = order.shippingAddress;
@@ -5536,6 +5680,9 @@ function SalesOrderDetailModal({
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [changingStatus, setChangingStatus] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState<SalesOrderEditDraft>(() => salesOrderToEditDraft(order));
+  const [savingOrder, setSavingOrder] = useState(false);
   const [deletingOrder, setDeletingOrder] = useState(false);
   const nextActions = [
     order.status === 'Draft' ? { label: 'Confirmer', status: 'Confirmed' } : null,
@@ -5549,6 +5696,35 @@ function SalesOrderDetailModal({
     Shipped: 'Commande expediee.',
     Completed: 'Commande terminee.'
   };
+
+  useEffect(() => {
+    setActionMessage(null);
+    setIsEditing(false);
+    setEditDraft(salesOrderToEditDraft(order));
+  }, [order.id]);
+
+  function updateEditDraft<K extends keyof SalesOrderEditDraft>(field: K, value: SalesOrderEditDraft[K]) {
+    setEditDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSaveOrder() {
+    if (!editDraft.customerId) {
+      setActionMessage('Selectionnez un client avant d enregistrer la commande.');
+      return;
+    }
+
+    setActionMessage('Enregistrement de la commande...');
+    setSavingOrder(true);
+    const error = await onUpdateOrder(salesOrderEditDraftToPayload(editDraft));
+    setSavingOrder(false);
+    if (error) {
+      setActionMessage(error);
+      return;
+    }
+
+    setIsEditing(false);
+    setActionMessage('Commande mise a jour.');
+  }
 
   async function handlePrintShipmentSlip() {
     setActionMessage("Preparation du bon d'expedition...");
@@ -5599,6 +5775,10 @@ function SalesOrderDetailModal({
           </button>
         </div>
         <div className="modal-actions">
+          <button className="secondary" type="button" onClick={() => { setEditDraft(salesOrderToEditDraft(order)); setIsEditing(true); }}>
+            <Pencil size={16} />
+            Modifier
+          </button>
           {order.canPrintShippingSlip && (
             <button className="secondary" type="button" disabled={printingSlip} onClick={() => void handlePrintShipmentSlip()}>
               <Printer size={16} />
@@ -5624,6 +5804,118 @@ function SalesOrderDetailModal({
           )}
         </div>
         {actionMessage && <div className="inline-message">{actionMessage}</div>}
+
+        {isEditing && (
+          <section className="order-edit-form">
+            <div className="section-title-row">
+              <h3>Modifier la commande</h3>
+              <button className="secondary" type="button" onClick={() => { setEditDraft(salesOrderToEditDraft(order)); setIsEditing(false); }}>
+                Annuler
+              </button>
+            </div>
+            <div className="form-grid order-edit-grid">
+              <label className="field">
+                Client
+                <select value={editDraft.customerId} onChange={(event) => updateEditDraft('customerId', event.target.value)}>
+                  <option value="">Client</option>
+                  {customers.map((item) => (
+                    <option key={item.id} value={item.id}>{item.companyName}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Entrepot
+                <select value={editDraft.warehouseId} onChange={(event) => updateEditDraft('warehouseId', event.target.value)}>
+                  <option value="">Auto depuis les articles</option>
+                  {warehouses.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Paiement
+                <input value={editDraft.paymentMethod} onChange={(event) => updateEditDraft('paymentMethod', event.target.value)} />
+              </label>
+              <label className="field">
+                Module paiement
+                <input value={editDraft.paymentModule} onChange={(event) => updateEditDraft('paymentModule', event.target.value)} />
+              </label>
+              <label className="field">
+                Total paye
+                <input inputMode="decimal" value={editDraft.paidTotal} onChange={(event) => updateEditDraft('paidTotal', event.target.value)} />
+              </label>
+              <label className="field">
+                Total produits
+                <input inputMode="decimal" value={editDraft.productsTotal} onChange={(event) => updateEditDraft('productsTotal', event.target.value)} />
+              </label>
+              <label className="field">
+                Frais de port
+                <input inputMode="decimal" value={editDraft.shippingTotal} onChange={(event) => updateEditDraft('shippingTotal', event.target.value)} />
+              </label>
+              <label className="field">
+                Poids kg
+                <input inputMode="decimal" value={editDraft.shippingWeightKg} onChange={(event) => updateEditDraft('shippingWeightKg', event.target.value)} />
+              </label>
+              <label className="field">
+                Facture
+                <input value={editDraft.invoiceReference} onChange={(event) => updateEditDraft('invoiceReference', event.target.value)} />
+              </label>
+              <label className="field">
+                Service livraison
+                <input value={editDraft.shippingServiceName} onChange={(event) => updateEditDraft('shippingServiceName', event.target.value)} />
+              </label>
+              <label className="field">
+                Transporteur
+                <input value={editDraft.shippingCarrierName} onChange={(event) => updateEditDraft('shippingCarrierName', event.target.value)} />
+              </label>
+              <label className="field">
+                Suivi
+                <input value={editDraft.shippingTrackingNumber} onChange={(event) => updateEditDraft('shippingTrackingNumber', event.target.value)} />
+              </label>
+              <label className="field">
+                Nom livraison
+                <input value={editDraft.shippingName} onChange={(event) => updateEditDraft('shippingName', event.target.value)} />
+              </label>
+              <label className="field wide-field">
+                Adresse
+                <input value={editDraft.shippingLine1} onChange={(event) => updateEditDraft('shippingLine1', event.target.value)} />
+              </label>
+              <label className="field wide-field">
+                Complement adresse
+                <input value={editDraft.shippingLine2} onChange={(event) => updateEditDraft('shippingLine2', event.target.value)} />
+              </label>
+              <label className="field">
+                Code postal
+                <input value={editDraft.shippingPostalCode} onChange={(event) => updateEditDraft('shippingPostalCode', event.target.value)} />
+              </label>
+              <label className="field">
+                Ville
+                <input value={editDraft.shippingCity} onChange={(event) => updateEditDraft('shippingCity', event.target.value)} />
+              </label>
+              <label className="field">
+                Pays
+                <input value={editDraft.shippingCountry} onChange={(event) => updateEditDraft('shippingCountry', event.target.value)} />
+              </label>
+              <label className="field">
+                Telephone
+                <input value={editDraft.shippingPhone} onChange={(event) => updateEditDraft('shippingPhone', event.target.value)} />
+              </label>
+              <label className="field">
+                Email
+                <input value={editDraft.shippingEmail} onChange={(event) => updateEditDraft('shippingEmail', event.target.value)} />
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" type="button" onClick={() => { setEditDraft(salesOrderToEditDraft(order)); setIsEditing(false); }}>
+                Annuler
+              </button>
+              <button type="button" disabled={savingOrder} onClick={() => void handleSaveOrder()}>
+                <Save size={16} />
+                {savingOrder ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </section>
+        )}
 
         <div className="detail-grid">
           <DetailItem label="Client" value={order.customerName ?? customer?.companyName ?? order.customerId} />

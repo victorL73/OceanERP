@@ -49,4 +49,18 @@ public sealed record SalesOrderShipmentSlipPdfModel(
 public sealed record CreateSalesOrderRequest(Guid CustomerId, Guid? WarehouseId, IReadOnlyList<CreateSalesOrderLineRequest> Lines);
 public sealed record CreateSalesOrderLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice);
 public sealed record CreateSalesOrderFromQuoteRequest(Guid QuoteId, Guid? WarehouseId = null);
+public sealed record UpdateSalesOrderRequest(
+    Guid CustomerId,
+    Guid? WarehouseId,
+    string? PaymentMethod,
+    string? PaymentModule,
+    decimal? PaidTotal,
+    decimal? ProductsTotal,
+    decimal? ShippingTotal,
+    decimal? ShippingWeightKg,
+    string? InvoiceReference,
+    string? ShippingServiceName,
+    string? ShippingCarrierName,
+    string? ShippingTrackingNumber,
+    SalesOrderShippingAddressDto? ShippingAddress);
 public sealed record UpdateSalesOrderStatusRequest(string Status);
