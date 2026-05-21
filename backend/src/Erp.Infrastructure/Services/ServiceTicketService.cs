@@ -14,21 +14,49 @@ public sealed class ServiceTicketService(ErpDbContext db, ICurrentUserService cu
     private static readonly string[] AllowedStatuses = ["Open", "InProgress", "WaitingCustomer", "Resolved", "Closed"];
     private static readonly string[] AllowedPriorities = ["Low", "Normal", "High", "Urgent"];
 
-    public async Task<PagedResult<ServiceTicketDto>> SearchAsync(string? search, string? status, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<PagedResult<ServiceTicketDto>> SearchAsync(string? search, string? status, string? priority, bool assignedToMe, Guid? assignedUserId, bool unassigned, bool includeClosed, int page, int pageSize, CancellationToken cancellationToken)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var query = db.ServiceTickets.AsQueryable();
+        if (!includeClosed && !string.Equals(status, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(x => x.Status != "Closed");
+        }
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim().ToLower();
-            query = query.Where(x => x.Number.ToLower().Contains(term) || x.Subject.ToLower().Contains(term));
+            query = query.Where(x =>
+                x.Number.ToLower().Contains(term)
+                || x.Subject.ToLower().Contains(term)
+                || db.Customers.Any(customer => customer.Id == x.CustomerId && customer.CompanyName.ToLower().Contains(term))
+                || (x.ProductId.HasValue && db.Products.Any(product => product.Id == x.ProductId.Value && (product.Reference.ToLower().Contains(term) || product.Name.ToLower().Contains(term))))
+                || (x.SalesOrderId.HasValue && db.SalesOrders.Any(order => order.Id == x.SalesOrderId.Value && order.Number.ToLower().Contains(term))));
         }
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            query = query.Where(x => x.Status == status);
+            query = query.Where(x => x.Status == NormalizeStatus(status));
+        }
+
+        if (!string.IsNullOrWhiteSpace(priority))
+        {
+            query = query.Where(x => x.Priority == NormalizePriority(priority));
+        }
+
+        if (assignedToMe && currentUser.UserId.HasValue)
+        {
+            query = query.Where(x => x.AssignedUserId == currentUser.UserId.Value);
+        }
+        else if (assignedUserId.HasValue)
+        {
+            query = query.Where(x => x.AssignedUserId == assignedUserId.Value);
+        }
+        else if (unassigned)
+        {
+            query = query.Where(x => x.AssignedUserId == null);
         }
 
         var total = await query.CountAsync(cancellationToken);

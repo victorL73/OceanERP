@@ -51,6 +51,17 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 type RequestOptions = RequestInit & { auth?: boolean };
 
+type ServiceTicketQuery = {
+  search?: string;
+  status?: string;
+  priority?: string;
+  assignedToMe?: boolean;
+  assignedUserId?: string;
+  unassigned?: boolean;
+  includeClosed?: boolean;
+  pageSize?: number;
+};
+
 export class ApiClient {
   private accessToken: string | null = localStorage.getItem('oceanerp.accessToken');
   private refreshToken: string | null = localStorage.getItem('oceanerp.refreshToken');
@@ -764,15 +775,34 @@ export class ApiClient {
     return this.request<PrestashopSyncLog>(`/api/prestashop/connections/${connectionId}/sync`, { method: 'POST', auth: true });
   }
 
-  serviceTickets(search?: string, status?: string) {
-    const query = new URLSearchParams({ pageSize: '100' });
-    if (search?.trim()) {
-      query.set('search', search.trim());
+  serviceTickets(filters: ServiceTicketQuery = {}) {
+    const query = new URLSearchParams({ pageSize: String(filters.pageSize ?? 100) });
+    if (filters.search?.trim()) {
+      query.set('search', filters.search.trim());
     }
-    if (status?.trim()) {
-      query.set('status', status.trim());
+    if (filters.status?.trim()) {
+      query.set('status', filters.status.trim());
+    }
+    if (filters.priority?.trim()) {
+      query.set('priority', filters.priority.trim());
+    }
+    if (filters.assignedToMe) {
+      query.set('assignedToMe', 'true');
+    }
+    if (filters.assignedUserId?.trim()) {
+      query.set('assignedUserId', filters.assignedUserId.trim());
+    }
+    if (filters.unassigned) {
+      query.set('unassigned', 'true');
+    }
+    if (filters.includeClosed) {
+      query.set('includeClosed', 'true');
     }
     return this.request<PagedResult<ServiceTicket>>(`/api/service-tickets?${query.toString()}`, { auth: true });
+  }
+
+  serviceTicket(ticketId: string) {
+    return this.request<ServiceTicket>(`/api/service-tickets/${ticketId}`, { auth: true });
   }
 
   createServiceTicket(payload: { customerId: string; subject: string; description?: string | null; productId?: string | null; salesOrderId?: string | null; priority: string; assignedUserId?: string | null }) {

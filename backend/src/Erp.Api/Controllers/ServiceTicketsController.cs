@@ -13,8 +13,18 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
 {
     [HttpGet]
     [Authorize(Policy = "service.read")]
-    public async Task<ActionResult> Search([FromQuery] string? search, [FromQuery] string? status, [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
-        => Ok(await tickets.SearchAsync(search, status, page, pageSize, cancellationToken));
+    public async Task<ActionResult> Search(
+        [FromQuery] string? search,
+        [FromQuery] string? status,
+        [FromQuery] string? priority,
+        [FromQuery] bool assignedToMe = false,
+        [FromQuery] Guid? assignedUserId = null,
+        [FromQuery] bool unassigned = false,
+        [FromQuery] bool includeClosed = false,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+        => Ok(await tickets.SearchAsync(search, status, priority, assignedToMe, assignedUserId, unassigned, includeClosed, page, pageSize, cancellationToken));
 
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "service.read")]

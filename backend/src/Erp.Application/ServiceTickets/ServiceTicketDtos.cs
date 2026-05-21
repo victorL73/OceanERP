@@ -44,7 +44,7 @@ public sealed record UpdateServiceTicketAssignmentSettingsRequest(IReadOnlyList<
 
 public interface IServiceTicketService
 {
-    Task<PagedResult<ServiceTicketDto>> SearchAsync(string? search, string? status, int page, int pageSize, CancellationToken cancellationToken);
+    Task<PagedResult<ServiceTicketDto>> SearchAsync(string? search, string? status, string? priority, bool assignedToMe, Guid? assignedUserId, bool unassigned, bool includeClosed, int page, int pageSize, CancellationToken cancellationToken);
     Task<Result<ServiceTicketDto>> GetAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<ServiceTicketDto>> CreateAsync(CreateServiceTicketRequest request, CancellationToken cancellationToken);
     Task<Result<ServiceTicketDto>> UpdateAsync(Guid id, UpdateServiceTicketRequest request, CancellationToken cancellationToken);

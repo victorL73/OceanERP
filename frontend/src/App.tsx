@@ -139,6 +139,35 @@ type PrestashopSyncCompletedEvent = {
   resources: Array<{ resource: string; created: number; updated: number }>;
 };
 
+type ServiceTicketFilters = {
+  search: string;
+  status: string;
+  priority: string;
+  assignee: string;
+  includeClosed: boolean;
+};
+
+const defaultServiceTicketFilters: ServiceTicketFilters = {
+  search: '',
+  status: '',
+  priority: '',
+  assignee: 'me',
+  includeClosed: false
+};
+
+function serviceTicketFiltersToQuery(filters: ServiceTicketFilters) {
+  const includeClosed = filters.includeClosed || filters.status === 'Closed';
+  return {
+    search: filters.search,
+    status: filters.status,
+    priority: filters.priority,
+    assignedToMe: filters.assignee === 'me',
+    assignedUserId: !['me', 'all', 'unassigned'].includes(filters.assignee) ? filters.assignee : undefined,
+    unassigned: filters.assignee === 'unassigned',
+    includeClosed
+  };
+}
+
 export default function App() {
   const publicSignatureToken = useMemo(readPublicSignatureToken, []);
   const publicMeetToken = useMemo(readPublicMeetToken, []);
@@ -183,12 +212,23 @@ export default function App() {
   const [backups, setBackups] = useState<BackupArchive[]>([]);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
   const [serviceTicketCreateOpen, setServiceTicketCreateOpen] = useState(false);
+  const [serviceTicketFilters, setServiceTicketFilters] = useState<ServiceTicketFilters>(defaultServiceTicketFilters);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
 
   async function refreshPrestashopData() {
     const [nextConnections, nextLogs] = await Promise.all([api.prestashopConnections(), api.prestashopLogs()]);
     setPrestashopConnections(nextConnections);
     setPrestashopLogs(nextLogs);
+  }
+
+  async function refreshServiceTickets(filters = serviceTicketFilters) {
+    const nextTickets = await api.serviceTickets(serviceTicketFiltersToQuery(filters));
+    setServiceTickets(nextTickets);
+  }
+
+  async function applyServiceTicketFilters(nextFilters: ServiceTicketFilters) {
+    setServiceTicketFilters(nextFilters);
+    await refreshServiceTickets(nextFilters);
   }
 
   async function refreshAfterPrestashopRealtimeSync(syncEvent: PrestashopSyncCompletedEvent) {
@@ -218,7 +258,7 @@ export default function App() {
     }
 
     if (resources.has('customer_threads')) {
-      tasks.push(api.serviceTickets().then(setServiceTickets).catch(() => undefined));
+      tasks.push(refreshServiceTickets().catch(() => undefined));
     }
 
     await Promise.all(tasks);
@@ -346,7 +386,7 @@ export default function App() {
       }
       if (target === 'service') {
         const [nextTickets, nextCustomers, nextProducts, nextOrders, nextUsers] = await Promise.all([
-          api.serviceTickets(),
+          api.serviceTickets(serviceTicketFiltersToQuery(serviceTicketFilters)),
           api.customers(),
           api.products(),
           api.orders(),
@@ -480,9 +520,7 @@ export default function App() {
           .then(setSummary)
           .catch(() => undefined);
       } else if (notification.type.startsWith('service.')) {
-        api.serviceTickets()
-          .then(setServiceTickets)
-          .catch(() => undefined);
+        refreshServiceTickets().catch(() => undefined);
         api.summary()
           .then(setSummary)
           .catch(() => undefined);
@@ -695,7 +733,7 @@ export default function App() {
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
         {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
-        {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} createOpen={serviceTicketCreateOpen} onCloseCreate={() => setServiceTicketCreateOpen(false)} onChanged={() => load('service')} />}
+        {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} currentUser={currentUser} filters={serviceTicketFilters} createOpen={serviceTicketCreateOpen} onFiltersChange={applyServiceTicketFilters} onCloseCreate={() => setServiceTicketCreateOpen(false)} onChanged={() => load('service')} />}
         {view === 'calendar' && (
           <Calendar
             events={calendarEvents?.items ?? []}
@@ -9493,7 +9531,10 @@ function ServiceTickets({
   products,
   orders,
   users,
+  currentUser,
+  filters,
   createOpen,
+  onFiltersChange,
   onCloseCreate,
   onChanged
 }: {
@@ -9502,12 +9543,16 @@ function ServiceTickets({
   products: Product[];
   orders: SalesOrder[];
   users: User[];
+  currentUser: User | null;
+  filters: ServiceTicketFilters;
   createOpen: boolean;
+  onFiltersChange: (filters: ServiceTicketFilters) => Promise<void>;
   onCloseCreate: () => void;
   onChanged: () => Promise<void>;
 }) {
   const [selected, setSelected] = useState<ServiceTicket | null>(null);
   const [message, setMessage] = useState('');
+  const [searchDraft, setSearchDraft] = useState(filters.search);
   const [draft, setDraft] = useState({
     customerId: '',
     productId: '',
@@ -9517,7 +9562,27 @@ function ServiceTickets({
     description: '',
     priority: 'Normal'
   });
-  const activeUsers = users.filter((user) => user.isActive);
+  const activeUsers = useMemo(() => {
+    const active = users.filter((user) => user.isActive);
+    if (currentUser && !active.some((user) => user.id === currentUser.id)) {
+      return [currentUser, ...active];
+    }
+
+    return active;
+  }, [currentUser, users]);
+
+  useEffect(() => {
+    setSearchDraft(filters.search);
+  }, [filters.search]);
+
+  async function updateFilters(patch: Partial<ServiceTicketFilters>) {
+    await onFiltersChange({ ...filters, ...patch });
+  }
+
+  async function applySearch(event: FormEvent) {
+    event.preventDefault();
+    await updateFilters({ search: searchDraft });
+  }
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -9558,14 +9623,75 @@ function ServiceTickets({
     }
 
     await api.addServiceTicketMessage(selected.id, { body: message, isInternal: false });
-    const refreshed = (await api.serviceTickets()).items.find((ticket) => ticket.id === selected.id);
-    setSelected(refreshed ?? selected);
+    const refreshed = await api.serviceTicket(selected.id);
+    setSelected(refreshed);
     setMessage('');
     await onChanged();
   }
 
   return (
     <>
+      <Panel title="Filtres SAV">
+        <form className="form-grid compact-form" onSubmit={applySearch}>
+          <label className="field">
+            Recherche
+            <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Numero, client, produit, commande, sujet..." />
+          </label>
+          <label className="field">
+            Responsable
+            <select value={filters.assignee} onChange={(event) => updateFilters({ assignee: event.target.value })}>
+              <option value="me">Mes tickets{currentUser ? ` (${currentUser.displayName})` : ''}</option>
+              <option value="unassigned">A attribuer</option>
+              <option value="all">Tous les responsables</option>
+              {activeUsers.map((user) => (
+                <option key={user.id} value={user.id}>{user.displayName}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Statut
+            <select
+              value={filters.status}
+              onChange={(event) => updateFilters({ status: event.target.value, includeClosed: event.target.value === 'Closed' ? true : filters.includeClosed })}
+            >
+              <option value="">Tous les statuts ouverts</option>
+              <option value="Open">Ouvert</option>
+              <option value="InProgress">En cours</option>
+              <option value="WaitingCustomer">Attente client</option>
+              <option value="Resolved">Resolu</option>
+              <option value="Closed">Ferme</option>
+            </select>
+          </label>
+          <label className="field">
+            Priorite
+            <select value={filters.priority} onChange={(event) => updateFilters({ priority: event.target.value })}>
+              <option value="">Toutes les priorites</option>
+              <option value="Low">Basse</option>
+              <option value="Normal">Normale</option>
+              <option value="High">Haute</option>
+              <option value="Urgent">Urgente</option>
+            </select>
+          </label>
+          <label className="checkbox-field">
+            <input type="checkbox" checked={filters.includeClosed} onChange={(event) => updateFilters({ includeClosed: event.target.checked })} />
+            Inclure les tickets fermes
+          </label>
+          <button className="secondary" type="submit">
+            <Search size={15} />
+            Filtrer
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => {
+              setSearchDraft(defaultServiceTicketFilters.search);
+              void onFiltersChange(defaultServiceTicketFilters);
+            }}
+          >
+            Reinitialiser
+          </button>
+        </form>
+      </Panel>
       <DataTable
         columns={['Numero', 'Client', 'Responsable', 'Sujet', 'Priorite', 'Statut', 'Cree le']}
         rows={items.map((ticket) => [ticket.number, ticket.customerName, ticket.assignedUserName ?? 'A attribuer', ticket.subject, ticket.priority, ticket.status, formatOrderDate(ticket.createdAt)])}
