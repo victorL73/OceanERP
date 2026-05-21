@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      TZ: ${TZ:-Europe/Paris}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-oceanerp};Username=${POSTGRES_USER:-oceanerp};Password=${POSTGRES_PASSWORD:-change-me}
       Jwt__Issuer: ${JWT_ISSUER:-OceanERP}
       Jwt__Audience: ${JWT_AUDIENCE:-OceanERP}
@@ -29,7 +30,10 @@ services:
       Backup__CommandTimeoutSeconds: ${BACKUP_COMMAND_TIMEOUT_SECONDS:-900}
       Backup__ScheduleEnabled: ${BACKUP_SCHEDULE_ENABLED:-false}
       Backup__ScheduleIntervalHours: ${BACKUP_SCHEDULE_INTERVAL_HOURS:-24}
+      Backup__ScheduleTimeLocal: ${BACKUP_SCHEDULE_TIME_LOCAL:-02:00}
+      Backup__RetentionDays: ${BACKUP_RETENTION_DAYS:-14}
       BACKUP_ROOT_CONTAINER: /opt/oceanerp/backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
       BACKUP_USE_DIRECT_DB: "true"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432

@@ -1784,7 +1784,7 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
   const [busy, setBusy] = useState<string | null>(null);
   const [operation, setOperation] = useState<BackupOperationResult | null>(null);
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
-  const [scheduleDraft, setScheduleDraft] = useState({ enabled: false, intervalHours: 24 });
+  const [scheduleDraft, setScheduleDraft] = useState({ enabled: false, intervalHours: 24, timeOfDay: '02:00', retentionDays: 14 });
   const [remoteStorage, setRemoteStorage] = useState<BackupRemoteStorage | null>(null);
   const [remoteDraft, setRemoteDraft] = useState({
     enabled: false,
@@ -1807,7 +1807,12 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
     try {
       const next = await api.backupSchedule();
       setSchedule(next);
-      setScheduleDraft({ enabled: next.enabled, intervalHours: next.intervalHours });
+      setScheduleDraft({
+        enabled: next.enabled,
+        intervalHours: next.intervalHours,
+        timeOfDay: next.timeOfDay || '02:00',
+        retentionDays: next.retentionDays || 14
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Planification indisponible');
     }
@@ -1958,12 +1963,20 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
     setError(null);
     try {
       const intervalHours = Number.isFinite(scheduleDraft.intervalHours) ? scheduleDraft.intervalHours : 24;
+      const retentionDays = Number.isFinite(scheduleDraft.retentionDays) ? scheduleDraft.retentionDays : 14;
       const next = await api.updateBackupSchedule({
         enabled: scheduleDraft.enabled,
-        intervalHours: Math.max(1, Math.min(24 * 30, Math.round(intervalHours)))
+        intervalHours: Math.max(1, Math.min(24 * 30, Math.round(intervalHours))),
+        timeOfDay: scheduleDraft.timeOfDay || '02:00',
+        retentionDays: Math.max(1, Math.min(3650, Math.round(retentionDays)))
       });
       setSchedule(next);
-      setScheduleDraft({ enabled: next.enabled, intervalHours: next.intervalHours });
+      setScheduleDraft({
+        enabled: next.enabled,
+        intervalHours: next.intervalHours,
+        timeOfDay: next.timeOfDay || '02:00',
+        retentionDays: next.retentionDays || 14
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Planification impossible');
     } finally {
@@ -2005,7 +2018,7 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
             Activee
           </label>
           <label>
-            Frequence
+            Frequence (heures)
             <input
               type="number"
               min="1"
@@ -2017,7 +2030,27 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
               }}
             />
           </label>
-          <span className="backup-schedule-unit">heure(s)</span>
+          <label>
+            Heure
+            <input
+              type="time"
+              value={scheduleDraft.timeOfDay}
+              onChange={(event) => setScheduleDraft((current) => ({ ...current, timeOfDay: event.target.value || '02:00' }))}
+            />
+          </label>
+          <label>
+            Conservation (jours)
+            <input
+              type="number"
+              min="1"
+              max="3650"
+              value={scheduleDraft.retentionDays}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setScheduleDraft((current) => ({ ...current, retentionDays: Number.isFinite(value) ? value : 14 }));
+              }}
+            />
+          </label>
           <button className="secondary" type="button" disabled={Boolean(busy)} onClick={saveSchedule}>
             <Save size={16} />
             {busy === 'schedule' ? 'Enregistrement...' : 'Enregistrer'}

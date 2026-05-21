@@ -9,4 +9,6 @@ public sealed class BackupOptions
     public int CommandTimeoutSeconds { get; set; } = 900;
     public bool ScheduleEnabled { get; set; }
     public int ScheduleIntervalHours { get; set; } = 24;
+    public string ScheduleTimeLocal { get; set; } = "02:00";
+    public int RetentionDays { get; set; } = 14;
 }

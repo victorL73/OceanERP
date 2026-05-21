@@ -140,7 +140,7 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 
 La Phase 3 ajoute les permissions `service.*`, `calendar.*`, `signatures.*` et `onlyoffice.*`.
 
-La supervision serveur ajoute la permission `backup.manage` pour consulter les sauvegardes, lancer une sauvegarde, telecharger une archive ZIP, restaurer une sauvegarde et regler la planification periodique.
+La supervision serveur ajoute la permission `backup.manage` pour consulter les sauvegardes, lancer une sauvegarde, telecharger une archive ZIP, restaurer une sauvegarde et regler la planification periodique. Le planning expose l'activation, la frequence en heures, l'heure locale de reference et le nombre de jours de conservation.
 
 ## Endpoints Phase 3 ajoutes
 

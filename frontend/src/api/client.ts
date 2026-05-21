@@ -130,7 +130,7 @@ export class ApiClient {
     return this.request<BackupSchedule>('/api/backups/schedule', { auth: true });
   }
 
-  updateBackupSchedule(payload: { enabled: boolean; intervalHours: number }) {
+  updateBackupSchedule(payload: { enabled: boolean; intervalHours: number; timeOfDay: string; retentionDays: number }) {
     return this.request<BackupSchedule>('/api/backups/schedule', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 

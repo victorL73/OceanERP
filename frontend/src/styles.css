@@ -1312,7 +1312,7 @@ h1 {
 
 .backup-schedule {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(110px, 150px) auto auto;
+  grid-template-columns: minmax(260px, 1fr) auto repeat(3, minmax(120px, 170px)) auto;
   align-items: end;
   gap: 12px;
   margin-bottom: 16px;

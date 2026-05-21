@@ -57,6 +57,8 @@ export type BackupOperationResult = {
 export type BackupSchedule = {
   enabled: boolean;
   intervalHours: number;
+  timeOfDay: string;
+  retentionDays: number;
   lastRunAt?: string | null;
   nextRunAt?: string | null;
 };

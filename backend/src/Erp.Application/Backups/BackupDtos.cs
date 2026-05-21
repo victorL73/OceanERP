@@ -27,12 +27,16 @@ public sealed record BackupDownloadDto(
 public sealed record BackupScheduleDto(
     bool Enabled,
     int IntervalHours,
+    string TimeOfDay,
+    int RetentionDays,
     DateTimeOffset? LastRunAt,
     DateTimeOffset? NextRunAt);
 
 public sealed record UpdateBackupScheduleRequest(
     bool Enabled,
-    int IntervalHours);
+    int IntervalHours,
+    string? TimeOfDay,
+    int RetentionDays);
 
 public sealed record BackupRemoteStorageDto(
     bool Enabled,

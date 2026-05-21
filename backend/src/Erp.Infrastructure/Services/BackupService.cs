@@ -154,17 +154,31 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
             return Result<BackupScheduleDto>.Failure("La frequence doit etre comprise entre 1 heure et 30 jours.");
         }
 
+        var timeOfDay = NormalizeScheduleTime(request.TimeOfDay);
+        if (timeOfDay is null)
+        {
+            return Result<BackupScheduleDto>.Failure("L'heure de sauvegarde doit etre au format HH:mm.");
+        }
+
+        if (request.RetentionDays < 1 || request.RetentionDays > 3650)
+        {
+            return Result<BackupScheduleDto>.Failure("La conservation doit etre comprise entre 1 et 3650 jours.");
+        }
+
         await ScheduleLock.WaitAsync(cancellationToken);
         try
         {
             var existing = await ReadScheduleStateUnlockedAsync(cancellationToken);
             var intervalHours = NormalizeInterval(request.IntervalHours);
+            var retentionDays = NormalizeRetentionDays(request.RetentionDays);
             var now = DateTimeOffset.UtcNow;
             var state = new BackupScheduleState(
                 request.Enabled,
                 intervalHours,
+                timeOfDay,
+                retentionDays,
                 existing.LastRunAt,
-                request.Enabled ? CalculateNextRun(existing.LastRunAt, intervalHours, now) : null);
+                request.Enabled ? CalculateNextRun(existing.LastRunAt, intervalHours, timeOfDay, now) : null);
 
             await WriteScheduleStateUnlockedAsync(state, cancellationToken);
             return Result<BackupScheduleDto>.Success(ToScheduleDto(state));
@@ -297,11 +311,15 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         {
             var existing = await ReadScheduleStateUnlockedAsync(cancellationToken);
             var intervalHours = NormalizeInterval(existing.IntervalHours);
+            var timeOfDay = NormalizeScheduleTime(existing.TimeOfDay) ?? NormalizeScheduleTime(options.ScheduleTimeLocal) ?? "02:00";
+            var retentionDays = NormalizeRetentionDays(existing.RetentionDays);
             var state = existing with
             {
                 IntervalHours = intervalHours,
+                TimeOfDay = timeOfDay,
+                RetentionDays = retentionDays,
                 LastRunAt = completedAt,
-                NextRunAt = existing.Enabled ? completedAt.AddHours(intervalHours) : null
+                NextRunAt = existing.Enabled ? CalculateNextRun(completedAt, intervalHours, timeOfDay, completedAt) : null
             };
 
             await WriteScheduleStateUnlockedAsync(state, cancellationToken);
@@ -450,11 +468,15 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         if (!File.Exists(schedulePath))
         {
             var intervalHours = NormalizeInterval(options.ScheduleIntervalHours);
+            var timeOfDay = NormalizeScheduleTime(options.ScheduleTimeLocal) ?? "02:00";
+            var retentionDays = NormalizeRetentionDays(options.RetentionDays);
             return new BackupScheduleState(
                 options.ScheduleEnabled,
                 intervalHours,
+                timeOfDay,
+                retentionDays,
                 null,
-                options.ScheduleEnabled ? DateTimeOffset.UtcNow : null);
+                options.ScheduleEnabled ? CalculateNextRun(null, intervalHours, timeOfDay, DateTimeOffset.UtcNow) : null);
         }
 
         try
@@ -463,16 +485,28 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
             var state = await JsonSerializer.DeserializeAsync<BackupScheduleState>(stream, cancellationToken: cancellationToken);
             if (state is null)
             {
-                return new BackupScheduleState(false, NormalizeInterval(options.ScheduleIntervalHours), null, null);
+                return DefaultScheduleState(enabled: false);
             }
 
             var intervalHours = NormalizeInterval(state.IntervalHours);
-            return state with { IntervalHours = intervalHours };
+            var timeOfDay = NormalizeScheduleTime(state.TimeOfDay) ?? NormalizeScheduleTime(options.ScheduleTimeLocal) ?? "02:00";
+            var retentionDays = NormalizeRetentionDays(state.RetentionDays);
+            var nextRunAt = state.Enabled && state.NextRunAt is null
+                ? CalculateNextRun(state.LastRunAt, intervalHours, timeOfDay, DateTimeOffset.UtcNow)
+                : state.NextRunAt;
+
+            return state with
+            {
+                IntervalHours = intervalHours,
+                TimeOfDay = timeOfDay,
+                RetentionDays = retentionDays,
+                NextRunAt = state.Enabled ? nextRunAt : null
+            };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Backup schedule file could not be read");
-            return new BackupScheduleState(false, NormalizeInterval(options.ScheduleIntervalHours), null, null);
+            return DefaultScheduleState(enabled: false);
         }
     }
 
@@ -576,7 +610,14 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
 
     private static BackupScheduleDto ToScheduleDto(BackupScheduleState state)
     {
-        return new BackupScheduleDto(state.Enabled, NormalizeInterval(state.IntervalHours), state.LastRunAt, state.Enabled ? state.NextRunAt : null);
+        var timeOfDay = NormalizeScheduleTime(state.TimeOfDay) ?? "02:00";
+        return new BackupScheduleDto(
+            state.Enabled,
+            NormalizeInterval(state.IntervalHours),
+            timeOfDay,
+            NormalizeRetentionDays(state.RetentionDays),
+            state.LastRunAt,
+            state.Enabled ? state.NextRunAt : null);
     }
 
     private static BackupRemoteStorageDto ToRemoteStorageDto(BackupRemoteStorageState state)
@@ -600,25 +641,62 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         return new BackupRemoteStorageState(false, false, string.Empty, 22, string.Empty, null, "/backups/oceanerp", null, null, null, null);
     }
 
-    private static DateTimeOffset CalculateNextRun(DateTimeOffset? lastRunAt, int intervalHours, DateTimeOffset now)
+    private BackupScheduleState DefaultScheduleState(bool enabled)
     {
-        if (lastRunAt is null)
+        var intervalHours = NormalizeInterval(options.ScheduleIntervalHours);
+        var timeOfDay = NormalizeScheduleTime(options.ScheduleTimeLocal) ?? "02:00";
+        var retentionDays = NormalizeRetentionDays(options.RetentionDays);
+        return new BackupScheduleState(
+            enabled,
+            intervalHours,
+            timeOfDay,
+            retentionDays,
+            null,
+            enabled ? CalculateNextRun(null, intervalHours, timeOfDay, DateTimeOffset.UtcNow) : null);
+    }
+
+    private static DateTimeOffset CalculateNextRun(DateTimeOffset? lastRunAt, int intervalHours, string timeOfDay, DateTimeOffset now)
+    {
+        var interval = NormalizeInterval(intervalHours);
+        var time = ParseScheduleTime(timeOfDay) ?? new TimeOnly(2, 0);
+        var minimum = lastRunAt is not null && lastRunAt > now ? lastRunAt.Value : now;
+        var localMinimum = TimeZoneInfo.ConvertTime(minimum, TimeZoneInfo.Local);
+        var candidateLocal = localMinimum.Date.Add(time.ToTimeSpan());
+
+        while (candidateLocal <= localMinimum.DateTime)
         {
-            return now.AddHours(intervalHours);
+            candidateLocal = candidateLocal.AddHours(interval);
         }
 
-        var next = lastRunAt.Value.AddHours(intervalHours);
-        while (next <= now)
+        return new DateTimeOffset(candidateLocal, TimeZoneInfo.Local.GetUtcOffset(candidateLocal));
+    }
+
+    private static string? NormalizeScheduleTime(string? value)
+    {
+        var parsed = ParseScheduleTime(value);
+        return parsed?.ToString("HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    private static TimeOnly? ParseScheduleTime(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
-            next = next.AddHours(intervalHours);
+            return null;
         }
 
-        return next;
+        return TimeOnly.TryParseExact(value.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed
+            : null;
     }
 
     private static int NormalizeInterval(int hours)
     {
         return Math.Clamp(hours, 1, 24 * 30);
+    }
+
+    private static int NormalizeRetentionDays(int days)
+    {
+        return Math.Clamp(days <= 0 ? 14 : days, 1, 3650);
     }
 
     private static int NormalizePort(int port)
@@ -817,6 +895,13 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
     {
         var output = new List<string>();
         var outputLock = new object();
+        var retentionDays = NormalizeRetentionDays(options.RetentionDays);
+        if (action == "backup")
+        {
+            var scheduleState = await ReadScheduleStateAsync(cancellationToken);
+            retentionDays = NormalizeRetentionDays(scheduleState.RetentionDays);
+        }
+
         var startInfo = new ProcessStartInfo
         {
             FileName = OperatingSystem.IsWindows() ? "bash" : "/usr/bin/env",
@@ -836,6 +921,8 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
         {
             startInfo.ArgumentList.Add(argument);
         }
+
+        startInfo.Environment["BACKUP_RETENTION_DAYS"] = retentionDays.ToString(CultureInfo.InvariantCulture);
 
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         try
@@ -863,6 +950,11 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
             }
 
             var finalBackupName = backupName ?? DetectLatestBackupName();
+            if (action == "backup")
+            {
+                CleanupOldBackups(retentionDays, finalBackupName, output);
+            }
+
             return Operation(true, action, finalBackupName, action == "restore" ? "Restauration terminee." : "Sauvegarde terminee.", output);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -936,6 +1028,53 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
             ?.Name;
     }
 
+    private void CleanupOldBackups(int retentionDays, string? preservedBackupName, List<string> output)
+    {
+        var backupsDirectory = FullPath(options.BackupsDirectory);
+        if (!Directory.Exists(backupsDirectory))
+        {
+            return;
+        }
+
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-NormalizeRetentionDays(retentionDays));
+        var deleted = 0;
+        foreach (var directory in Directory.EnumerateDirectories(backupsDirectory))
+        {
+            cancellationSafeCleanup(directory);
+        }
+
+        if (deleted > 0)
+        {
+            output.Add($"{deleted} ancienne(s) sauvegarde(s) supprimee(s) par la retention de {NormalizeRetentionDays(retentionDays)} jour(s).");
+        }
+
+        void cancellationSafeCleanup(string directory)
+        {
+            try
+            {
+                var info = new DirectoryInfo(directory);
+                if (string.Equals(info.Name, preservedBackupName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                var createdAt = ParseBackupDate(info.Name) ?? info.LastWriteTimeUtc;
+                if (createdAt >= cutoff)
+                {
+                    return;
+                }
+
+                info.Delete(recursive: true);
+                deleted++;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Old backup cleanup failed for {BackupDirectory}", directory);
+                output.Add($"Nettoyage impossible pour {Path.GetFileName(directory)} : {ex.Message}");
+            }
+        }
+    }
+
     private string ResolveScriptPath(string scriptName)
     {
         return FullPath(Path.Combine(options.ScriptDirectory, scriptName));
@@ -954,6 +1093,8 @@ public sealed class BackupService(IOptions<BackupOptions> options, ILogger<Backu
     private sealed record BackupScheduleState(
         bool Enabled,
         int IntervalHours,
+        string? TimeOfDay,
+        int RetentionDays,
         DateTimeOffset? LastRunAt,
         DateTimeOffset? NextRunAt);
 

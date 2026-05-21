@@ -12,7 +12,7 @@ Depuis l'interface OceanERP, un administrateur peut utiliser le module `Sauvegar
 - `Sauvegardes > Lancer une sauvegarde` execute le script `deploy/ubuntu/backup.sh`.
 - La liste affiche les archives disponibles, leur taille et la presence des fichiers PostgreSQL/documents.
 - Le bouton `Telecharger` recupere une archive ZIP contenant `postgres.sql.gz` et `documents.tar.gz`.
-- Le bloc `Automatisation periodique` permet d'activer une sauvegarde serveur toutes les X heures.
+- Le bloc `Automatisation periodique` permet d'activer une sauvegarde serveur, de choisir la frequence, l'heure locale de reference et le nombre de jours de conservation.
 - Depuis l'interface, le conteneur API utilise `pg_dump`, `psql` et le volume documents monte directement. En SSH, les memes scripts utilisent Docker Compose comme avant.
 
 La sauvegarde peut aussi etre lancee en SSH :
@@ -73,15 +73,24 @@ Le script `backup.sh` force le proprietaire de l'archive documents sur l'utilisa
 sudo chown -R $USER:docker /opt/oceanerp/backups
 ```
 
-## 4. Rotation
+## 4. Planification et rotation
 
-La retention est configuree dans `.env` :
+Depuis l'interface, un administrateur peut configurer :
+
+- `Activee` pour lancer les sauvegardes meme lorsque l'interface est fermee.
+- `Frequence` en heures. Avec `24`, la sauvegarde est quotidienne.
+- `Heure` au format `HH:mm`. Avec une frequence de `24`, c'est l'heure quotidienne exacte.
+- `Conservation` en jours. Les sauvegardes plus anciennes sont supprimees apres une sauvegarde reussie.
+
+Les valeurs par defaut sont configurees dans `.env` :
 
 ```env
+TZ=Europe/Paris
+BACKUP_SCHEDULE_TIME_LOCAL=02:00
 BACKUP_RETENTION_DAYS=14
 ```
 
-Les dossiers plus anciens sont supprimes automatiquement par `backup.sh`.
+Le module serveur transmet aussi `BACKUP_RETENTION_DAYS` au script `backup.sh`, puis nettoie les anciens dossiers apres chaque sauvegarde reussie. Une sauvegarde en cours ou tout juste creee est conservee meme si sa date correspond a la limite.
 
 ## 5. Restaurer une sauvegarde
 
@@ -156,6 +165,7 @@ BACKUP_RETENTION_DAYS=14
 BACKUP_COMMAND_TIMEOUT_SECONDS=900
 BACKUP_SCHEDULE_ENABLED=false
 BACKUP_SCHEDULE_INTERVAL_HOURS=24
+BACKUP_SCHEDULE_TIME_LOCAL=02:00
 ```
 
 Si le module affiche `Script de sauvegarde introuvable` ou une erreur Docker, verifier que le deploiement a bien ete reconstruit avec :

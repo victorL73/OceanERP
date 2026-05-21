@@ -73,9 +73,11 @@ Variables importantes :
 - `MEET_STUN_URLS` liste les serveurs STUN utilises par Meet.
 - `MEET_TURN_URLS`, `MEET_TURN_USERNAME` et `MEET_TURN_CREDENTIAL` configurent un serveur TURN si les flux camera/ecran ne passent pas entre deux reseaux.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
-- `BACKUP_RETENTION_DAYS`
+- `TZ` definit le fuseau horaire local utilise par les sauvegardes planifiees.
+- `BACKUP_RETENTION_DAYS` definit le nombre de jours de sauvegardes locales a conserver.
 - `BACKUP_SCHEDULE_ENABLED` active la sauvegarde automatique serveur au demarrage si aucun planning n'a encore ete enregistre depuis l'interface.
 - `BACKUP_SCHEDULE_INTERVAL_HOURS` definit l'intervalle par defaut entre deux sauvegardes automatiques.
+- `BACKUP_SCHEDULE_TIME_LOCAL` definit l'heure locale de reference de la sauvegarde automatique, par exemple `02:00`.
 
 Par securite, `EMAIL_ENABLE_SMTP_SENDING=false` par defaut. Dans ce mode, les emails sont journalises dans l'ERP mais ne sont pas envoyes au serveur SMTP.
 
