@@ -1,5 +1,8 @@
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Erp.Application.Ai;
 using Erp.Application.Common;
 using Erp.Domain.Auth;
 using Erp.Domain.FutureModules;
@@ -13,7 +16,11 @@ namespace Erp.Api.Controllers;
 [ApiController]
 [Route("api/flowcean/compat")]
 [Authorize]
-public sealed class FlowceanCompatController(ErpDbContext db, ICurrentUserService currentUser) : ControllerBase
+public sealed class FlowceanCompatController(
+    ErpDbContext db,
+    ICurrentUserService currentUser,
+    IAiSettingsService aiSettings,
+    IHttpClientFactory httpClientFactory) : ControllerBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -232,12 +239,94 @@ public sealed class FlowceanCompatController(ErpDbContext db, ICurrentUserServic
         => Ok(new { ok = true, realtime = false });
 
     [HttpGet("ai")]
-    public ActionResult GetAi()
-        => Ok(new { ok = true, enabled = false, message = "Assistant IA non configure dans OceanERP." });
+    public async Task<ActionResult> GetAi(CancellationToken cancellationToken)
+    {
+        var runtimeResult = await aiSettings.GetRuntimeAsync(cancellationToken);
+        if (!runtimeResult.Succeeded || runtimeResult.Value is null)
+        {
+            return Ok(new
+            {
+                ok = true,
+                settings = new
+                {
+                    isEnabled = false,
+                    provider = "groq",
+                    model = "llama-3.3-70b-versatile",
+                    hasApiKey = false,
+                    message = runtimeResult.Error ?? "Assistant IA non configure dans OceanERP."
+                }
+            });
+        }
+
+        return Ok(new { ok = true, settings = PublicAiSettings(runtimeResult.Value) });
+    }
 
     [HttpPost("ai")]
-    public ActionResult PostAi()
-        => Ok(new { ok = true, text = "Assistant IA non configure dans OceanERP." });
+    public async Task<ActionResult> PostAi(FlowceanAiRequest request, CancellationToken cancellationToken)
+    {
+        var runtimeResult = await aiSettings.GetRuntimeAsync(cancellationToken);
+        if (!runtimeResult.Succeeded || runtimeResult.Value is null)
+        {
+            return BadRequest(new { ok = false, message = runtimeResult.Error ?? "Parametres IA indisponibles." });
+        }
+
+        var runtime = runtimeResult.Value;
+        if (!runtime.IsEnabled)
+        {
+            return BadRequest(new { ok = false, message = "Assistant IA desactive dans Parametres > IA de l'ERP." });
+        }
+
+        if (!string.Equals(runtime.Provider, "groq", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { ok = false, message = "Flowcean utilise uniquement Groq via les parametres IA de l'ERP." });
+        }
+
+        if (string.IsNullOrWhiteSpace(runtime.ApiKey))
+        {
+            return BadRequest(new { ok = false, message = "Cle Groq non configuree dans Parametres > IA de l'ERP." });
+        }
+
+        var prompt = BuildFlowceanAiPrompt(request);
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return BadRequest(new { ok = false, message = "Demande IA vide." });
+        }
+
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildGroqCompletionUri(runtime.EndpointUrl));
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", runtime.ApiKey);
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(new
+        {
+            model = runtime.Model,
+            temperature = runtime.Temperature,
+            max_tokens = runtime.MaxTokens,
+            messages = new object[]
+            {
+                new
+                {
+                    role = "system",
+                    content = string.IsNullOrWhiteSpace(runtime.SystemPrompt)
+                        ? "Tu es l'assistant IA interne OceanERP. Reponds en francais, de facon concise, utile et directement exploitable dans un espace de travail collaboratif."
+                        : runtime.SystemPrompt
+                },
+                new { role = "user", content = prompt }
+            }
+        }, JsonOptions), Encoding.UTF8, "application/json");
+
+        using var response = await httpClientFactory.CreateClient().SendAsync(httpRequest, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return StatusCode((int)response.StatusCode, new
+            {
+                ok = false,
+                message = $"Groq a refuse la demande IA: HTTP {(int)response.StatusCode}.",
+                detail = body
+            });
+        }
+
+        var answer = ExtractGroqAnswer(body);
+        return Ok(new { ok = true, answer, text = answer, settings = PublicAiSettings(runtime) });
+    }
 
     private async Task<dynamic> WorkspacePayloadAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
     {
@@ -412,6 +501,77 @@ public sealed class FlowceanCompatController(ErpDbContext db, ICurrentUserServic
             canSuperviseEverything = isAdmin
         };
 
+    private static object PublicAiSettings(AiRuntimeSettings settings)
+        => new
+        {
+            isEnabled = settings.IsEnabled,
+            provider = settings.Provider,
+            endpointUrl = settings.EndpointUrl,
+            model = settings.Model,
+            hasApiKey = !string.IsNullOrWhiteSpace(settings.ApiKey),
+            temperature = settings.Temperature,
+            maxTokens = settings.MaxTokens,
+            systemPrompt = settings.SystemPrompt
+        };
+
+    private static Uri BuildGroqCompletionUri(string endpointUrl)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(endpointUrl)
+            ? "https://api.groq.com/openai/v1"
+            : endpointUrl.Trim().TrimEnd('/');
+        if (!trimmed.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = $"{trimmed}/chat/completions";
+        }
+
+        return new Uri(trimmed, UriKind.Absolute);
+    }
+
+    private static string BuildFlowceanAiPrompt(FlowceanAiRequest request)
+    {
+        if (string.Equals(request.Action, "test", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Reponds uniquement par une phrase courte confirmant que la connexion Groq fonctionne pour OceanERP.";
+        }
+
+        var task = string.IsNullOrWhiteSpace(request.Task) ? "chat" : request.Task.Trim();
+        var prompt = request.Prompt?.Trim();
+        var context = request.Context?.Trim();
+
+        return string.Join("\n\n", new[]
+        {
+            $"Tache Flowcean: {task}",
+            string.IsNullOrWhiteSpace(prompt) ? null : $"Demande utilisateur:\n{prompt}",
+            string.IsNullOrWhiteSpace(context) ? null : $"Contexte de la page active:\n{context}"
+        }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    private static string ExtractGroqAnswer(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (root.TryGetProperty("choices", out var choices)
+            && choices.ValueKind == JsonValueKind.Array
+            && choices.GetArrayLength() > 0)
+        {
+            var first = choices[0];
+            if (first.TryGetProperty("message", out var message)
+                && message.TryGetProperty("content", out var content)
+                && content.ValueKind == JsonValueKind.String)
+            {
+                return content.GetString() ?? string.Empty;
+            }
+
+            if (first.TryGetProperty("text", out var text)
+                && text.ValueKind == JsonValueKind.String)
+            {
+                return text.GetString() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
+
     private async Task<bool> IsCurrentUserAdminAsync(CancellationToken cancellationToken)
     {
         if (currentUser.UserId is not Guid userId)
@@ -517,3 +677,9 @@ public sealed record FlowceanCompatWorkspaceAction(
     int? InvitationId);
 
 public sealed record FlowceanCompatPreferencesRequest(JsonElement Preferences);
+
+public sealed record FlowceanAiRequest(
+    string? Action,
+    string? Task,
+    string? Prompt,
+    string? Context);

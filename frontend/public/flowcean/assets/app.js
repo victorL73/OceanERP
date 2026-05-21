@@ -14,7 +14,26 @@ const PEOPLE_API_URL = "/api/flowcean/compat/people";
 const NOTIFICATIONS_API_URL = "/api/flowcean/compat/notifications";
 const AI_API_URL = "/api/flowcean/compat/ai";
 const OCEANOS_URL = "/";
-const OCEANOS_AI_URL = "/?view=flowcean";
+const ERP_AI_SETTINGS_URL = "/?view=settings";
+
+function openErpAiSettings() {
+  try {
+    window.parent?.localStorage?.setItem("oceanerp.settings.activeTab", "ai");
+    if (window.parent && window.parent !== window) {
+      window.parent.location.href = ERP_AI_SETTINGS_URL;
+      return;
+    }
+  } catch (error) {
+    // Ignore parent access limitations in isolated windows.
+  }
+
+  try {
+    localStorage.setItem("oceanerp.settings.activeTab", "ai");
+  } catch (error) {
+    // Ignore localStorage failures.
+  }
+  window.location.href = ERP_AI_SETTINGS_URL;
+}
 
 function redirectToOceanOS() {
   window.parent?.postMessage({ type: "oceanerp:flowcean-auth-required" }, window.location.origin);
@@ -10939,13 +10958,13 @@ async function loadAiSettings() {
 }
 
 async function saveAiSettings({ apiKey, model }) {
-  window.location.href = OCEANOS_AI_URL;
-  throw new Error("La configuration Groq se fait maintenant dans OceanOS.");
+  openErpAiSettings();
+  return loadAiSettings();
 }
 
 async function deleteAiSettings() {
-  window.location.href = OCEANOS_AI_URL;
-  throw new Error("La configuration Groq se supprime maintenant dans OceanOS.");
+  openErpAiSettings();
+  return loadAiSettings();
 }
 
 async function runAiCompletion({ task, prompt, context }) {
@@ -11409,14 +11428,14 @@ function openAiAssistantModal() {
 
   openModal({
     kicker: "Assistant IA",
-    title: "Groq personnel",
+    title: "Assistant IA ERP",
     contentBuilder: () => {
       const panel = document.createElement("div");
       panel.className = "ai-panel";
 
       const intro = document.createElement("p");
       intro.className = "admin-hint";
-      intro.textContent = "La cle Groq est maintenant configuree dans le menu utilisateur OceanOS et reutilisee par toutes les apps.";
+      intro.textContent = "L'assistant utilise la configuration Groq definie dans Parametres > IA de l'ERP. La cle reste protegee cote serveur et n'est jamais envoyee a Flowcean.";
 
       const settingsCard = document.createElement("section");
       settingsCard.className = "ai-card";
@@ -11428,12 +11447,6 @@ function openAiAssistantModal() {
       const form = document.createElement("form");
       form.className = "ai-settings-form";
 
-      const apiKeyInput = document.createElement("input");
-      apiKeyInput.type = "password";
-      apiKeyInput.placeholder = "Geree dans OceanOS";
-      apiKeyInput.autocomplete = "off";
-      apiKeyInput.disabled = true;
-
       const modelInput = document.createElement("input");
       modelInput.type = "text";
       modelInput.placeholder = "Modele Groq";
@@ -11443,19 +11456,14 @@ function openAiAssistantModal() {
       const saveButton = document.createElement("button");
       saveButton.type = "submit";
       saveButton.className = "card-button primary";
-      saveButton.textContent = "Ouvrir OceanOS";
+      saveButton.textContent = "Ouvrir les parametres IA";
 
       const testButton = document.createElement("button");
       testButton.type = "button";
       testButton.className = "card-button";
       testButton.textContent = "Tester";
 
-      const removeButton = document.createElement("button");
-      removeButton.type = "button";
-      removeButton.className = "card-button danger";
-      removeButton.textContent = "Gerer dans OceanOS";
-
-      form.append(apiKeyInput, modelInput, saveButton, testButton, removeButton);
+      form.append(modelInput, saveButton, testButton);
       settingsCard.append(status, form);
 
       const promptCard = document.createElement("section");
@@ -11519,27 +11527,7 @@ function openAiAssistantModal() {
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        saveButton.disabled = true;
-        try {
-          const rawKey = apiKeyInput.value.trim();
-          if (rawKey && !rawKey.startsWith("gsk_")) {
-            throw new Error("Ce n'est pas une cle Groq. Elle doit commencer par gsk_.");
-          }
-          const settings = await saveAiSettings({
-            apiKey: rawKey,
-            model: modelInput.value.trim(),
-          });
-          apiKeyInput.value = "";
-          status.textContent = settings.hasApiKey
-            ? `Cle Groq enregistree et masquee - modele ${settings.model}`
-            : "Modele enregistre, aucune cle Groq configuree.";
-          toast("Parametres IA enregistres.");
-        } catch (error) {
-          status.textContent = error.message;
-          toast(error.message);
-        } finally {
-          saveButton.disabled = false;
-        }
+        openErpAiSettings();
       });
 
       testButton.addEventListener("click", async () => {
@@ -11554,21 +11542,6 @@ function openAiAssistantModal() {
           toast(error.message);
         } finally {
           testButton.disabled = false;
-        }
-      });
-
-      removeButton.addEventListener("click", async () => {
-        removeButton.disabled = true;
-        try {
-          await deleteAiSettings();
-          apiKeyInput.value = "";
-          status.textContent = "Cle IA supprimee pour ce compte.";
-          toast("Cle IA supprimee.");
-        } catch (error) {
-          status.textContent = error.message;
-          toast(error.message);
-        } finally {
-          removeButton.disabled = false;
         }
       });
 
@@ -11606,9 +11579,9 @@ function openAiAssistantModal() {
       void loadAiSettings()
         .then((settings) => {
           modelInput.value = settings.model || "llama-3.3-70b-versatile";
-          status.textContent = settings.hasApiKey
-            ? `Cle Groq active depuis OceanOS - modele ${modelInput.value}`
-            : "Aucune cle Groq configuree dans OceanOS.";
+          status.textContent = settings.isEnabled && settings.hasApiKey
+            ? `IA ERP active - modele ${modelInput.value}`
+            : (settings.isEnabled ? "IA ERP active, mais aucune cle Groq n'est configuree." : "IA ERP desactivee dans les parametres.");
         })
         .catch((error) => {
           status.textContent = error.message;
@@ -13040,12 +13013,6 @@ function buildUserMenuAiContent() {
   const form = document.createElement("form");
   form.className = "ai-settings-form";
 
-  const apiKeyInput = document.createElement("input");
-  apiKeyInput.type = "password";
-  apiKeyInput.placeholder = "Geree dans OceanOS";
-  apiKeyInput.autocomplete = "off";
-  apiKeyInput.disabled = true;
-
   const modelInput = document.createElement("input");
   modelInput.type = "text";
   modelInput.placeholder = "Modele Groq";
@@ -13055,19 +13022,14 @@ function buildUserMenuAiContent() {
   const saveButton = document.createElement("button");
   saveButton.type = "submit";
   saveButton.className = "card-button primary";
-  saveButton.textContent = "Ouvrir OceanOS";
+  saveButton.textContent = "Ouvrir les parametres IA";
 
   const testButton = document.createElement("button");
   testButton.type = "button";
   testButton.className = "card-button";
   testButton.textContent = "Tester";
 
-  const removeButton = document.createElement("button");
-  removeButton.type = "button";
-  removeButton.className = "card-button danger";
-  removeButton.textContent = "Gerer dans OceanOS";
-
-  form.append(apiKeyInput, modelInput, saveButton, testButton, removeButton);
+  form.append(modelInput, saveButton, testButton);
   settingsCard.append(status, form);
 
   const promptCard = document.createElement("section");
@@ -13131,27 +13093,7 @@ function buildUserMenuAiContent() {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    saveButton.disabled = true;
-    try {
-      const rawKey = apiKeyInput.value.trim();
-      if (rawKey && !rawKey.startsWith("gsk_")) {
-        throw new Error("Ce n'est pas une cle Groq. Elle doit commencer par gsk_.");
-      }
-      const settings = await saveAiSettings({
-        apiKey: rawKey,
-        model: modelInput.value.trim(),
-      });
-      apiKeyInput.value = "";
-      status.textContent = settings.hasApiKey
-        ? `Cle Groq enregistree - modele ${settings.model}`
-        : "Modele enregistre, aucune cle configuree.";
-      toast("Parametres IA enregistres.");
-    } catch (error) {
-      status.textContent = error.message;
-      toast(error.message);
-    } finally {
-      saveButton.disabled = false;
-    }
+    openErpAiSettings();
   });
 
   testButton.addEventListener("click", async () => {
@@ -13166,21 +13108,6 @@ function buildUserMenuAiContent() {
       toast(error.message);
     } finally {
       testButton.disabled = false;
-    }
-  });
-
-  removeButton.addEventListener("click", async () => {
-    removeButton.disabled = true;
-    try {
-      await deleteAiSettings();
-      apiKeyInput.value = "";
-      status.textContent = "Cle IA supprimee pour ce compte.";
-      toast("Cle IA supprimee.");
-    } catch (error) {
-      status.textContent = error.message;
-      toast(error.message);
-    } finally {
-      removeButton.disabled = false;
     }
   });
 
@@ -13218,9 +13145,9 @@ function buildUserMenuAiContent() {
   void loadAiSettings()
     .then((settings) => {
       modelInput.value = settings.model || "llama-3.3-70b-versatile";
-      status.textContent = settings.hasApiKey
-        ? `Cle Groq active depuis OceanOS - modele ${modelInput.value}`
-        : "Aucune cle Groq configuree dans OceanOS.";
+      status.textContent = settings.isEnabled && settings.hasApiKey
+        ? `IA ERP active - modele ${modelInput.value}`
+        : (settings.isEnabled ? "IA ERP active, mais aucune cle Groq n'est configuree." : "IA ERP desactivee dans les parametres.");
     })
     .catch((error) => {
       status.textContent = error.message;
@@ -13990,7 +13917,7 @@ function openUserMenu() {
         {
           id: "ai",
           label: "Assistant IA",
-          hint: "Groq personnel",
+          hint: "Parametres ERP",
           render: () => buildUserMenuAiContent(),
         },
         {
@@ -14014,9 +13941,11 @@ function openUserMenu() {
         });
       }
 
-      let activeId = sections[0].id;
+      const visibleSections = sections.filter((section) => !["account", "tools"].includes(section.id));
+      let activeId = visibleSections[0]?.id || "";
 
       const renderSection = (section) => {
+        if (!section) return;
         activeId = section.id;
         rail.querySelectorAll(".user-control-tab").forEach((tab) => {
           tab.classList.toggle("active", tab.dataset.sectionId === activeId);
@@ -14036,7 +13965,7 @@ function openUserMenu() {
         if (body) content.appendChild(body);
       };
 
-      sections.forEach((section) => {
+      visibleSections.forEach((section) => {
         const tab = document.createElement("button");
         tab.type = "button";
         tab.className = `user-control-tab ${section.id === activeId ? "active" : ""}`;
@@ -14052,7 +13981,7 @@ function openUserMenu() {
       });
 
       shell.append(rail, content);
-      renderSection(sections[0]);
+      renderSection(visibleSections[0]);
       return shell;
     },
   });

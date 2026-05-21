@@ -17,6 +17,26 @@ public sealed class AiSettingsService(ErpDbContext db, ICurrentUserService curre
         return Map(settings);
     }
 
+    public async Task<Result<AiRuntimeSettings>> GetRuntimeAsync(CancellationToken cancellationToken)
+    {
+        var settings = await LoadSettingsAsync(cancellationToken);
+        var apiKeyResult = ResolveApiKey(settings);
+        if (!apiKeyResult.Succeeded)
+        {
+            return Result<AiRuntimeSettings>.Failure(apiKeyResult.Error ?? "Cle IA indisponible.");
+        }
+
+        return Result<AiRuntimeSettings>.Success(new AiRuntimeSettings(
+            settings.IsEnabled,
+            settings.Provider,
+            settings.EndpointUrl,
+            settings.Model,
+            apiKeyResult.Value ?? string.Empty,
+            settings.Temperature,
+            settings.MaxTokens,
+            settings.SystemPrompt));
+    }
+
     public async Task<Result<AiSettingsDto>> UpdateAsync(UpdateAiSettingsRequest request, CancellationToken cancellationToken)
     {
         if (!await IsAdministratorAsync(cancellationToken))
@@ -110,6 +130,31 @@ public sealed class AiSettingsService(ErpDbContext db, ICurrentUserService curre
                 || !string.IsNullOrWhiteSpace(configuration[name]));
     }
 
+    private Result<string> ResolveApiKey(AiSettings settings)
+    {
+        if (!string.IsNullOrWhiteSpace(settings.ApiKeyProtectedValue))
+        {
+            if (settings.ApiKeyProtectedValue.Contains('.'))
+            {
+                return ProtectedSecretProtector.Unprotect(configuration, settings.ApiKeyProtectedValue, "Cle IA Groq");
+            }
+
+            return UnprotectLegacySecret(settings.ApiKeyProtectedValue);
+        }
+
+        var name = settings.ApiKeySecretName;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var externalSecret = configuration[$"Secrets:{name}"] ?? configuration[name];
+            if (!string.IsNullOrWhiteSpace(externalSecret))
+            {
+                return Result<string>.Success(externalSecret.Trim());
+            }
+        }
+
+        return Result<string>.Success(string.Empty);
+    }
+
     private string ProtectSecret(string secret)
     {
         using var sha = SHA256.Create();
@@ -129,6 +174,44 @@ public sealed class AiSettingsService(ErpDbContext db, ICurrentUserService curre
 #pragma warning restore SYSLIB0053
         aes.Encrypt(nonce, plain, cipher, tag);
         return $"v1:{Convert.ToBase64String(nonce)}:{Convert.ToBase64String(tag)}:{Convert.ToBase64String(cipher)}";
+    }
+
+    private Result<string> UnprotectLegacySecret(string protectedValue)
+    {
+        var parts = protectedValue.Split(':');
+        if (parts.Length != 4 || parts[0] != "v1")
+        {
+            return Result<string>.Failure("Cle IA Groq protegee: format invalide.");
+        }
+
+        try
+        {
+            using var sha = SHA256.Create();
+            var seed = configuration["Secrets:EncryptionKey"]
+                ?? configuration["SECRETS_ENCRYPTION_KEY"]
+                ?? configuration["JWT_SIGNING_KEY"]
+                ?? configuration["Jwt:SigningKey"]
+                ?? "oceanerp-local-development-secret";
+            var key = sha.ComputeHash(Encoding.UTF8.GetBytes(seed));
+            var nonce = Convert.FromBase64String(parts[1]);
+            var tag = Convert.FromBase64String(parts[2]);
+            var cipher = Convert.FromBase64String(parts[3]);
+            var plain = new byte[cipher.Length];
+
+#pragma warning disable SYSLIB0053
+            using var aes = new AesGcm(key);
+#pragma warning restore SYSLIB0053
+            aes.Decrypt(nonce, cipher, tag, plain);
+            return Result<string>.Success(Encoding.UTF8.GetString(plain));
+        }
+        catch (CryptographicException)
+        {
+            return Result<string>.Failure("Cle IA Groq protegee: dechiffrement impossible. Verifiez Secrets:EncryptionKey.");
+        }
+        catch (FormatException)
+        {
+            return Result<string>.Failure("Cle IA Groq protegee: format invalide.");
+        }
     }
 
     private async Task<bool> IsAdministratorAsync(CancellationToken cancellationToken)
