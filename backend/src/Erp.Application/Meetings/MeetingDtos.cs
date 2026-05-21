@@ -6,7 +6,7 @@ public sealed record MeetingLanguageDto(string Code, string Label);
 
 public sealed record MeetingIceServerDto(string[] Urls, string? Username = null, string? Credential = null);
 
-public sealed record MeetingIceConfigurationDto(IReadOnlyList<MeetingIceServerDto> IceServers);
+public sealed record MeetingIceConfigurationDto(IReadOnlyList<MeetingIceServerDto> IceServers, bool ForceRelay = false);
 
 public sealed record MeetingRoomDto(
     Guid Id,

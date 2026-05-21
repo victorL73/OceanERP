@@ -47,7 +47,8 @@ public sealed class MeetingService(ErpDbContext db, ICurrentUserService currentU
                 NormalizeConfigValue(configuration["MEET_TURN_CREDENTIAL"])));
         }
 
-        return new MeetingIceConfigurationDto(servers);
+        var forceRelay = bool.TryParse(configuration["MEET_FORCE_RELAY"], out var parsedForceRelay) && parsedForceRelay;
+        return new MeetingIceConfigurationDto(servers, forceRelay);
     }
 
     public async Task<MeetingDashboardDto> DashboardAsync(CancellationToken cancellationToken)

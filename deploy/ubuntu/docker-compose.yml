@@ -18,6 +18,11 @@ services:
       Seed__AdminPassword: ${ERP_ADMIN_PASSWORD:-ChangeMe!12345}
       Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost}
       Email__EnableSmtpSending: ${EMAIL_ENABLE_SMTP_SENDING:-false}
+      MEET_STUN_URLS: ${MEET_STUN_URLS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302}
+      MEET_TURN_URLS: ${MEET_TURN_URLS:-}
+      MEET_TURN_USERNAME: ${MEET_TURN_USERNAME:-}
+      MEET_TURN_CREDENTIAL: ${MEET_TURN_CREDENTIAL:-}
+      MEET_FORCE_RELAY: ${MEET_FORCE_RELAY:-false}
       OnlyOffice__DocumentServerUrl: ${ONLYOFFICE_DOCUMENT_SERVER_URL:-/onlyoffice}
       OnlyOffice__InternalBaseUrl: ${ONLYOFFICE_INTERNAL_BASE_URL:-http://nginx}
       OnlyOffice__CallbackSecret: ${ONLYOFFICE_JWT_SECRET:-change-me-onlyoffice}
@@ -93,6 +98,40 @@ services:
     volumes:
       - oceanerp_onlyoffice_data:/var/www/onlyoffice/Data
       - oceanerp_onlyoffice_logs:/var/log/onlyoffice
+    networks:
+      - oceanerp
+
+  turn:
+    image: coturn/coturn:4.6
+    container_name: oceanerp-turn
+    restart: unless-stopped
+    environment:
+      MEET_TURN_USERNAME: ${MEET_TURN_USERNAME:-oceanerp}
+      MEET_TURN_CREDENTIAL: ${MEET_TURN_CREDENTIAL:-change-this-turn-secret}
+      TURN_REALM: ${TURN_REALM:-interne.renovboat.com}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      set -eu;
+      extra="";
+      if [ -n "$${TURN_EXTERNAL_IP:-}" ]; then extra="--external-ip=$${TURN_EXTERNAL_IP}"; fi;
+      exec turnserver
+      --no-cli
+      --log-file=stdout
+      --fingerprint
+      --lt-cred-mech
+      --listening-port=3478
+      --min-port=49160
+      --max-port=49200
+      --realm="$${TURN_REALM}"
+      --user="$${MEET_TURN_USERNAME}:$${MEET_TURN_CREDENTIAL}"
+      --no-tls
+      --no-dtls
+      $$extra
+    ports:
+      - "${TURN_PORT:-3478}:3478/tcp"
+      - "${TURN_PORT:-3478}:3478/udp"
+      - "49160-49200:49160-49200/udp"
     networks:
       - oceanerp
 

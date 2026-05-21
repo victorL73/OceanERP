@@ -6,6 +6,7 @@
 - `postgres` : PostgreSQL 16.
 - `nginx` : frontend statique React et reverse proxy API/SignalR/ONLYOFFICE.
 - `onlyoffice` : ONLYOFFICE Docs auto-heberge.
+- `turn` : serveur coturn local pour relayer les flux Meet quand WebRTC direct echoue.
 
 ## Ports
 
@@ -14,6 +15,7 @@ Par defaut :
 - Nginx est expose sur `HTTP_PORT=8080`.
 - L'API est interne au reseau Docker sur `erp-api:8080`.
 - PostgreSQL est interne au reseau Docker sur `postgres:5432`.
+- TURN est expose sur `TURN_PORT=3478` en TCP/UDP et sur la plage UDP `49160-49200`.
 
 Test local serveur :
 
@@ -71,7 +73,9 @@ Variables importantes :
 - `PRESTASHOP_AUTO_SYNC_ENABLED` active la synchronisation PrestaShop automatique serveur.
 - `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS` definit la cadence invisible de synchronisation des produits, clients, commandes, stocks et messages SAV. Valeur par defaut : `10`.
 - `MEET_STUN_URLS` liste les serveurs STUN utilises par Meet.
-- `MEET_TURN_URLS`, `MEET_TURN_USERNAME` et `MEET_TURN_CREDENTIAL` configurent un serveur TURN si les flux camera/ecran ne passent pas entre deux reseaux.
+- `MEET_TURN_URLS`, `MEET_TURN_USERNAME` et `MEET_TURN_CREDENTIAL` configurent le serveur TURN utilise par Meet.
+- `MEET_FORCE_RELAY=true` force les flux camera/micro/ecran a passer par TURN pour diagnostiquer les ecrans noirs.
+- `TURN_REALM`, `TURN_EXTERNAL_IP` et `TURN_PORT` configurent le conteneur coturn local.
 - `SMTP_MAIN_PASSWORD` si un compte mail utilise ce nom de secret
 - `TZ` definit le fuseau horaire local utilise par les sauvegardes planifiees.
 - `BACKUP_RETENTION_DAYS` definit le nombre de jours de sauvegardes locales a conserver.
@@ -108,20 +112,36 @@ Le logo des devis configure dans `Parametres > Devis` est stocke dans le volume 
 
 Le module Meet utilise WebRTC. Par defaut, OceanERP annonce les serveurs STUN publics `stun:stun.l.google.com:19302` et `stun:stun1.l.google.com:19302` via `MEET_STUN_URLS`.
 
-Si deux participants sont sur des reseaux differents et voient un ecran noir alors que la camera est active, il faut configurer un serveur TURN accessible depuis Internet :
+OceanERP fournit maintenant un service coturn local dans Docker Compose. Si deux participants sont sur des reseaux differents et voient un ecran noir alors que la camera est active, configurer `.env` avec un TURN accessible depuis Internet :
 
 ```env
-MEET_TURN_URLS=turn:votre-domaine:3478?transport=udp,turn:votre-domaine:3478?transport=tcp
-MEET_TURN_USERNAME=utilisateur-turn
-MEET_TURN_CREDENTIAL=mot-de-passe-turn
+MEET_TURN_URLS=turn:interne.renovboat.com:3478?transport=udp,turn:interne.renovboat.com:3478?transport=tcp
+MEET_TURN_USERNAME=oceanerp
+MEET_TURN_CREDENTIAL=mot-de-passe-long-turn
+MEET_FORCE_RELAY=true
+TURN_REALM=interne.renovboat.com
+TURN_EXTERNAL_IP=IP_PUBLIQUE_DU_SERVEUR
+TURN_PORT=3478
 ```
 
-Apres modification, recreer l'API et le frontend pour que la salle Meet relise la configuration :
+Ouvrir aussi les ports reseau suivants sur le serveur et chez l'hebergeur si un firewall externe existe :
+
+```bash
+sudo ufw allow 3478/tcp
+sudo ufw allow 3478/udp
+sudo ufw allow 49160:49200/udp
+```
+
+Apres modification, recreer l'API, le frontend et le service TURN pour que la salle Meet relise la configuration :
 
 ```bash
 cd ~/OceanERP/deploy/ubuntu
-docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
+docker compose --env-file .env -f docker-compose.yml up -d --build erp-api nginx turn
+docker logs oceanerp-turn --tail=100
+curl -s https://interne.renovboat.com/api/meetings/ice
 ```
+
+Pendant le diagnostic, garder `MEET_FORCE_RELAY=true`. Si les flux video fonctionnent, TURN est valide. Il est ensuite possible de laisser ce mode actif pour maximiser la fiabilite, ou de repasser a `MEET_FORCE_RELAY=false` pour autoriser les connexions directes quand elles sont possibles.
 
 Pour l'edition Office, le bouton `Office` du Drive ouvre ONLYOFFICE directement dans OceanERP pour les fichiers DOCX, XLSX et PPTX compatibles. `PUBLIC_URL` reste l'URL HTTPS publique de l'ERP. `ONLYOFFICE_DOCUMENT_SERVER_URL` vaut generalement `/onlyoffice` derriere Nginx : c'est l'URL chargee par le navigateur pour afficher l'editeur.
 

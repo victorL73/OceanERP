@@ -73,6 +73,7 @@ const DEFAULT_ICE_SERVERS = [
 ];
 
 let iceServers = [...DEFAULT_ICE_SERVERS];
+let iceTransportPolicy = "all";
 
 const state = {
   clientId: clientId(),
@@ -280,6 +281,19 @@ function normalizeIceServer(server) {
   };
 }
 
+function booleanConfig(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+  return false;
+}
+
+function hasTurnServer(servers) {
+  return servers.some((server) => {
+    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    return urls.some((url) => String(url || "").toLowerCase().startsWith("turn:") || String(url || "").toLowerCase().startsWith("turns:"));
+  });
+}
+
 async function loadIceConfiguration() {
   try {
     const payload = await erpFetch(`${API_URL}/ice`, { method: "GET" }, false);
@@ -287,8 +301,14 @@ async function loadIceConfiguration() {
       .map(normalizeIceServer)
       .filter(Boolean);
     iceServers = configuredServers.length > 0 ? configuredServers : [...DEFAULT_ICE_SERVERS];
+    const forceRelay = booleanConfig(payload.forceRelay ?? payload.force_relay);
+    iceTransportPolicy = forceRelay && hasTurnServer(iceServers) ? "relay" : "all";
+    if (forceRelay && iceTransportPolicy !== "relay") {
+      setMessage("TURN force dans la configuration Meet, mais aucun serveur TURN n'est annonce par l'API.", "error");
+    }
   } catch (error) {
     iceServers = [...DEFAULT_ICE_SERVERS];
+    iceTransportPolicy = "all";
   }
 }
 
@@ -1901,7 +1921,7 @@ function createPeer(participant) {
   const existing = state.peers.get(clientIdValue);
   if (existing) return existing;
 
-  const pc = new RTCPeerConnection({ iceServers });
+  const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy });
   pc.addTransceiver("audio", { direction: "recvonly" });
   pc.addTransceiver("video", { direction: "recvonly" });
   const remoteStream = new MediaStream();

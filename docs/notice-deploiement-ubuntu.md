@@ -102,7 +102,9 @@ Variables minimales a changer avant production :
 - `EMAIL_ENABLE_SMTP_SENDING` reste `false` tant que les secrets SMTP ne sont pas configures.
 - `PRESTASHOP_AUTO_SYNC_ENABLED=true` et `PRESTASHOP_AUTO_SYNC_INTERVAL_SECONDS=10` activent la synchronisation PrestaShop automatique en quasi temps reel.
 - `MEET_STUN_URLS` configure les serveurs STUN utilises par les salles Meet.
-- `MEET_TURN_URLS`, `MEET_TURN_USERNAME`, `MEET_TURN_CREDENTIAL` configurent un serveur TURN quand les flux camera/ecran doivent traverser des reseaux differents.
+- `MEET_TURN_URLS`, `MEET_TURN_USERNAME`, `MEET_TURN_CREDENTIAL` configurent le serveur TURN des salles Meet.
+- `MEET_FORCE_RELAY=true` force camera, micro et partage d'ecran a passer par TURN pendant le diagnostic des ecrans noirs.
+- `TURN_REALM`, `TURN_EXTERNAL_IP` et `TURN_PORT` configurent le conteneur coturn local fourni par Docker Compose.
 
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
@@ -117,20 +119,36 @@ cd ~/OceanERP/deploy/ubuntu
 docker compose --env-file .env -f docker-compose.yml up -d --force-recreate onlyoffice erp-api nginx
 ```
 
-Pour Meet, un ecran noir distant avec camera active signifie souvent que WebRTC ne parvient pas a etablir le chemin reseau direct. Garder `MEET_STUN_URLS` et ajouter un TURN si les participants sont hors reseau local :
+Pour Meet, un ecran noir distant avec camera active signifie souvent que WebRTC ne parvient pas a etablir le chemin reseau direct. Docker Compose inclut un service `turn` base sur coturn. Garder `MEET_STUN_URLS` et activer le TURN public du serveur :
 
 ```env
-MEET_TURN_URLS=turn:votre-domaine:3478?transport=udp,turn:votre-domaine:3478?transport=tcp
-MEET_TURN_USERNAME=utilisateur-turn
-MEET_TURN_CREDENTIAL=mot-de-passe-turn
+MEET_TURN_URLS=turn:interne.renovboat.com:3478?transport=udp,turn:interne.renovboat.com:3478?transport=tcp
+MEET_TURN_USERNAME=oceanerp
+MEET_TURN_CREDENTIAL=mot-de-passe-long-turn
+MEET_FORCE_RELAY=true
+TURN_REALM=interne.renovboat.com
+TURN_EXTERNAL_IP=IP_PUBLIQUE_DU_SERVEUR
+TURN_PORT=3478
 ```
 
-Apres modification, recreer l'API et le frontend :
+Ouvrir les ports TURN sur le serveur :
+
+```bash
+sudo ufw allow 3478/tcp
+sudo ufw allow 3478/udp
+sudo ufw allow 49160:49200/udp
+```
+
+Apres modification, recreer l'API, le frontend et le service TURN :
 
 ```bash
 cd ~/OceanERP/deploy/ubuntu
-docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
+docker compose --env-file .env -f docker-compose.yml up -d --build erp-api nginx turn
+docker logs oceanerp-turn --tail=100
+curl -s https://interne.renovboat.com/api/meetings/ice
 ```
+
+Le retour `/api/meetings/ice` doit contenir les URL `turn:...` et `forceRelay:true` si `MEET_FORCE_RELAY=true`. Si la camera fonctionne dans ce mode, le relais TURN est valide; il peut rester actif ou etre repasse a `MEET_FORCE_RELAY=false` plus tard.
 
 Pour activer l'envoi SMTP plus tard, un administrateur renseigne les serveurs dans `Parametres > Boites mail`, cree les boites et saisit les mots de passe. Il est aussi possible de creer une boite avec `PasswordSecretName=SMTP_MAIN_PASSWORD`, puis d'ajouter dans `.env` :
 
@@ -165,6 +183,7 @@ Etat attendu :
 - `oceanerp-api` : `Up`
 - `oceanerp-nginx` : `Up`
 - `oceanerp-onlyoffice` : `Up`
+- `oceanerp-turn` : `Up`
 
 Tester l'API depuis le serveur :
 
@@ -188,6 +207,9 @@ Si le firewall Ubuntu est actif :
 
 ```bash
 sudo ufw allow 8080/tcp
+sudo ufw allow 3478/tcp
+sudo ufw allow 3478/udp
+sudo ufw allow 49160:49200/udp
 sudo ufw status
 ```
 
