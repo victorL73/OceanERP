@@ -50,6 +50,11 @@ public sealed class FlowceanCompatController(
     public async Task<ActionResult> GetWorkspace([FromQuery] string? slug, CancellationToken cancellationToken)
     {
         var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(slug), cancellationToken);
+        if (!await CanViewWorkspaceAsync(workspace, cancellationToken))
+        {
+            return Forbid();
+        }
+
         return Ok(await WorkspacePayloadAsync(workspace, cancellationToken));
     }
 
@@ -59,6 +64,11 @@ public sealed class FlowceanCompatController(
     public async Task<ActionResult> SaveWorkspace([FromQuery] string? slug, FlowceanCompatSaveRequest request, CancellationToken cancellationToken)
     {
         var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(slug), cancellationToken);
+        if (!await CanEditWorkspaceAsync(workspace, cancellationToken))
+        {
+            return Forbid();
+        }
+
         var expectedVersion = request.ExpectedVersion;
         if (expectedVersion is not null && expectedVersion.Value != workspace.Version)
         {
@@ -101,10 +111,16 @@ public sealed class FlowceanCompatController(
         if (!string.IsNullOrWhiteSpace(slug))
         {
             var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(slug), cancellationToken);
+            if (!await CanViewWorkspaceAsync(workspace, cancellationToken))
+            {
+                return Forbid();
+            }
+
+            var slugIsAdmin = await IsCurrentUserAdminAsync(cancellationToken);
             return Ok(new
             {
                 ok = true,
-                workspace = PublicWorkspace(workspace, await IsCurrentUserAdminAsync(cancellationToken)),
+                workspace = await PublicWorkspaceAsync(workspace, slugIsAdmin, cancellationToken),
                 members = await WorkspaceMembersAsync(workspace, cancellationToken),
                 invitations = Array.Empty<object>()
             });
@@ -112,16 +128,13 @@ public sealed class FlowceanCompatController(
 
         await FindOrCreateWorkspaceAsync("main", cancellationToken);
         var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
-        var workspaces = await db.FlowceanWorkspaces
-            .AsNoTracking()
-            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
-            .ThenBy(x => x.Name)
-            .ToListAsync(cancellationToken);
+        var workspaces = await AccessibleWorkspacesAsync(isAdmin, cancellationToken);
+        var publicWorkspaces = await PublicWorkspacesAsync(workspaces, isAdmin, cancellationToken);
 
         return Ok(new
         {
             ok = true,
-            workspaces = workspaces.Select(workspace => PublicWorkspace(workspace, isAdmin)).ToList(),
+            workspaces = publicWorkspaces,
             deletedWorkspaces = Array.Empty<object>(),
             pendingInvitations = Array.Empty<object>(),
             preferredWorkspaceSlug = workspaces.FirstOrDefault(x => x.Slug == "main")?.Slug ?? workspaces.FirstOrDefault()?.Slug
@@ -190,6 +203,11 @@ public sealed class FlowceanCompatController(
             var workspace = await db.FlowceanWorkspaces.FirstOrDefaultAsync(x => x.Slug == NormalizeSlug(request.WorkspaceSlug), cancellationToken);
             if (workspace is not null && workspace.Slug != "main")
             {
+                if (!await CanManageWorkspaceAsync(workspace, cancellationToken))
+                {
+                    return Forbid();
+                }
+
                 db.FlowceanWorkspaces.Remove(workspace);
                 await db.SaveChangesAsync(cancellationToken);
             }
@@ -205,10 +223,22 @@ public sealed class FlowceanCompatController(
         if (action is "invite" or "update_member_role" or "remove_member")
         {
             var workspace = await FindOrCreateWorkspaceAsync(NormalizeSlug(request.WorkspaceSlug), cancellationToken);
+            if (!await CanManageWorkspaceMembersAsync(workspace, cancellationToken))
+            {
+                return Forbid();
+            }
+
+            var memberResult = await ApplyWorkspaceMemberActionAsync(workspace, action, request, cancellationToken);
+            if (memberResult is not null)
+            {
+                return memberResult;
+            }
+
+            var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
             return Ok(new
             {
                 ok = true,
-                workspace = PublicWorkspace(workspace, await IsCurrentUserAdminAsync(cancellationToken)),
+                workspace = await PublicWorkspaceAsync(workspace, isAdmin, cancellationToken),
                 members = await WorkspaceMembersAsync(workspace, cancellationToken),
                 invitations = Array.Empty<object>()
             });
@@ -365,11 +395,12 @@ public sealed class FlowceanCompatController(
     private async Task<dynamic> WorkspacePayloadAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
     {
         var state = ParseState(workspace.DataJson);
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
         return new
         {
             ok = true,
             workspace = state,
-            meta = WorkspaceMeta(workspace, await IsCurrentUserAdminAsync(cancellationToken)),
+            meta = await WorkspaceMetaAsync(workspace, isAdmin, cancellationToken),
             userPreferences = DefaultPreferences(),
             userPreferencesMeta = new { exists = false, updatedAt = (string?)null }
         };
@@ -379,11 +410,8 @@ public sealed class FlowceanCompatController(
     {
         await FindOrCreateWorkspaceAsync("main", cancellationToken);
         var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
-        var workspaces = await db.FlowceanWorkspaces
-            .AsNoTracking()
-            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
-            .ThenBy(x => x.Name)
-            .ToListAsync(cancellationToken);
+        var workspaces = await AccessibleWorkspacesAsync(isAdmin, cancellationToken);
+        var publicWorkspaces = await PublicWorkspacesAsync(workspaces, isAdmin, cancellationToken);
         var normalizedPreferredSlug = string.IsNullOrWhiteSpace(preferredSlug) ? null : NormalizeSlug(preferredSlug);
         var preferredWorkspace = normalizedPreferredSlug is null
             ? workspaces.FirstOrDefault()
@@ -392,10 +420,10 @@ public sealed class FlowceanCompatController(
         return new
         {
             ok = true,
-            workspaces = workspaces.Select(workspace => PublicWorkspace(workspace, isAdmin)).ToList(),
+            workspaces = publicWorkspaces,
             deletedWorkspaces = Array.Empty<object>(),
             pendingInvitations = Array.Empty<object>(),
-            workspace = preferredWorkspace is null ? null : PublicWorkspace(preferredWorkspace, isAdmin),
+            workspace = preferredWorkspace is null ? null : await PublicWorkspaceAsync(preferredWorkspace, isAdmin, cancellationToken),
             preferredWorkspaceSlug = preferredWorkspace?.Slug
         };
     }
@@ -432,27 +460,211 @@ public sealed class FlowceanCompatController(
         return workspace;
     }
 
+    private async Task<ActionResult?> ApplyWorkspaceMemberActionAsync(
+        FlowceanWorkspace workspace,
+        string action,
+        FlowceanCompatWorkspaceAction request,
+        CancellationToken cancellationToken)
+    {
+        if (action == "invite")
+        {
+            var targetUser = await FindWorkspaceTargetUserAsync(request, cancellationToken);
+            if (targetUser is null)
+            {
+                return BadRequest(new { ok = false, message = "Choisissez un utilisateur ERP actif pour partager cet espace." });
+            }
+
+            if (workspace.OwnerUserId == targetUser.Id)
+            {
+                return BadRequest(new { ok = false, message = "Le createur de l'espace est deja proprietaire." });
+            }
+
+            var role = NormalizeMutableWorkspaceRole(request.Role);
+            var membership = await db.FlowceanWorkspaceMembers
+                .FirstOrDefaultAsync(x => x.FlowceanWorkspaceId == workspace.Id && x.UserId == targetUser.Id, cancellationToken);
+
+            if (membership is null)
+            {
+                db.FlowceanWorkspaceMembers.Add(new FlowceanWorkspaceMember
+                {
+                    FlowceanWorkspaceId = workspace.Id,
+                    UserId = targetUser.Id,
+                    Role = role,
+                    CreatedByUserId = currentUser.UserId
+                });
+            }
+            else
+            {
+                membership.Role = role;
+                membership.UpdatedAt = DateTimeOffset.UtcNow;
+                membership.UpdatedByUserId = currentUser.UserId;
+            }
+
+            AddWorkspaceEvent(workspace, "workspace.member.upserted", new { targetUserId = targetUser.Id, targetUser.Email, role });
+            await db.SaveChangesAsync(cancellationToken);
+            return null;
+        }
+
+        var user = await FindFlowceanUserAsync(request.UserId, cancellationToken);
+        if (user is null)
+        {
+            return BadRequest(new { ok = false, message = "Utilisateur ERP introuvable." });
+        }
+
+        if (workspace.OwnerUserId == user.Id)
+        {
+            return BadRequest(new { ok = false, message = "Le proprietaire createur ne peut pas etre modifie ni retire." });
+        }
+
+        var existingMember = await db.FlowceanWorkspaceMembers
+            .FirstOrDefaultAsync(x => x.FlowceanWorkspaceId == workspace.Id && x.UserId == user.Id, cancellationToken);
+
+        if (action == "update_member_role")
+        {
+            if (existingMember is null)
+            {
+                return BadRequest(new { ok = false, message = "Cet utilisateur n'est pas membre de cet espace." });
+            }
+
+            existingMember.Role = NormalizeMutableWorkspaceRole(request.Role);
+            existingMember.UpdatedAt = DateTimeOffset.UtcNow;
+            existingMember.UpdatedByUserId = currentUser.UserId;
+            AddWorkspaceEvent(workspace, "workspace.member.role_changed", new { targetUserId = user.Id, user.Email, existingMember.Role });
+            await db.SaveChangesAsync(cancellationToken);
+            return null;
+        }
+
+        if (existingMember is not null)
+        {
+            db.FlowceanWorkspaceMembers.Remove(existingMember);
+            AddWorkspaceEvent(workspace, "workspace.member.removed", new { targetUserId = user.Id, user.Email });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return null;
+    }
+
     private async Task<List<object>> WorkspaceMembersAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
     {
-        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
-        var users = await db.Users
+        var memberships = await db.FlowceanWorkspaceMembers
             .AsNoTracking()
-            .Where(x => x.IsActive)
-            .OrderBy(x => x.DisplayName)
-            .ThenBy(x => x.Email)
+            .Where(x => x.FlowceanWorkspaceId == workspace.Id)
             .ToListAsync(cancellationToken);
 
-        return users.Select(user => new
+        var memberUserIds = memberships.Select(x => x.UserId).ToHashSet();
+        if (workspace.OwnerUserId is Guid ownerUserId)
         {
-            id = FlowceanUserId(user.Id),
-            email = user.Email,
-            displayName = user.DisplayName,
-            role = isAdmin ? "admin" : "member",
-            workspaceRole = user.Id == workspace.OwnerUserId || isAdmin ? "owner" : "editor",
-            isActive = user.IsActive,
-            joinedAt = user.CreatedAt
-        }).Cast<object>().ToList();
+            memberUserIds.Add(ownerUserId);
+        }
+
+        if (memberUserIds.Count == 0)
+        {
+            return [];
+        }
+
+        var users = await db.Users
+            .AsNoTracking()
+            .Where(x => x.IsActive && memberUserIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        var membershipByUserId = memberships.ToDictionary(x => x.UserId, x => x);
+
+        return users
+            .OrderByDescending(user => workspace.OwnerUserId == user.Id)
+            .ThenBy(user => user.DisplayName)
+            .ThenBy(user => user.Email)
+            .Select(user =>
+            {
+                var workspaceRole = workspace.OwnerUserId == user.Id
+                    ? "owner"
+                    : NormalizeWorkspaceRole(membershipByUserId.GetValueOrDefault(user.Id)?.Role);
+                var membership = membershipByUserId.GetValueOrDefault(user.Id);
+
+                return new
+                {
+                    id = FlowceanUserId(user.Id),
+                    email = user.Email,
+                    displayName = user.DisplayName,
+                    role = workspaceRole == "admin" || workspaceRole == "owner" ? "admin" : "member",
+                    workspaceRole,
+                    isActive = user.IsActive,
+                    joinedAt = membership?.CreatedAt ?? user.CreatedAt
+                };
+            })
+            .Cast<object>()
+            .ToList();
     }
+
+    private async Task<User?> FindWorkspaceTargetUserAsync(FlowceanCompatWorkspaceAction request, CancellationToken cancellationToken)
+    {
+        var user = await FindFlowceanUserAsync(request.UserId, cancellationToken);
+        if (user is not null)
+        {
+            return user;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return null;
+        }
+
+        var email = request.Email.Trim().ToLowerInvariant();
+        return await db.Users
+            .FirstOrDefaultAsync(x => x.IsActive && x.Email.ToLower() == email, cancellationToken);
+    }
+
+    private async Task<User?> FindFlowceanUserAsync(int? flowceanUserId, CancellationToken cancellationToken)
+    {
+        if (flowceanUserId is null)
+        {
+            return null;
+        }
+
+        var users = await db.Users
+            .Where(x => x.IsActive)
+            .ToListAsync(cancellationToken);
+
+        return users.FirstOrDefault(x => FlowceanUserId(x.Id) == flowceanUserId.Value);
+    }
+
+    private void AddWorkspaceEvent(FlowceanWorkspace workspace, string eventType, object payload)
+    {
+        workspace.UpdatedAt = DateTimeOffset.UtcNow;
+        workspace.UpdatedByUserId = currentUser.UserId;
+
+        db.FlowceanWorkspaceEvents.Add(new FlowceanWorkspaceEvent
+        {
+            FlowceanWorkspaceId = workspace.Id,
+            ActorUserId = currentUser.UserId,
+            EventType = eventType,
+            PayloadJson = JsonSerializer.Serialize(payload, JsonOptions)
+        });
+    }
+
+    private static string NormalizeMutableWorkspaceRole(string? role)
+        => NormalizeWorkspaceRole(role) switch
+        {
+            "admin" => "admin",
+            "viewer" => "viewer",
+            _ => "editor"
+        };
+
+    private static string NormalizeWorkspaceRole(string? role)
+        => role?.Trim().ToLowerInvariant() switch
+        {
+            "owner" => "owner",
+            "super" => "admin",
+            "administrator" => "admin",
+            "admin" => "admin",
+            "read" => "viewer",
+            "reader" => "viewer",
+            "viewer" => "viewer",
+            "view" => "viewer",
+            "lecture" => "viewer",
+            "editeur" => "editor",
+            "editor" => "editor",
+            "write" => "editor",
+            _ => "editor"
+        };
 
     private async Task<User?> CurrentUserAsync(CancellationToken cancellationToken)
     {
@@ -492,21 +704,64 @@ public sealed class FlowceanCompatController(
             createdAt = user.CreatedAt
         };
 
-    private static object PublicWorkspace(FlowceanWorkspace workspace, bool isAdmin)
-        => new
+    private async Task<List<FlowceanWorkspace>> AccessibleWorkspacesAsync(bool isAdmin, CancellationToken cancellationToken)
+    {
+        var query = db.FlowceanWorkspaces
+            .AsNoTracking()
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ThenBy(x => x.Name);
+
+        if (isAdmin)
+        {
+            return await query.ToListAsync(cancellationToken);
+        }
+
+        if (currentUser.UserId is not Guid userId)
+        {
+            return [];
+        }
+
+        var sharedWorkspaceIds = db.FlowceanWorkspaceMembers
+            .AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .Select(x => x.FlowceanWorkspaceId);
+
+        return await query
+            .Where(x => x.OwnerUserId == userId || sharedWorkspaceIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<List<object>> PublicWorkspacesAsync(List<FlowceanWorkspace> workspaces, bool isAdmin, CancellationToken cancellationToken)
+    {
+        var publicWorkspaces = new List<object>(workspaces.Count);
+        foreach (var workspace in workspaces)
+        {
+            publicWorkspaces.Add(await PublicWorkspaceAsync(workspace, isAdmin, cancellationToken));
+        }
+
+        return publicWorkspaces;
+    }
+
+    private async Task<object> PublicWorkspaceAsync(FlowceanWorkspace workspace, bool isAdmin, CancellationToken cancellationToken)
+    {
+        var memberRole = await CurrentWorkspaceRoleAsync(workspace, isAdmin, cancellationToken) ?? "viewer";
+        return new
         {
             slug = workspace.Slug,
             name = workspace.Name,
             version = workspace.Version,
             updatedAt = workspace.UpdatedAt ?? workspace.CreatedAt,
             createdAt = workspace.CreatedAt,
-            memberRole = isAdmin ? "owner" : "editor",
-            permissions = WorkspacePermissions(isAdmin),
+            memberRole,
+            permissions = WorkspacePermissions(memberRole, isAdmin),
             isPersonal = workspace.IsPersonal
         };
+    }
 
-    private static object WorkspaceMeta(FlowceanWorkspace workspace, bool isAdmin)
-        => new
+    private async Task<object> WorkspaceMetaAsync(FlowceanWorkspace workspace, bool isAdmin, CancellationToken cancellationToken)
+    {
+        var memberRole = await CurrentWorkspaceRoleAsync(workspace, isAdmin, cancellationToken) ?? "viewer";
+        return new
         {
             slug = workspace.Slug,
             name = workspace.Name,
@@ -514,20 +769,71 @@ public sealed class FlowceanCompatController(
             updatedAt = workspace.UpdatedAt ?? workspace.CreatedAt,
             createdAt = workspace.CreatedAt,
             created = false,
-            memberRole = isAdmin ? "owner" : "editor",
-            permissions = WorkspacePermissions(isAdmin),
+            memberRole,
+            permissions = WorkspacePermissions(memberRole, isAdmin),
             isPersonal = workspace.IsPersonal
         };
+    }
 
-    private static object WorkspacePermissions(bool isAdmin)
+    private async Task<string?> CurrentWorkspaceRoleAsync(FlowceanWorkspace workspace, bool isAdmin, CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is Guid userId)
+        {
+            if (workspace.OwnerUserId == userId)
+            {
+                return "owner";
+            }
+
+            var memberRole = await db.FlowceanWorkspaceMembers
+                .AsNoTracking()
+                .Where(x => x.FlowceanWorkspaceId == workspace.Id && x.UserId == userId)
+                .Select(x => x.Role)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(memberRole))
+            {
+                return NormalizeWorkspaceRole(memberRole);
+            }
+        }
+
+        return isAdmin ? "admin" : null;
+    }
+
+    private async Task<bool> CanViewWorkspaceAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
+    {
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        return await CurrentWorkspaceRoleAsync(workspace, isAdmin, cancellationToken) is not null;
+    }
+
+    private async Task<bool> CanEditWorkspaceAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
+    {
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        var role = await CurrentWorkspaceRoleAsync(workspace, isAdmin, cancellationToken);
+        return isAdmin || role is "owner" or "admin" or "editor";
+    }
+
+    private async Task<bool> CanManageWorkspaceMembersAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
+    {
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        var role = await CurrentWorkspaceRoleAsync(workspace, isAdmin, cancellationToken);
+        return isAdmin || role is "owner" or "admin";
+    }
+
+    private async Task<bool> CanManageWorkspaceAsync(FlowceanWorkspace workspace, CancellationToken cancellationToken)
+    {
+        var isAdmin = await IsCurrentUserAdminAsync(cancellationToken);
+        var role = await CurrentWorkspaceRoleAsync(workspace, isAdmin, cancellationToken);
+        return isAdmin || role is "owner";
+    }
+
+    private static object WorkspacePermissions(string memberRole, bool isAdmin)
         => new
         {
             canView = true,
-            canEdit = true,
-            canInvite = isAdmin,
-            canManageMembers = isAdmin,
-            canManageWorkspace = isAdmin,
-            canDeleteWorkspace = isAdmin
+            canEdit = isAdmin || memberRole is "owner" or "admin" or "editor",
+            canInvite = isAdmin || memberRole is "owner" or "admin",
+            canManageMembers = isAdmin || memberRole is "owner" or "admin",
+            canManageWorkspace = isAdmin || memberRole is "owner" or "admin",
+            canDeleteWorkspace = isAdmin || memberRole is "owner"
         };
 
     private static object AdminPermissions(bool isAdmin)

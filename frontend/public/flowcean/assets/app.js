@@ -12682,8 +12682,8 @@ function renderInviteSuggestionList(candidates, input, onPick) {
       const empty = document.createElement("div");
       empty.className = "invite-suggestion-empty";
       empty.textContent = query.includes("@")
-        ? "Aucun compte existant. L'email sera invite directement."
-        : "Aucun utilisateur trouve. Entrez une adresse email complete ou creez le compte.";
+        ? "Aucun utilisateur ERP actif ne correspond a cet email."
+        : "Aucun utilisateur ERP trouve. Creez le compte dans les parametres ERP avant de partager.";
       list.appendChild(empty);
       list.classList.remove("hidden");
       return;
@@ -14095,7 +14095,7 @@ async function openWorkspaceSharePanel(workspaceSlug = currentWorkspaceSlug()) {
       const intro = document.createElement("p");
       intro.className = "admin-hint";
       intro.textContent = details.workspace?.permissions?.canInvite
-        ? "Invitez un utilisateur deja cree dans Flowcean, ou une adresse email qui rejoindra le workspace plus tard avec le role choisi."
+        ? "Ajoutez un utilisateur ERP actif a cet espace et choisissez son niveau de droits."
         : "Voici les membres de ce workspace. Seuls les proprietaires et admins du workspace peuvent inviter de nouveaux membres.";
 
       wrapper.appendChild(intro);

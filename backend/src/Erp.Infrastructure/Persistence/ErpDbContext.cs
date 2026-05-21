@@ -89,6 +89,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<ApiRequestLog> ApiRequestLogs => Set<ApiRequestLog>();
     public DbSet<FlowceanWorkspace> FlowceanWorkspaces => Set<FlowceanWorkspace>();
+    public DbSet<FlowceanWorkspaceMember> FlowceanWorkspaceMembers => Set<FlowceanWorkspaceMember>();
     public DbSet<FlowceanWorkspaceEvent> FlowceanWorkspaceEvents => Set<FlowceanWorkspaceEvent>();
     public DbSet<MeetingRoom> MeetingRooms => Set<MeetingRoom>();
     public DbSet<MeetingParticipant> MeetingParticipants => Set<MeetingParticipant>();
@@ -682,6 +683,15 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.Name).HasMaxLength(190);
             entity.Property(x => x.DataJson).HasColumnType("jsonb");
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<FlowceanWorkspaceMember>(entity =>
+        {
+            entity.HasIndex(x => new { x.FlowceanWorkspaceId, x.UserId }).IsUnique();
+            entity.HasIndex(x => x.UserId);
+            entity.Property(x => x.Role).HasMaxLength(32);
+            entity.HasOne<FlowceanWorkspace>().WithMany().HasForeignKey(x => x.FlowceanWorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<FlowceanWorkspaceEvent>(entity =>
