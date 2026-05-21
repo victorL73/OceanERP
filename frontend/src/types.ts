@@ -877,6 +877,12 @@ export type OnlyOfficeConfig = {
       forcesave: boolean;
       chat: boolean;
       comments: boolean;
+      plugins?: boolean;
+      macros?: boolean;
+    };
+    coEditing?: {
+      mode: string;
+      change: boolean;
     };
   };
 };

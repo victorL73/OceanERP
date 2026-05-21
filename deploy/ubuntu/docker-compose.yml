@@ -78,7 +78,7 @@ services:
       - oceanerp
 
   onlyoffice:
-    image: onlyoffice/documentserver:latest
+    image: ${ONLYOFFICE_IMAGE:-onlyoffice/documentserver:9.3.1}
     container_name: oceanerp-onlyoffice
     restart: unless-stopped
     environment:

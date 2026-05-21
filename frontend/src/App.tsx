@@ -8536,11 +8536,30 @@ function isSpreadsheetDriveFile(file: DriveItem) {
 }
 
 function getOnlyOfficeEditorConfig(config: OnlyOfficeConfig) {
+  const editorConfig = {
+    ...config.editorConfig,
+    customization: config.editorConfig.customization ? { ...config.editorConfig.customization } : undefined,
+    coEditing: config.editorConfig.coEditing ? { ...config.editorConfig.coEditing } : undefined
+  };
+
+  if (config.documentType === 'cell') {
+    editorConfig.coEditing = { mode: 'strict', change: false };
+    editorConfig.customization = {
+      ...(editorConfig.customization ?? {}),
+      autosave: false,
+      forcesave: false,
+      chat: false,
+      comments: false,
+      plugins: false,
+      macros: false
+    };
+  }
+
   return {
     documentType: config.documentType,
     type: config.type,
     document: config.document,
-    editorConfig: config.editorConfig,
+    editorConfig,
     token: config.token
   };
 }

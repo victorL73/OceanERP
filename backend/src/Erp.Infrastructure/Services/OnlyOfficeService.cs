@@ -56,17 +56,21 @@ public sealed class OnlyOfficeService(
         var userId = currentUser.UserId?.ToString() ?? "anonymous";
         var userName = currentUser.Email ?? "OceanERP";
         var key = $"{item.Id:N}-{item.CurrentVersion}-{item.Size}".Replace("-", string.Empty, StringComparison.Ordinal);
-        var accessToken = CreateDocumentToken(item.Id, item.CurrentVersion, DateTimeOffset.UtcNow.AddHours(2));
+        var accessToken = CreateDocumentToken(item.Id, item.CurrentVersion, DateTimeOffset.UtcNow.AddHours(8));
         var documentUrl = $"{documentExchangeBaseUrl}/api/onlyoffice/files/{item.Id}/download?token={Uri.EscapeDataString(accessToken)}";
         var callbackUrl = $"{documentExchangeBaseUrl}/api/onlyoffice/files/{item.Id}/callback?token={Uri.EscapeDataString(accessToken)}";
         var permissions = new OnlyOfficeDocumentPermissionsDto(Edit: true, Download: true, Print: true);
+        var isCellDocument = string.Equals(documentType, "cell", StringComparison.OrdinalIgnoreCase);
         var customization = new OnlyOfficeCustomizationDto(
             Autosave: false,
             Forcesave: false,
             Chat: false,
-            Comments: !string.Equals(documentType, "cell", StringComparison.OrdinalIgnoreCase));
+            Comments: !isCellDocument,
+            Plugins: false,
+            Macros: false);
+        var coEditing = new OnlyOfficeCoEditingDto(Mode: "strict", Change: false);
         var document = new OnlyOfficeDocumentDto(fileType, key, item.Name, documentUrl, permissions);
-        var editorConfig = new OnlyOfficeEditorConfigDto("edit", callbackUrl, new OnlyOfficeUserDto(userId, userName), customization);
+        var editorConfig = new OnlyOfficeEditorConfigDto("edit", callbackUrl, new OnlyOfficeUserDto(userId, userName), customization, coEditing);
         var jwtPayload = new
         {
             documentType,
@@ -89,7 +93,7 @@ public sealed class OnlyOfficeService(
 
     public async Task<Result<(Stream Content, string FileName, string MimeType)>> OpenDocumentAsync(Guid driveItemId, string? token, CancellationToken cancellationToken)
     {
-        var item = await ValidateDocumentTokenAsync(driveItemId, token, allowPreviousVersion: false, cancellationToken);
+        var item = await ValidateDocumentTokenAsync(driveItemId, token, allowPreviousVersion: true, cancellationToken);
         if (!item.Succeeded)
         {
             return Result<(Stream, string, string)>.Failure(item.Error!);
@@ -107,10 +111,10 @@ public sealed class OnlyOfficeService(
             return Result.Failure(tokenValidation.Error!);
         }
 
-        // ONLYOFFICE status 2 means the document is ready to save at the end of the editing session.
-        // Autosave/forcesave callbacks are intentionally ignored to avoid changing the Drive version
-        // while the editor is still using the current document key/token.
-        if (request.Status != 2)
+        // ONLYOFFICE status 2 is the final save. Status 6 is a manual/forced save.
+        // Tableurs: the editor keeps using the same document key during the session, so the signed
+        // download token intentionally remains valid for older versions until it expires.
+        if (request.Status is not (2 or 6))
         {
             return Result.Success();
         }
@@ -204,7 +208,12 @@ public sealed class OnlyOfficeService(
             return Result<DriveItem>.Failure("Document Drive introuvable.");
         }
 
-        if (version != item.CurrentVersion && (!allowPreviousVersion || version != item.CurrentVersion - 1))
+        if (version > item.CurrentVersion)
+        {
+            return Result<DriveItem>.Failure("Version ONLYOFFICE invalide.");
+        }
+
+        if (version != item.CurrentVersion && !allowPreviousVersion)
         {
             return Result<DriveItem>.Failure("Version ONLYOFFICE obsolete.");
         }

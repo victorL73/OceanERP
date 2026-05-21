@@ -94,6 +94,7 @@ Variables minimales a changer avant production :
 - `ERP_ADMIN_PASSWORD`
 - `ONLYOFFICE_JWT_SECRET`
 - `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice`
+- `ONLYOFFICE_IMAGE=onlyoffice/documentserver:9.3.1`
 - `ONLYOFFICE_INTERNAL_BASE_URL=http://nginx`
 - `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true`
 - `ONLYOFFICE_ALLOW_META_IP_ADDRESS=true`

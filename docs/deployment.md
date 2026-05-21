@@ -102,11 +102,15 @@ Le logo des devis configure dans `Parametres > Devis` est stocke dans le volume 
 
 Pour l'edition Office, le bouton `Office` du Drive ouvre ONLYOFFICE directement dans OceanERP pour les fichiers DOCX, XLSX et PPTX compatibles. `PUBLIC_URL` reste l'URL HTTPS publique de l'ERP. `ONLYOFFICE_DOCUMENT_SERVER_URL` vaut generalement `/onlyoffice` derriere Nginx : c'est l'URL chargee par le navigateur pour afficher l'editeur.
 
+`ONLYOFFICE_IMAGE` permet de figer la version du Document Server. La valeur recommandee est `onlyoffice/documentserver:9.3.1` afin d'eviter les changements non maitrises de `latest` lors d'un redeploiement. Apres changement de cette valeur, recréer le conteneur `onlyoffice`.
+
 `ONLYOFFICE_INTERNAL_BASE_URL` sert uniquement a Document Server pour telecharger le fichier et appeler le callback de sauvegarde. Dans Docker Compose, la valeur recommandee est `http://nginx`, car le conteneur ONLYOFFICE rejoint alors le reverse proxy interne Docker et utilise les memes routes `/api/onlyoffice/...` que le reste de l'application. Ne pas remplacer cette valeur par l'URL publique HTTPS sauf si le conteneur ONLYOFFICE peut vraiment joindre cette URL depuis l'interieur du serveur.
 
 Comme `ONLYOFFICE_INTERNAL_BASE_URL` pointe vers une adresse Docker privee, le conteneur `onlyoffice/documentserver` doit autoriser ce type d'adresse avec `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true` et `ONLYOFFICE_ALLOW_META_IP_ADDRESS=true`. Ces variables sont deja presentes dans `.env.example` et transmises a Document Server par Docker Compose.
 
 La configuration envoyee au Document Server contient un JWT signe par `ONLYOFFICE_JWT_SECRET`, puis les sauvegardes sont versionnees dans Drive. Si ONLYOFFICE affiche `errorCode -4` / `Echec du telechargement`, verifier en priorite `ONLYOFFICE_INTERNAL_BASE_URL`, `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS`, `ONLYOFFICE_ALLOW_META_IP_ADDRESS`, les logs `oceanerp-onlyoffice` et l'acces interne a `http://nginx/api/health` depuis le conteneur ONLYOFFICE.
+
+Pour les fichiers Excel, OceanERP force la coedition stricte et desactive autosave/forcesave/plugins dans la session ONLYOFFICE. Cela evite les boucles de sauvegarde pendant l'edition d'une cellule; l'utilisateur garde le controle via `Fichier > Enregistrer` ou la fermeture normale du document.
 
 Apres ajout ou modification de ces variables, recreer au minimum ONLYOFFICE et l'API :
 

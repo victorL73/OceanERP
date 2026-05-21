@@ -104,10 +104,28 @@
         return session;
       }
 
+      function hardenSpreadsheetConfig(config) {
+        if (!config || config.documentType !== 'cell') {
+          return config;
+        }
+
+        config.editorConfig = config.editorConfig || {};
+        config.editorConfig.coEditing = { mode: 'strict', change: false };
+        config.editorConfig.customization = Object.assign({}, config.editorConfig.customization || {}, {
+          autosave: false,
+          forcesave: false,
+          chat: false,
+          comments: false,
+          plugins: false,
+          macros: false
+        });
+        return config;
+      }
+
       function start() {
         var session = loadSession();
         var editorId = session.editorId;
-        var config = session.config;
+        var config = hardenSpreadsheetConfig(session.config);
         var scriptUrl = session.scriptUrl;
         document.title = 'ONLYOFFICE - ' + (session.title || 'OceanERP');
 
