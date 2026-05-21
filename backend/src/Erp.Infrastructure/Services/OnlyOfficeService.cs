@@ -112,22 +112,28 @@ public sealed class OnlyOfficeService(
         }
 
         // ONLYOFFICE status 2 is the final save. Status 6 is a manual/forced save.
-        // Tableurs: the editor keeps using the same document key during the session, so the signed
-        // download token intentionally remains valid for older versions until it expires.
         if (request.Status is not (2 or 6))
         {
             return Result.Success();
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Url))
-        {
-            return Result.Failure("Callback ONLYOFFICE sans URL de sauvegarde.");
         }
 
         var item = await db.DriveItems.FirstOrDefaultAsync(x => x.Id == driveItemId && !x.IsTrashed, cancellationToken);
         if (item is null)
         {
             return Result.Failure("Document Drive introuvable.");
+        }
+
+        var fileType = Path.GetExtension(item.Name).TrimStart('.');
+        if (request.Status == 6 && CellFileTypes.Contains(fileType))
+        {
+            // Les tableurs peuvent emettre des sauvegardes forcees tres frequentes en quittant une cellule.
+            // On les acquitte sans retelecharger tout le XLSX; la version Drive est persistee sur le save final.
+            return Result.Success();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Url))
+        {
+            return Result.Failure("Callback ONLYOFFICE sans URL de sauvegarde.");
         }
 
         var client = httpClientFactory.CreateClient();

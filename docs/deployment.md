@@ -110,7 +110,7 @@ Comme `ONLYOFFICE_INTERNAL_BASE_URL` pointe vers une adresse Docker privee, le c
 
 La configuration envoyee au Document Server contient un JWT signe par `ONLYOFFICE_JWT_SECRET`, puis les sauvegardes sont versionnees dans Drive. Si ONLYOFFICE affiche `errorCode -4` / `Echec du telechargement`, verifier en priorite `ONLYOFFICE_INTERNAL_BASE_URL`, `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS`, `ONLYOFFICE_ALLOW_META_IP_ADDRESS`, les logs `oceanerp-onlyoffice` et l'acces interne a `http://nginx/api/health` depuis le conteneur ONLYOFFICE.
 
-Pour les fichiers Excel, OceanERP force la coedition stricte et desactive autosave/forcesave/plugins dans la session ONLYOFFICE. Cela evite les boucles de sauvegarde pendant l'edition d'une cellule; l'utilisateur garde le controle via `Fichier > Enregistrer` ou la fermeture normale du document.
+Pour les fichiers Excel, OceanERP force la coedition stricte et desactive autosave/forcesave/plugins dans la session ONLYOFFICE. Les callbacks `status=6` emis tres souvent par les tableurs sont acquittes sans reecrire le fichier a chaque sortie de cellule; la version Drive est conservee sur le callback final `status=2` a la fermeture normale du document. Fermer puis rouvrir une ancienne fenetre ONLYOFFICE apres redeploiement permet aussi de purger les preferences navigateur qui pourraient reactiver une sauvegarde trop frequente.
 
 Apres ajout ou modification de ces variables, recreer au minimum ONLYOFFICE et l'API :
 

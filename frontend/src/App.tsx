@@ -8794,6 +8794,40 @@ function getOnlyOfficeFrameHtml(editorId: string, config: OnlyOfficeConfig) {
         }
       }
 
+      function clearSpreadsheetSavePreferences() {
+        if (!config || config.documentType !== 'cell') {
+          return;
+        }
+
+        try {
+          var markers = ['autosave', 'forcesave', 'force-save', 'force_save', 'coedit', 'co-edit', 'coauthor'];
+          for (var index = localStorage.length - 1; index >= 0; index -= 1) {
+            var key = localStorage.key(index);
+            if (!key) {
+              continue;
+            }
+
+            var normalizedKey = key.toLowerCase();
+            var isOnlyOfficeSetting = normalizedKey.indexOf('onlyoffice') !== -1
+              || normalizedKey.indexOf('docsapi') !== -1
+              || normalizedKey.indexOf('asc.') !== -1
+              || normalizedKey.indexOf('asc_') !== -1
+              || normalizedKey.indexOf('asc-') !== -1;
+            var isSaveSetting = markers.some(function (marker) {
+              return normalizedKey.indexOf(marker) !== -1;
+            });
+
+            if (isOnlyOfficeSetting && isSaveSetting) {
+              localStorage.removeItem(key);
+            }
+          }
+        } catch (error) {
+          // Les preferences navigateur ONLYOFFICE ne doivent jamais bloquer l'ouverture du document.
+        }
+      }
+
+      clearSpreadsheetSavePreferences();
+
       window.onerror = function (message, source, line, column, error) {
         setStatus(error && error.message ? error.message : String(message || 'Erreur JavaScript ONLYOFFICE.'), true);
         post('error', error && error.message ? error.message : String(message || 'Erreur JavaScript ONLYOFFICE.'));
