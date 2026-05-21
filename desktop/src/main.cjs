@@ -4,6 +4,12 @@ const fs = require('node:fs');
 const log = require('electron-log');
 const { autoUpdater } = require('electron-updater');
 
+const enableChromiumDiagnostics = process.env.OCEANERP_ENABLE_CHROMIUM_DIAGNOSTICS === 'true';
+if (!enableChromiumDiagnostics) {
+  app.commandLine.appendSwitch('log-level', '3');
+  app.commandLine.appendSwitch('disable-logging');
+}
+
 const defaultSettings = {
   serverUrl: process.env.OCEANERP_WEB_URL || readPackagedServerUrl() || ''
 };
