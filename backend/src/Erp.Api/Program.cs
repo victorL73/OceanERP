@@ -98,6 +98,7 @@ var permissionCodes = new[]
     "drive.read", "drive.write",
     "notifications.read", "notifications.write",
     "dashboard.read",
+    "treasury.read",
     "stock.read", "stock.write",
     "orders.read", "orders.write",
     "purchases.read", "purchases.write",

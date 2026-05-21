@@ -43,6 +43,8 @@ import type {
   SignatureRequest,
   StockItem,
   StockMovement,
+  TreasuryMovement,
+  TreasurySummary,
   User,
   Warehouse
 } from '../types';
@@ -112,6 +114,14 @@ export class ApiClient {
 
   summary() {
     return this.request<DashboardSummary>('/api/dashboard/summary', { auth: true });
+  }
+
+  treasurySummary() {
+    return this.request<TreasurySummary>('/api/treasury/summary', { auth: true });
+  }
+
+  treasuryMovements() {
+    return this.request<TreasuryMovement[]>('/api/treasury/movements', { auth: true });
   }
 
   backups() {

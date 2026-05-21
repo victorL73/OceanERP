@@ -17,6 +17,7 @@ using Erp.Application.Sales;
 using Erp.Application.ServiceTickets;
 using Erp.Application.Signatures;
 using Erp.Application.Stock;
+using Erp.Application.Treasury;
 using Erp.Domain.Auth;
 using Erp.Infrastructure.Files;
 using Erp.Infrastructure.Pdf;
@@ -68,6 +69,7 @@ public static class DependencyInjection
         services.AddScoped<IDriveService, DriveService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<ITreasuryService, TreasuryService>();
         services.AddScoped<IStockService, StockService>();
         services.AddScoped<ILowStockAlertService, LowStockAlertService>();
         services.AddScoped<ISalesOrderService, SalesOrderService>();

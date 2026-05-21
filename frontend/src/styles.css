@@ -2040,6 +2040,13 @@ h1 {
   font-size: 28px;
 }
 
+.metric-card small {
+  display: block;
+  margin-top: 10px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
 .table-surface {
   width: 100%;
   min-width: 0;

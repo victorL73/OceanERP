@@ -2,9 +2,9 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, User, Warehouse } from './types';
+import type { AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
 
-type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
+type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'treasury' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
   { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
@@ -14,6 +14,7 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
   { key: 'orders', label: 'Commandes', icon: ShoppingCart, permission: 'orders.read' },
   { key: 'purchases', label: 'Achats', icon: ShoppingBag, permission: 'purchases.read' },
   { key: 'invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
+  { key: 'treasury', label: 'Tresorerie', icon: BriefcaseBusiness, permission: 'treasury.read' },
   { key: 'stock', label: 'Stock', icon: WarehouseIcon, permission: 'stock.read' },
   { key: 'emails', label: 'Emails', icon: Mail, permission: 'emails.read' },
   { key: 'service', label: 'SAV', icon: LifeBuoy, permission: 'service.read' },
@@ -35,6 +36,7 @@ const viewLabels: Record<ViewKey, string> = {
   orders: 'Commandes',
   purchases: 'Achats fournisseurs',
   invoices: 'Factures',
+  treasury: 'Tresorerie',
   stock: 'Stock',
   emails: 'Emails',
   prestashop: 'PrestaShop',
@@ -48,7 +50,7 @@ const viewLabels: Record<ViewKey, string> = {
   notifications: 'Notifications'
 };
 
-const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean', 'backups'];
+const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'treasury', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean', 'backups'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
 
 function readStoredChoice<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
@@ -178,6 +180,8 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(api.user);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [treasurySummary, setTreasurySummary] = useState<TreasurySummary | null>(null);
+  const [treasuryMovements, setTreasuryMovements] = useState<TreasuryMovement[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -280,6 +284,11 @@ export default function App() {
     try {
       if (target === 'dashboard') {
         setSummary(await api.summary());
+      }
+      if (target === 'treasury') {
+        const [nextTreasurySummary, nextTreasuryMovements] = await Promise.all([api.treasurySummary(), api.treasuryMovements()]);
+        setTreasurySummary(nextTreasurySummary);
+        setTreasuryMovements(nextTreasuryMovements);
       }
       if (target === 'settings') {
         const user = await api.me();
@@ -702,6 +711,7 @@ export default function App() {
         {loading && <div className="loading">Chargement...</div>}
 
         {view === 'dashboard' && <Dashboard summary={summary} />}
+        {view === 'treasury' && <Treasury summary={treasurySummary} movements={treasuryMovements} onChanged={() => load('treasury')} />}
         {view === 'settings' && (
           <Settings
             currentUser={currentUser}
@@ -766,6 +776,97 @@ export default function App() {
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
     </div>
+  );
+}
+
+function Treasury({ summary, movements, onChanged }: { summary: TreasurySummary | null; movements: TreasuryMovement[]; onChanged: () => Promise<void> }) {
+  const cards = summary ? [
+    {
+      label: 'Solde utile',
+      value: summary.availableBalance,
+      note: 'Encaissements - achats - TVA a reverser'
+    },
+    {
+      label: 'TVA a reverser',
+      value: summary.vatToPay,
+      note: `Collectee ${formatDashboardValue(summary.vatCollected, 'currency')} - deductible ${formatDashboardValue(summary.vatDeductible, 'currency')}`
+    },
+    {
+      label: 'Encaissements',
+      value: summary.cashIn,
+      note: `Ce mois ${formatDashboardValue(summary.monthCashIn, 'currency')}`
+    },
+    {
+      label: 'Decaissements achats',
+      value: summary.cashOut,
+      note: `Ce mois ${formatDashboardValue(summary.monthCashOut, 'currency')}`
+    },
+    {
+      label: 'A encaisser',
+      value: summary.expectedIncoming,
+      note: `${summary.unpaidInvoiceCount} facture(s), ${summary.openSalesOrderCount} commande(s)`
+    },
+    {
+      label: 'A decaisser',
+      value: summary.expectedOutgoing,
+      note: `${summary.openPurchaseOrderCount} commande(s) fournisseur`
+    },
+    {
+      label: 'Previsionnel',
+      value: summary.cashForecast,
+      note: 'Solde utile + a encaisser - a decaisser'
+    },
+    {
+      label: 'Impayes en retard',
+      value: summary.overdueInvoices,
+      note: `${summary.overdueInvoiceCount} facture(s) en retard`
+    }
+  ] : [];
+
+  return (
+    <section className="module-stack">
+      <div className="dashboard-toolbar">
+        <button className="secondary" type="button" onClick={() => void onChanged()}>
+          <Search size={15} />
+          Actualiser
+        </button>
+      </div>
+
+      {summary && (
+        <section className="panel">
+          <h2>Vue tresorerie</h2>
+          <p className="muted">
+            Calcul automatique depuis commandes, factures, paiements et achats fournisseurs. Derniere lecture : {formatOrderDate(summary.generatedAt)}.
+          </p>
+        </section>
+      )}
+
+      <section className="grid metrics">
+        {cards.map((card) => (
+          <article className="metric-card" key={card.label}>
+            <span>{card.label}</span>
+            <strong>{formatDashboardValue(card.value, 'currency')}</strong>
+            <small>{card.note}</small>
+          </article>
+        ))}
+      </section>
+
+      <Panel title="Mouvements de tresorerie">
+        <DataTable
+          columns={['Date', 'Flux', 'Module', 'Reference', 'Entree', 'Sortie', 'TVA', 'Statut']}
+          rows={movements.map((item) => [
+            formatOrderDate(item.date),
+            item.label,
+            item.module,
+            item.reference || '-',
+            item.direction === 'In' ? formatDashboardValue(item.amount, 'currency') : '-',
+            item.direction === 'Out' ? formatDashboardValue(item.amount, 'currency') : '-',
+            formatDashboardValue(item.vatAmount, 'currency'),
+            item.status
+          ])}
+        />
+      </Panel>
+    </section>
   );
 }
 

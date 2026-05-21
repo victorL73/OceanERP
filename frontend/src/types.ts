@@ -77,6 +77,42 @@ export type BackupRemoteStorage = {
   lastUploadStatus?: string | null;
 };
 
+export type TreasurySummary = {
+  generatedAt: string;
+  availableBalance: number;
+  cashIn: number;
+  cashOut: number;
+  vatCollected: number;
+  vatDeductible: number;
+  vatToPay: number;
+  unpaidInvoices: number;
+  overdueInvoices: number;
+  expectedIncoming: number;
+  expectedOutgoing: number;
+  openSalesOrders: number;
+  openPurchaseOrders: number;
+  unpaidInvoiceCount: number;
+  overdueInvoiceCount: number;
+  openSalesOrderCount: number;
+  openPurchaseOrderCount: number;
+  monthCashIn: number;
+  monthCashOut: number;
+  netMonthCash: number;
+  cashForecast: number;
+};
+
+export type TreasuryMovement = {
+  id: string;
+  date: string;
+  label: string;
+  module: string;
+  reference: string;
+  direction: 'In' | 'Out';
+  amount: number;
+  vatAmount: number;
+  status: string;
+};
+
 export type AuditLog = {
   id: string;
   userId?: string;
