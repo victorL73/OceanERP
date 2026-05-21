@@ -52,6 +52,57 @@ public sealed class QuoteDocumentDriveLinker(ErpDbContext db, ICurrentUserServic
         await EnsureDocumentLinkAsync(driveItem.Id, document.QuoteId, cancellationToken);
     }
 
+    public async Task RefreshAsync(QuoteDocument document, string? sha256, CancellationToken cancellationToken)
+    {
+        var driveItem = await FindExistingDriveItemAsync(document, cancellationToken);
+        if (driveItem is null)
+        {
+            await LinkAsync(document, sha256, cancellationToken);
+            return;
+        }
+
+        driveItem.Name = Path.GetFileName(document.FileName);
+        driveItem.MimeType = document.MimeType;
+        driveItem.Size = document.Size;
+        driveItem.StoragePath = document.StoragePath;
+        driveItem.UpdatedAt = DateTimeOffset.UtcNow;
+        driveItem.UpdatedByUserId = currentUser.UserId;
+
+        var versionNumber = Math.Max(1, driveItem.CurrentVersion);
+        var currentVersion = await db.DriveFileVersions
+            .Where(x => x.DriveItemId == driveItem.Id && x.Version == versionNumber)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (currentVersion is null)
+        {
+            db.DriveFileVersions.Add(new DriveFileVersion
+            {
+                DriveItemId = driveItem.Id,
+                Version = versionNumber,
+                StoragePath = document.StoragePath,
+                Size = document.Size,
+                Sha256 = sha256 ?? string.Empty,
+                CreatedAt = document.CreatedAt,
+                CreatedByUserId = currentUser.UserId
+            });
+        }
+        else
+        {
+            currentVersion.StoragePath = document.StoragePath;
+            currentVersion.Size = document.Size;
+            currentVersion.Sha256 = sha256 ?? currentVersion.Sha256;
+        }
+
+        document.DriveItemId = driveItem.Id;
+        await EnsureDocumentLinkAsync(driveItem.Id, document.QuoteId, cancellationToken);
+        db.DriveActivityLogs.Add(new DriveActivityLog
+        {
+            DriveItemId = driveItem.Id,
+            Action = "file.refreshed.quote"
+        });
+    }
+
     public async Task<int> BackfillAsync(CancellationToken cancellationToken)
     {
         var documents = await db.QuoteDocuments

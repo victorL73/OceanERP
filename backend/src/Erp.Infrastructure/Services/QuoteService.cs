@@ -203,7 +203,7 @@ public sealed class QuoteService(
         {
             AddHistory(quote, nextStatus.Value, NormalizeOptional(request.Comment) ?? "Statut confirme");
             await db.SaveChangesAsync(cancellationToken);
-            return Result<QuoteDto>.Success(await MapAsync(quote, cancellationToken));
+            return await RefreshCurrentPdfAndMapAsync(quote.Id, cancellationToken);
         }
 
         if (!AllowedTransitions.TryGetValue(quote.Status, out var allowed) || !allowed.Contains(nextStatus.Value))
@@ -214,7 +214,7 @@ public sealed class QuoteService(
         quote.SetStatus(nextStatus.Value);
         AddHistory(quote, nextStatus.Value, NormalizeOptional(request.Comment));
         await db.SaveChangesAsync(cancellationToken);
-        return Result<QuoteDto>.Success(await MapAsync(quote, cancellationToken));
+        return await RefreshCurrentPdfAndMapAsync(quote.Id, cancellationToken);
     }
 
     public async Task<Result<QuoteDocumentDto>> GeneratePdfAsync(Guid id, CancellationToken cancellationToken)
@@ -288,6 +288,12 @@ public sealed class QuoteService(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        var refreshedPdf = await OverwriteCurrentPdfDocumentAsync(quote.Id, cancellationToken);
+        if (!refreshedPdf.Succeeded)
+        {
+            return Result<QuoteDto>.Failure(refreshedPdf.Error ?? "Mise a jour du PDF du devis impossible.");
+        }
+
         var loaded = await LoadQuote().AsNoTracking().FirstAsync(x => x.Id == quote.Id, cancellationToken);
         return Result<QuoteDto>.Success(await MapAsync(loaded, cancellationToken));
     }
@@ -466,6 +472,55 @@ public sealed class QuoteService(
         return Result<QuoteDocument>.Success(document);
     }
 
+    private async Task<Result<QuoteDocument>> OverwriteCurrentPdfDocumentAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var quote = await LoadQuote().AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (quote is null)
+        {
+            return Result<QuoteDocument>.Failure("Devis introuvable.");
+        }
+
+        var currentDocument = quote.Documents
+            .OrderByDescending(x => x.Version)
+            .ThenByDescending(x => x.CreatedAt)
+            .FirstOrDefault();
+        if (currentDocument is null || string.IsNullOrWhiteSpace(currentDocument.StoragePath))
+        {
+            return await CreatePdfDocumentAsync(id, cancellationToken);
+        }
+
+        var trackedDocument = await db.QuoteDocuments.FirstOrDefaultAsync(x => x.Id == currentDocument.Id, cancellationToken);
+        if (trackedDocument is null)
+        {
+            return Result<QuoteDocument>.Failure("Document de devis introuvable.");
+        }
+
+        var (settings, logoBytes) = await LoadPdfSettingsAsync(cancellationToken);
+        var pdfBytes = quotePdfService.Generate(quote, settings, logoBytes);
+        await using var stream = new MemoryStream(pdfBytes);
+        var stored = await fileStorageService.OverwriteAsync(currentDocument.StoragePath, stream, cancellationToken);
+
+        trackedDocument.MimeType = "application/pdf";
+        trackedDocument.StoragePath = stored.StoragePath;
+        trackedDocument.Size = stored.Size;
+
+        await quoteDocumentDriveLinker.RefreshAsync(trackedDocument, stored.Sha256, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<QuoteDocument>.Success(trackedDocument);
+    }
+
+    private async Task<Result<QuoteDto>> RefreshCurrentPdfAndMapAsync(Guid quoteId, CancellationToken cancellationToken)
+    {
+        var refreshedPdf = await OverwriteCurrentPdfDocumentAsync(quoteId, cancellationToken);
+        if (!refreshedPdf.Succeeded)
+        {
+            return Result<QuoteDto>.Failure(refreshedPdf.Error ?? "Mise a jour du PDF du devis impossible.");
+        }
+
+        var loaded = await LoadQuote().AsNoTracking().FirstAsync(x => x.Id == quoteId, cancellationToken);
+        return Result<QuoteDto>.Success(await MapAsync(loaded, cancellationToken));
+    }
+
     private async Task ExpireOutdatedQuotesAsync(CancellationToken cancellationToken)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
@@ -483,7 +538,12 @@ public sealed class QuoteService(
             AddHistory(quote, QuoteStatus.Expired, "Expiration automatique");
         }
 
+        var quoteIds = quotes.Select(x => x.Id).ToList();
         await db.SaveChangesAsync(cancellationToken);
+        foreach (var quoteId in quoteIds)
+        {
+            await OverwriteCurrentPdfDocumentAsync(quoteId, cancellationToken);
+        }
     }
 
     private IQueryable<Quote> LoadQuote()

@@ -91,6 +91,35 @@ public sealed class QuoteApiTests(ApiFactory factory) : IClassFixture<ApiFactory
     }
 
     [Fact]
+    public async Task Quote_StatusChangeOverwritesCurrentPdfDocument()
+    {
+        using var client = await CreateAuthenticatedClientAsync();
+        var customer = await CreateCustomerAsync(client);
+        var product = await CreateProductAsync(client);
+
+        var createResponse = await client.PostAsJsonAsync("/api/quotes", new CreateQuoteRequest(
+            customer.Id,
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)),
+            [new UpsertQuoteLineRequest(product.Id, string.Empty, 1, product.SalePrice, 0, product.VatRate)]));
+        createResponse.EnsureSuccessStatusCode();
+        var quote = (await createResponse.Content.ReadFromJsonAsync<QuoteDto>())!;
+        var originalDocument = Assert.Single(quote.Documents);
+        var originalPdf = await DownloadQuoteDocumentAsync(client, quote.Id, originalDocument.Id);
+
+        var statusResponse = await client.PostAsJsonAsync($"/api/quotes/{quote.Id}/status", new UpdateQuoteStatusRequest("Sent", "Envoye au client"));
+        statusResponse.EnsureSuccessStatusCode();
+        var sentQuote = (await statusResponse.Content.ReadFromJsonAsync<QuoteDto>())!;
+        var refreshedDocument = Assert.Single(sentQuote.Documents);
+        var refreshedPdf = await DownloadQuoteDocumentAsync(client, sentQuote.Id, refreshedDocument.Id);
+
+        Assert.Equal("Sent", sentQuote.Status);
+        Assert.Equal(originalDocument.Id, refreshedDocument.Id);
+        Assert.Equal(originalDocument.FileName, refreshedDocument.FileName);
+        Assert.Equal(originalDocument.Version, refreshedDocument.Version);
+        Assert.False(originalPdf.SequenceEqual(refreshedPdf));
+    }
+
+    [Fact]
     public async Task Quote_AdminCanDeleteDraftQuote()
     {
         using var client = await CreateAuthenticatedClientAsync();
@@ -241,6 +270,13 @@ public sealed class QuoteApiTests(ApiFactory factory) : IClassFixture<ApiFactory
             null));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<ProductDto>())!;
+    }
+
+    private static async Task<byte[]> DownloadQuoteDocumentAsync(HttpClient client, Guid quoteId, Guid documentId)
+    {
+        var response = await client.GetAsync($"/api/quotes/{quoteId}/documents/{documentId}/download");
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
     }
 
     private static async Task<MailAccountDto> CreateMailAccountAsync(HttpClient client)
