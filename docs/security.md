@@ -1,5 +1,16 @@
 # Sécurité et RGPD
 
+## Mise a jour securite 2026-05-21
+
+- Les cles PrestaShop sont gerees depuis `Parametres > PrestaShop` par un administrateur ; elles ne doivent pas etre dupliquees dans `.env` en production courante.
+- Les mots de passe de boites mail et les secrets SFTP de sauvegarde sont proteges cote serveur et ne sont pas renvoyes en clair par l'API.
+- Les sauvegardes peuvent etre copiees vers un stockage externe SFTP avec un compte dedie et un dossier distant limite.
+- Meet expose une page invite publique separee : l'invite saisit seulement son nom et ne recoit aucun acces au reste de l'ERP.
+- Les liens publics de signature et de Meet doivent rester des URLs a token non devinable, expirees ou invalidables selon le module.
+- ONLYOFFICE utilise des URLs temporaires signees et un callback serveur ; une erreur `errorCode -4` indique generalement que Document Server ne peut pas joindre l'URL de telechargement.
+- Les emails supprimes le sont logiquement pour eviter leur retour a la prochaine synchronisation IMAP.
+- Les notifications recurrentes doivent etre regroupees par sujet metier et remises en non-lu au besoin, plutot que dupliquees chaque jour.
+
 ## Implémenté dans le socle
 
 - JWT Bearer.

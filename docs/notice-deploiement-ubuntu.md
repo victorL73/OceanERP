@@ -108,6 +108,8 @@ Variables minimales a changer avant production :
 
 Par defaut, le frontend est expose sur le port `8080` via `HTTP_PORT=8080`.
 
+La cle API PrestaShop ne doit plus etre ajoutee dans `.env` pour l'usage courant. Elle est renseignee par un administrateur dans `Parametres > PrestaShop`, puis chiffree en base avec `SECRETS_ENCRYPTION_KEY`.
+
 `SECRETS_ENCRYPTION_KEY` doit rester stable entre les redeploiements : elle sert a relire les cles API PrestaShop et les mots de passe mail chiffres en base.
 
 Pour ONLYOFFICE, garder `ONLYOFFICE_DOCUMENT_SERVER_URL=/onlyoffice` pour l'editeur cote navigateur et `ONLYOFFICE_INTERNAL_BASE_URL=http://nginx` pour le telechargement/callback depuis le conteneur ONLYOFFICE. Comme cette URL est interne au reseau Docker, garder aussi `ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS=true` et `ONLYOFFICE_ALLOW_META_IP_ADDRESS=true`.
@@ -118,6 +120,26 @@ Si un fichier Office affiche `errorCode -4`, le conteneur Document Server n'arri
 cd ~/OceanERP/deploy/ubuntu
 docker compose --env-file .env -f docker-compose.yml up -d --force-recreate onlyoffice erp-api nginx
 ```
+
+## 5. HTTPS
+
+Pour utiliser camera, micro, partage d'ecran, PWA et liens publics de facon fiable, configurer HTTPS sur le domaine public.
+
+Pre-requis :
+
+- DNS du domaine vers l'IP publique du serveur ;
+- ports 80 et 443 ouverts jusqu'au serveur ;
+- Nginx hote capable de servir `/.well-known/acme-challenge/` sans le proxifier vers l'application.
+
+Commandes de controle :
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+sudo ss -ltnp | grep -E ':80|:443|:8080'
+```
+
+Si Certbot echoue avec `Invalid response` sur le challenge ACME, le domaine pointe bien vers le serveur mais le chemin `/.well-known/acme-challenge/` renvoie probablement l'application au lieu du fichier de validation. Corriger le vhost hote avant de relancer Certbot.
 
 Pour Meet, un ecran noir distant avec camera active signifie souvent que WebRTC ne parvient pas a etablir le chemin reseau direct. Docker Compose inclut un service `turn` base sur coturn. Garder `MEET_STUN_URLS` et activer le TURN public du serveur :
 
@@ -164,7 +186,7 @@ cd ~/OceanERP/deploy/ubuntu
 docker compose --env-file .env -f docker-compose.yml up -d --force-recreate erp-api nginx
 ```
 
-## 5. Demarrer les services
+## 6. Demarrer les services
 
 ```bash
 ./setup-server.sh
@@ -213,7 +235,7 @@ sudo ufw allow 49160:49200/udp
 sudo ufw status
 ```
 
-## 6. Compte administrateur initial
+## 7. Compte administrateur initial
 
 Le compte initial est celui configure dans `.env` :
 
@@ -234,7 +256,7 @@ docker volume rm oceanerp_postgres
 
 Attention : `docker volume rm oceanerp_postgres` supprime la base PostgreSQL. Ne pas utiliser sur une base contenant des donnees utiles sans sauvegarde.
 
-## 7. Probleme PostgreSQL unhealthy
+## 8. Probleme PostgreSQL unhealthy
 
 Le compose utilise `postgres:16-alpine`. Cette version evite le changement de montage introduit dans les images PostgreSQL 18.
 
@@ -252,7 +274,7 @@ docker volume rm oceanerp_postgres
 ./deploy.sh
 ```
 
-## 8. Premiere sauvegarde de controle
+## 9. Premiere sauvegarde de controle
 
 ```bash
 ./backup.sh

@@ -1,5 +1,40 @@
 # Schéma base de données
 
+## Etat des migrations au 2026-05-21
+
+Les migrations presentes dans `backend/src/Erp.Infrastructure/Persistence/Migrations` couvrent le socle complet Phase 1, Phase 2 et Phase 3 :
+
+- `InitialCreate`
+- `Phase2Core`
+- `Phase2Workflows`
+- `PrestashopProtectedApiKey`
+- `PrestashopSyncExecutionLog`
+- `ProductImageUrl`
+- `ProductBrands`
+- `PrestashopWarehouseAssignment`
+- `WarehouseContactDetails`
+- `PrestashopAllWarehousesByDefault`
+- `PurchaseOrdersAndLowStockAlerts`
+- `PurchaseOrderMultiLineCharges`
+- `PurchaseOrderReceivingWarehouse`
+- `EmailModuleCompletion`
+- `QuoteDocumentSettings`
+- `EmailAutoSyncSettings`
+- `EmailCcBcc`
+- `EmailSoftDelete`
+- `CustomerProfileFields`
+- `SalesOrderShippingDetails`
+- `SalesOrderPrestashopDetails`
+- `InvoiceCreditNotes`
+- `Phase3Core`
+- `FlowceanWorkspace`
+- `EmailDistributionLists`
+- `ServiceTicketAssignment`
+- `PrestashopColissimoConnectionSettings`
+- `MeetRooms`
+
+Les tables recentes ajoutent notamment les listes de diffusion email, les salles Meet, les signaux WebRTC, le chat Meet, les espaces Flowcean, les parametres SAV, les donnees Colissimo, les champs clients enrichis, les avoirs facture et les reglages avances de sauvegarde. Le module Tresorerie est calcule depuis les ventes, achats, paiements, factures et mouvements existants : il n'a pas besoin d'une table de solde manuel pour rester raccord avec les donnees source.
+
 La migration initiale est disponible dans `backend/src/Erp.Infrastructure/Persistence/Migrations`.
 
 ## Tables principales MVP

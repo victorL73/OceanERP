@@ -65,9 +65,12 @@ http://IP_DU_SERVEUR:8080
 
 Documentation detaillee :
 
+- `docs/etat-fonctionnel.md`
 - `docs/notice-deploiement-ubuntu.md`
 - `docs/notice-sauvegarde-restauration.md`
 - `docs/notice-mise-a-jour.md`
+
+`docs/etat-fonctionnel.md` est la reference rapide pour savoir ce qui est code, ce qui est utilisable et ce qui reste en stabilisation.
 
 ## Sauvegarde
 
@@ -109,13 +112,17 @@ La Phase 2 est maintenant cloturee sur son socle metier :
 La Phase 3 ajoute :
 
 - SAV avec tickets, priorites, statuts, messages, historique, liens clients/produits/commandes et recuperation automatique des conversations PrestaShop ;
-- agenda avec evenements, rappels et liens vers les modules ERP ;
-- signature interne avec lien public securise, OTP email, expiration, preuve SHA-256, IP, user-agent, signature par clic ou dessinee ;
+- agenda avec vues jour/semaine/mois, rappels, liens vers les modules ERP et creation de salles Meet ;
+- signature interne avec lien public securise, OTP email, expiration, preuve SHA-256, IP, user-agent, signature par clic ou dessinee et signature visible sur le PDF signe ;
 - integration ONLYOFFICE pour ouvrir DOCX/XLSX/PPTX via URL temporaire signee et versionner les callbacks dans Drive ;
+- espace de travail Flowcean integre a la base principale ;
+- module Meet avec salles, invites externes sans compte ERP, camera, micro, partage d'ecran, chat et transcription ;
+- module Sauvegardes avec telechargement, restauration, planification, heure locale, retention et stockage externe SFTP ;
+- module Tresorerie avec solde utile, TVA et mouvements calcules depuis les ventes, achats et paiements ;
 - export XML preparatoire Factur-X depuis les factures ;
 - shell Electron avance avec configuration serveur locale, notifications natives et support `electron-updater`.
 
-Restent en evolution controlee : Factur-X PDF/A-3 conforme et API externe avancee par cles.
+Restent en evolution controlee : Factur-X PDF/A-3 conforme, API externe avancee par cles, stabilisation des flux Meet selon HTTPS/TURN et optimisation des gros fichiers XLSX ONLYOFFICE.
 
 Apres `git pull`, redeployer sur Ubuntu :
 
@@ -124,6 +131,13 @@ cd ~/OceanERP/deploy/ubuntu
 ./backup.sh
 docker compose --env-file .env -f docker-compose.yml build --no-cache nginx erp-api
 docker compose --env-file .env -f docker-compose.yml up -d
+```
+
+Pour une mise a jour de documentation uniquement, il suffit de faire :
+
+```bash
+cd ~/OceanERP
+git pull --ff-only origin main
 ```
 
 ## Windows Electron

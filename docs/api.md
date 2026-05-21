@@ -1,5 +1,35 @@
 # API
 
+## Etat des endpoints actifs au 2026-05-21
+
+Les groupes REST suivants sont exposes par l'API actuelle. Swagger reste la reference technique exhaustive quand l'API est lancee en environnement de developpement.
+
+- `api/auth` : connexion, refresh token, profil, changement de mot de passe et deconnexion.
+- `api/users` : comptes, roles, permissions et audit logs.
+- `api/customers` : liste, detail, creation et mise a jour des clients avec contacts/adresses.
+- `api/products` : liste, detail, creation, mise a jour, categories et fournisseurs.
+- `api/quotes` : devis, PDF, email, statuts, transformation commande, suppression admin et personnalisation PDF.
+- `api/orders` : commandes, detail, modification, suppression admin, confirmation, expedition, bon d'expedition et etiquette Colissimo officielle si disponible.
+- `api/invoices` : factures, paiements, avoirs, annulation, PDF et export XML preparatoire Factur-X.
+- `api/purchases/orders` : commandes fournisseurs multi-lignes, frais, reception prevue, entrepot de reception et reception vers stock.
+- `api/stock` : entrepots, articles de stock, mouvements, ajustements, seuils et transferts.
+- `api/emails` : serveurs SMTP/IMAP, boites, signatures HTML, sync IMAP, messages, pieces jointes, envoi, modeles et listes de diffusion.
+- `api/prestashop` : connexions, journal, synchronisation manuelle et synchronisation automatique via worker.
+- `api/service-tickets` : SAV, messages, affectation, statuts, parametres d'attribution et synchronisation messages PrestaShop.
+- `api/calendar/events` : agenda, evenements, rappels et liens modules.
+- `api/signatures` : demandes de signature, documents, statut, suppression, endpoints publics par token et document signe.
+- `api/drive` : dossiers, fichiers, telechargement, deplacement, corbeille, restauration et liens documentaires.
+- `api/onlyoffice` : configuration editeur, telechargement signe et callback de sauvegarde.
+- `api/flowcean` et `api/flowcean/compat` : espace de travail interne et compatibilite UI Flowcean.
+- `api/meetings` : salles Meet, invitations, signaux WebRTC, chat, pieces jointes, transcription et acces public invite.
+- `api/backups` : sauvegardes, telechargement, restauration, planification, retention et stockage externe SFTP.
+- `api/treasury` : resume tresorerie et mouvements calcules.
+- `api/notifications` : notifications, creation interne et marquage lu.
+- `api/dashboard` : indicateurs du tableau de bord.
+- `api/health` : controle de sante.
+
+Important : les documents et pieces jointes passent par des endpoints controles. Les binaires ne sont jamais servis par un dossier public direct.
+
 Swagger est activé en environnement `Development`.
 
 ## Endpoints MVP

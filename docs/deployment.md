@@ -1,5 +1,34 @@
 # Deploiement
 
+## Etat actuel
+
+Le fichier actif d'environnement est `~/OceanERP/deploy/ubuntu/.env`. Utiliser `PUBLIC_URL=https://votre-domaine` en HTTPS ; ne pas utiliser `PUBLIC_URI`.
+
+La cle API PrestaShop est saisie dans l'interface admin `Parametres > PrestaShop`. La variable `PRESTASHOP_AUTO_SYNC_ENABLED=true` active uniquement le worker de synchronisation automatique.
+
+Pour une mise a jour de documentation seule, aucun conteneur n'a besoin d'etre reconstruit :
+
+```bash
+cd ~/OceanERP
+git pull --ff-only origin main
+```
+
+Pour une mise a jour applicative, faire une sauvegarde puis reconstruire au minimum `erp-api` et `nginx`. Ajouter `onlyoffice` ou `turn` seulement si leur configuration change.
+
+## HTTPS et Certbot
+
+Pour obtenir un certificat Let's Encrypt, le domaine doit pointer vers l'IP publique du serveur et le port 80 doit arriver sur le Nginx hote qui sert `/.well-known/acme-challenge/`.
+
+Controle utile :
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+sudo ss -ltnp | grep -E ':80|:443|:8080'
+```
+
+Si Certbot recoit une page HTML inattendue sur le challenge ACME, verifier que le vhost hote laisse passer `/.well-known/acme-challenge/` avant le proxy vers Docker.
+
 ## Services Docker
 
 - `erp-api` : API ASP.NET Core, migrations EF Core et seed initial.

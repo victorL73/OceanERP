@@ -19,8 +19,10 @@ ls -lh /opt/oceanerp/backups
 
 ```bash
 cd ~/OceanERP
-git pull
+git pull --ff-only origin main
 ```
+
+Si la mise a jour ne contient que de la documentation Markdown, aucune reconstruction Docker n'est necessaire.
 
 Si `.env` ne contient pas encore de cle de chiffrement applicatif, l'ajouter avant de redeployer :
 
@@ -67,6 +69,8 @@ docker compose --env-file .env -f docker-compose.yml build --no-cache nginx erp-
 docker compose --env-file .env -f docker-compose.yml up -d
 ```
 
+Ne reconstruire `onlyoffice` ou `turn` que si la mise a jour touche explicitement leur image, leur configuration ou leurs variables d'environnement.
+
 ## 4. Verifier apres mise a jour
 
 ```bash
@@ -86,6 +90,6 @@ http://IP_DU_SERVEUR:8080
 - Ne pas supprimer `oceanerp_documents` sans sauvegarde valide.
 - Verifier les migrations EF Core lors des mises a jour majeures.
 - Pour la Phase 2, verifier que les menus `Commandes`, `Factures`, `Stock`, `Emails` et `PrestaShop` apparaissent apres reconstruction.
-- Pour la Phase 3, verifier que les menus `SAV`, `Agenda` et `Signatures` apparaissent, puis tester un ticket SAV, un evenement agenda et une demande de signature sur un document Drive.
+- Pour la Phase 3, verifier que les menus `SAV`, `Agenda`, `Meet`, `Signatures`, `Espace`, `Sauvegardes` et `Tresorerie` apparaissent, puis tester un ticket SAV, un evenement agenda, une salle Meet et une demande de signature sur un document Drive.
 - Si le navigateur garde l'ancien menu, forcer le rechargement avec `Ctrl+F5` ou vider le cache/service worker de la PWA.
 - Tester les restaurations sur preproduction avant une operation sensible.

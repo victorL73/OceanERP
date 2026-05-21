@@ -26,6 +26,18 @@ cd deploy/windows
 
 Le resultat est genere par `electron-builder` dans le dossier `desktop/dist`.
 
+Si PowerShell bloque les scripts avec `execution des scripts est desactivee`, lancer le test ou le build avec une politique temporaire :
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\test-desktop.ps1
+```
+
+Depuis le dossier `deploy/windows`, utiliser simplement :
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\test-desktop.ps1
+```
+
 Optionnel : pour pre-remplir l'adresse serveur dans l'ecran de demarrage, utiliser :
 
 ```powershell
@@ -53,6 +65,8 @@ OceanERP > Changer de serveur
 
 Le reglage est conserve dans le profil utilisateur Windows de l'application.
 
+Les champs email/mot de passe de l'ecran ERP ne contiennent plus les identifiants initiaux par defaut. Le navigateur embarque peut seulement proposer l'autocomplete local si l'utilisateur a deja enregistre ses identifiants sur ce poste.
+
 ## Test local rapide
 
 Avant de creer l'installateur, on peut tester le shell Electron :
@@ -73,6 +87,8 @@ Verifier :
 - le menu `OceanERP > Changer de serveur` permet de revenir au choix serveur ;
 - une URL invalide affiche une page de diagnostic ;
 - les notifications Windows sont autorisees par le systeme.
+- camera, micro et partage d'ecran fonctionnent uniquement si le serveur est en HTTPS ou si l'application Electron a les permissions systeme necessaires.
+- pour Meet, tester aussi le changement de camera et de micro quand plusieurs peripheriques sont connectes.
 
 ## Limite actuelle
 

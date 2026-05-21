@@ -20,9 +20,9 @@ OceanERP suit une Clean Architecture stricte.
 - Notifications internes, hub SignalR et notification navigateur lorsque l'application est ouverte.
 - Dashboard de base.
 
-## Modules préparés
+## Modules prepares
 
-Les entités de vocabulaire des phases 2/3 sont placées dans `Erp.Domain/FutureModules` comme placeholders structurés : commandes, factures, stock, achats, comptabilité, SAV, emails, agenda, signature interne, PrestaShop et API externe.
+Les anciens placeholders de vocabulaire restent utiles pour tracer l'intention produit, mais les modules principaux des phases 2 et 3 disposent maintenant de services, DTOs, controllers, migrations et ecrans dedies. Les points encore a finaliser sont documentes dans `docs/etat-fonctionnel.md`.
 
 ## Phase 2 cloturee
 
@@ -46,10 +46,14 @@ La Phase 3 ajoute maintenant un socle exploitable et extensible pour :
 - agenda : evenements, rappels, liens vers les modules metier, evenements prives/publics, vue calendrier simple et notifications automatiques de rappel ;
 - signature interne : demandes de signature sur documents Drive, liens publics securises, OTP email, expiration, acceptation des conditions, signature par clic ou dessinee, SHA-256 du document, IP, user-agent, horodatage, preuve et document signe stocke hors base ;
 - ONLYOFFICE : configuration d'edition pour DOCX/XLSX/PPTX, URL document temporaire signee et callback de sauvegarde vers une nouvelle version Drive ;
+- Espace : integration Flowcean branchee a la base principale, pages, blocs, favoris, corbeille, import/export et compatibilite UI ;
+- Meet : salles de reunion, invite public sans compte ERP, signaux WebRTC, TURN, chat, pieces jointes, transcription et traduction ;
+- Sauvegardes : lancement manuel, telechargement, restauration, planification, heure locale, retention et stockage externe SFTP ;
+- Tresorerie : solde utile, TVA et mouvements calcules depuis les donnees commerciales et achats ;
 - Factur-X : export XML preparatoire depuis les factures et les avoirs pour preparer l'etape PDF/A-3 + XML embarque ;
 - Electron avance : choix serveur sans rebuild, notifications natives Windows et support `electron-updater`.
 
-Les points volontairement conserves en evolution controlee sont : export Factur-X pleinement conforme EN16931 avec PDF/A-3 et XML embarque, et module API keys externe avance.
+Les points volontairement conserves en evolution controlee sont : export Factur-X pleinement conforme EN16931 avec PDF/A-3 et XML embarque, module API keys externe avance, stabilisation WebRTC multi-postes selon HTTPS/TURN et optimisation des gros fichiers XLSX ONLYOFFICE.
 
 ## Règles importantes
 
