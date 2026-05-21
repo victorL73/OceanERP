@@ -2169,6 +2169,10 @@ th {
   padding: 22px;
 }
 
+.customer-create-modal {
+  width: min(980px, 100%);
+}
+
 .stock-modal {
   width: min(860px, 100%);
 }

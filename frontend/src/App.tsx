@@ -211,6 +211,7 @@ export default function App() {
   const [signatureRequests, setSignatureRequests] = useState<PagedResult<SignatureRequest> | null>(null);
   const [backups, setBackups] = useState<BackupArchive[]>([]);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const [serviceTicketCreateOpen, setServiceTicketCreateOpen] = useState(false);
   const [serviceTicketFilters, setServiceTicketFilters] = useState<ServiceTicketFilters>(defaultServiceTicketFilters);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
@@ -673,6 +674,12 @@ export default function App() {
               </div>
             </div>
             <div className="top-actions">
+              {view === 'customers' && (
+                <button className="primary topbar-action-button" type="button" onClick={() => setCustomerCreateOpen(true)}>
+                  <Plus size={16} />
+                  Nouveau client
+                </button>
+              )}
               {view === 'service' && (
                 <button className="primary topbar-action-button" type="button" onClick={() => setServiceTicketCreateOpen(true)}>
                   <Plus size={16} />
@@ -725,7 +732,7 @@ export default function App() {
             }}
           />
         )}
-        {view === 'customers' && <Customers items={customers?.items ?? []} onChanged={() => load('customers')} />}
+        {view === 'customers' && <Customers items={customers?.items ?? []} createOpen={customerCreateOpen} onCloseCreate={() => setCustomerCreateOpen(false)} onChanged={() => load('customers')} />}
         {view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('quotes')} />}
         {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('orders')} />}
@@ -3573,7 +3580,7 @@ type CustomerDraft = {
   addresses: CustomerAddressDraft[];
 };
 
-function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => Promise<void> }) {
+function Customers({ items, createOpen, onCloseCreate, onChanged }: { items: Customer[]; createOpen: boolean; onCloseCreate: () => void; onChanged: () => Promise<void> }) {
   const [code, setCode] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [tradeName, setTradeName] = useState('');
@@ -3627,27 +3634,46 @@ function Customers({ items, onChanged }: { items: Customer[]; onChanged: () => P
     setSiretNumber('');
     setVatNumber('');
     await onChanged();
+    onCloseCreate();
   }
 
   return (
     <>
-      <Panel title="Nouveau client">
-        <form className="form-grid" onSubmit={submit}>
-          <input required placeholder="Code client" value={code} onChange={(event) => setCode(event.target.value)} />
-          <input required placeholder="Nom de l'entreprise" value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
-          <input placeholder="Nom commercial" value={tradeName} onChange={(event) => setTradeName(event.target.value)} />
-          <input placeholder="Contact principal" value={contactName} onChange={(event) => setContactName(event.target.value)} />
-          <input placeholder="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <input placeholder="Telephone" value={phone} onChange={(event) => setPhone(event.target.value)} />
-          <input placeholder="SIREN" value={sirenNumber} onChange={(event) => setSirenNumber(event.target.value)} />
-          <input placeholder="SIRET" value={siretNumber} onChange={(event) => setSiretNumber(event.target.value)} />
-          <input placeholder="TVA intracommunautaire" value={vatNumber} onChange={(event) => setVatNumber(event.target.value)} />
-          <button className="primary" type="submit">
-            <Plus size={16} />
-            Creer
-          </button>
-        </form>
-      </Panel>
+      {createOpen && (
+        <div className="modal-backdrop" onClick={onCloseCreate}>
+          <section className="modal-panel customer-create-modal" role="dialog" aria-modal="true" aria-labelledby="customer-create-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">CLIENT</p>
+                <h2 id="customer-create-title">Nouveau client</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={onCloseCreate}>
+                <X size={18} />
+              </button>
+            </header>
+            <form className="form-grid" onSubmit={submit}>
+              <input required placeholder="Code client" value={code} onChange={(event) => setCode(event.target.value)} />
+              <input required placeholder="Nom de l'entreprise" value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+              <input placeholder="Nom commercial" value={tradeName} onChange={(event) => setTradeName(event.target.value)} />
+              <input placeholder="Contact principal" value={contactName} onChange={(event) => setContactName(event.target.value)} />
+              <input placeholder="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+              <input placeholder="Telephone" value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <input placeholder="SIREN" value={sirenNumber} onChange={(event) => setSirenNumber(event.target.value)} />
+              <input placeholder="SIRET" value={siretNumber} onChange={(event) => setSiretNumber(event.target.value)} />
+              <input placeholder="TVA intracommunautaire" value={vatNumber} onChange={(event) => setVatNumber(event.target.value)} />
+              <div className="modal-footer full-field">
+                <button className="secondary" type="button" onClick={onCloseCreate}>
+                  Annuler
+                </button>
+                <button className="primary" type="submit">
+                  <Plus size={16} />
+                  Creer
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
       <DataTable
         columns={['Code', 'Societe', 'Contact', 'Email', 'Telephone', 'SIREN', 'Adresse', 'TVA', 'Statut']}
         rows={items.map((item) => {
