@@ -7297,7 +7297,7 @@ function emailSendFeedback(message: EmailMessage) {
 }
 
 function Emails({ accounts, messages, templates, distributionLists, customers, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; distributionLists: EmailDistributionList[]; customers: Customer[]; onChanged: () => Promise<void> }) {
-  const [tab, setTab] = useState<'accounts' | 'compose' | 'messages' | 'templates' | 'lists'>(() => readStoredChoice('oceanerp.emails.activeTab', 'messages', ['accounts', 'compose', 'messages', 'templates', 'lists'] as const));
+  const [tab, setTab] = useState<'accounts' | 'messages' | 'templates' | 'lists'>(() => readStoredChoice('oceanerp.emails.activeTab', 'messages', ['accounts', 'messages', 'templates', 'lists'] as const));
   const [editingAccountId, setEditingAccountId] = useState('');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -7312,6 +7312,7 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
   const [clearPassword, setClearPassword] = useState(false);
   const [accountActive, setAccountActive] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [composeOpen, setComposeOpen] = useState(false);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
@@ -7564,6 +7565,26 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
     await onChanged();
   }
 
+  function resetComposeForm() {
+    setTo('');
+    setCc('');
+    setBcc('');
+    setSubject('');
+    setBody('');
+    setRecipientSuggestionsOpen(false);
+  }
+
+  function openNewEmailComposer() {
+    resetComposeForm();
+    setSelectedAccountId((current) => current || activeAccounts[0]?.id || '');
+    setComposeOpen(true);
+  }
+
+  function closeCompose() {
+    setComposeOpen(false);
+    setRecipientSuggestionsOpen(false);
+  }
+
   async function send(event: FormEvent) {
     event.preventDefault();
     const mailAccountId = selectedAccountId || activeAccounts[0]?.id;
@@ -7575,11 +7596,8 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
       const sentMessage = await api.sendEmail({ mailAccountId, to, cc: cc || null, bcc: bcc || null, subject, body });
       setFeedback(emailSendFeedback(sentMessage));
       if (sentMessage.status === 'Sent') {
-        setTo('');
-        setCc('');
-        setBcc('');
-        setSubject('');
-        setBody('');
+        resetComposeForm();
+        closeCompose();
       }
 
       await onChanged();
@@ -7883,7 +7901,8 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
     setSubject(selectedMessage.subject.trim().toLowerCase().startsWith('re:') ? selectedMessage.subject : `Re: ${selectedMessage.subject}`);
     setBody(buildQuotedEmailBody(selectedMessage, formatEmailDate(emailMessageDateValue(selectedMessage))));
     closeMessage();
-    setTab('compose');
+    setComposeOpen(true);
+    setTab('messages');
   }
 
   function startForward() {
@@ -7901,7 +7920,8 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
     setSubject(subjectPrefixPattern.test(selectedMessage.subject.trim()) ? selectedMessage.subject : `Tr: ${selectedMessage.subject}`);
     setBody(buildForwardedEmailBody(selectedMessage, formatEmailDate(emailMessageDateValue(selectedMessage))));
     closeMessage();
-    setTab('compose');
+    setComposeOpen(true);
+    setTab('messages');
   }
 
   function formatEmailDate(value?: string) {
@@ -7974,12 +7994,15 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
   return (
     <>
       {feedback && <div className={feedbackIsError ? 'alert' : 'sync-note'}>{feedback}</div>}
+      <div className="module-actions email-actions-bar">
+        <button className="primary" type="button" onClick={openNewEmailComposer}>
+          <Mail size={16} />
+          Nouveau mail
+        </button>
+      </div>
       <div className="browser-tabs">
         <button className={tab === 'messages' ? 'active' : ''} type="button" onClick={() => setTab('messages')}>
           Journal
-        </button>
-        <button className={tab === 'compose' ? 'active' : ''} type="button" onClick={() => setTab('compose')}>
-          Nouveau mail
         </button>
         <button className={tab === 'templates' ? 'active' : ''} type="button" onClick={() => setTab('templates')}>
           Modeles
@@ -8083,8 +8106,18 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
         </div>
       )}
 
-      {tab === 'compose' && (
-        <Panel title="Envoyer un email">
+      {composeOpen && (
+        <div className="modal-backdrop" onClick={closeCompose}>
+          <section className="modal-panel email-compose-modal" role="dialog" aria-modal="true" aria-labelledby="email-compose-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <p className="eyebrow">EMAIL</p>
+                <h2 id="email-compose-title">Nouveau mail</h2>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={closeCompose}>
+                <X size={18} />
+              </button>
+            </header>
           <form className="email-compose-form" onSubmit={send}>
             <div className="form-grid">
               <label className="field">
@@ -8160,13 +8193,17 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
               <textarea required className="mail-body-input" placeholder="Message" value={body} onChange={(event) => setBody(event.target.value)} />
             </label>
             <div className="modal-footer">
+              <button className="secondary" type="button" onClick={closeCompose}>
+                Annuler
+              </button>
               <button className="primary" type="submit" disabled={activeAccounts.length === 0}>
                 <Mail size={16} />
                 Envoyer
               </button>
             </div>
           </form>
-        </Panel>
+          </section>
+        </div>
       )}
 
       {tab === 'messages' && (

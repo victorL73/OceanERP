@@ -1576,6 +1576,11 @@ h1 {
   flex-wrap: wrap;
 }
 
+.email-actions-bar {
+  justify-content: flex-end;
+  margin: 0 0 10px;
+}
+
 .form-grid input,
 .form-grid select,
 .form-grid textarea,
@@ -2182,6 +2187,10 @@ th {
 
 .email-modal {
   width: min(1120px, calc(100vw - 48px));
+}
+
+.email-compose-modal {
+  width: min(980px, 100%);
 }
 
 .email-modal .detail-grid {
