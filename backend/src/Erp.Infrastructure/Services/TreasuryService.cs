@@ -23,20 +23,32 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
 
         var invoicePayments = snapshot.InvoicePayments.Sum(x => x.Amount);
         var paidOrders = snapshot.SalesOrders
-            .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && (x.PaidTotal ?? 0m) > 0m)
+            .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && IsPaidSalesOrder(x))
             .Sum(x => x.PaidTotal ?? 0m);
+        var manualCashIn = snapshot.ManualEntries
+            .Where(x => x.Direction.Equals("In", StringComparison.OrdinalIgnoreCase))
+            .Sum(x => x.Amount);
+        var manualCashOut = snapshot.ManualEntries
+            .Where(x => x.Direction.Equals("Out", StringComparison.OrdinalIgnoreCase))
+            .Sum(x => x.Amount);
 
-        var cashIn = invoicePayments + paidOrders;
+        var cashIn = invoicePayments + paidOrders + manualCashIn;
         var committedPurchases = snapshot.PurchaseOrders.Where(x => IsCommittedPurchase(x.Status)).ToList();
-        var cashOut = committedPurchases.Sum(snapshot.GetPurchaseGross);
+        var cashOut = committedPurchases.Sum(snapshot.GetPurchaseGross) + manualCashOut;
 
         var vatCollected = snapshot.Invoices
             .Where(x => x.Kind == "Invoice" && !IsCancelled(x.Status))
             .Sum(snapshot.GetInvoiceVat)
             + snapshot.SalesOrders
-                .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && (x.PaidTotal ?? 0m) > 0m)
-                .Sum(x => VatFromGross(x.PaidTotal ?? 0m));
-        var vatDeductible = committedPurchases.Sum(snapshot.GetPurchaseVat);
+                .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && IsPaidSalesOrder(x))
+                .Sum(x => VatFromGross(x.PaidTotal ?? 0m))
+            + snapshot.ManualEntries
+                .Where(x => x.Direction.Equals("In", StringComparison.OrdinalIgnoreCase))
+                .Sum(x => x.VatAmount);
+        var vatDeductible = committedPurchases.Sum(snapshot.GetPurchaseVat)
+            + snapshot.ManualEntries
+                .Where(x => x.Direction.Equals("Out", StringComparison.OrdinalIgnoreCase))
+                .Sum(x => x.VatAmount);
         var vatToPay = Math.Max(0m, vatCollected - vatDeductible);
 
         var unpaidInvoices = snapshot.Invoices
@@ -47,7 +59,7 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         var overdueInvoiceAmount = overdueInvoices.Sum(snapshot.GetInvoiceOpenAmount);
 
         var openSalesOrders = snapshot.SalesOrders
-            .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && IsOpenSalesOrder(x.Status))
+            .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && IsOpenSalesOrder(x.Status) && !IsPaidSalesOrder(x))
             .ToList();
         var openPurchaseOrders = snapshot.PurchaseOrders
             .Where(x => IsOpenPurchase(x.Status))
@@ -59,11 +71,17 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
             .Where(x => ToUtc(x.PaidOn) >= monthStart)
             .Sum(x => x.Amount)
             + snapshot.SalesOrders
-                .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && (x.PaidTotal ?? 0m) > 0m && (x.OrderedAt ?? x.CreatedAt) >= monthStart)
-                .Sum(x => x.PaidTotal ?? 0m);
+                .Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && IsPaidSalesOrder(x) && (x.OrderedAt ?? x.CreatedAt) >= monthStart)
+                .Sum(x => x.PaidTotal ?? 0m)
+            + snapshot.ManualEntries
+                .Where(x => x.Direction.Equals("In", StringComparison.OrdinalIgnoreCase) && x.Date >= monthStart)
+                .Sum(x => x.Amount);
         var monthCashOut = committedPurchases
             .Where(x => (x.OrderedAt ?? x.ReceivedAt ?? x.CreatedAt) >= monthStart)
-            .Sum(snapshot.GetPurchaseGross);
+            .Sum(snapshot.GetPurchaseGross)
+            + snapshot.ManualEntries
+                .Where(x => x.Direction.Equals("Out", StringComparison.OrdinalIgnoreCase) && x.Date >= monthStart)
+                .Sum(x => x.Amount);
 
         var availableBalance = cashIn - cashOut - vatToPay;
         var cashForecast = availableBalance + expectedIncoming - expectedOutgoing;
@@ -103,6 +121,22 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
 
         var movements = new List<TreasuryMovementDto>();
 
+        foreach (var manualEntry in snapshot.ManualEntries)
+        {
+            movements.Add(new TreasuryMovementDto(
+                manualEntry.Id,
+                manualEntry.Date,
+                manualEntry.Label,
+                "Tresorerie",
+                "Ecriture manuelle",
+                manualEntry.Direction,
+                Round(manualEntry.Amount),
+                Round(manualEntry.VatAmount),
+                "Manuel",
+                manualEntry.Direction.Equals("Out", StringComparison.OrdinalIgnoreCase) ? "ActualOut" : "ActualIn",
+                manualEntry.Note));
+        }
+
         foreach (var payment in snapshot.InvoicePayments)
         {
             invoiceById.TryGetValue(payment.InvoiceId, out var invoice);
@@ -115,10 +149,12 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
                 "In",
                 Round(payment.Amount),
                 Round(VatFromGross(payment.Amount)),
-                invoice?.Status ?? "Paid"));
+                invoice?.Status ?? "Paid",
+                "ActualIn",
+                null));
         }
 
-        foreach (var order in snapshot.SalesOrders.Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && (x.PaidTotal ?? 0m) > 0m))
+        foreach (var order in snapshot.SalesOrders.Where(x => !invoiceSalesOrderIds.Contains(x.Id) && !IsCancelled(x.Status) && IsPaidSalesOrder(x)))
         {
             var amount = order.PaidTotal ?? 0m;
             movements.Add(new TreasuryMovementDto(
@@ -130,7 +166,9 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
                 "In",
                 Round(amount),
                 Round(VatFromGross(amount)),
-                order.Status));
+                order.Status,
+                "ActualIn",
+                "Commande PrestaShop encaissee : elle n'est pas ajoutee une seconde fois dans les montants a encaisser."));
         }
 
         foreach (var invoice in snapshot.Invoices.Where(x => x.Kind == "Invoice" && !IsCancelled(x.Status) && !IsPaid(x.Status)))
@@ -150,10 +188,12 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
                 "In",
                 Round(amount),
                 Round(snapshot.GetInvoiceVat(invoice)),
-                invoice.Status));
+                invoice.Status,
+                "ExpectedIn",
+                invoice.DueDate < DateOnly.FromDateTime(DateTime.UtcNow) ? "Facture en retard." : null));
         }
 
-        foreach (var order in snapshot.SalesOrders.Where(x => !invoiceSalesOrderIds.Contains(x.Id) && IsOpenSalesOrder(x.Status)))
+        foreach (var order in snapshot.SalesOrders.Where(x => !invoiceSalesOrderIds.Contains(x.Id) && IsOpenSalesOrder(x.Status) && !IsPaidSalesOrder(x)))
         {
             var amount = snapshot.GetSalesOrderGross(order);
             if (amount <= 0m)
@@ -170,7 +210,9 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
                 "In",
                 Round(amount),
                 Round(VatFromGross(amount)),
-                order.Status));
+                order.Status,
+                "ExpectedIn",
+                "Commande non payee a encaisser."));
         }
 
         foreach (var purchaseOrder in snapshot.PurchaseOrders.Where(x => IsCommittedPurchase(x.Status) || IsOpenPurchase(x.Status)))
@@ -190,7 +232,9 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
                 "Out",
                 Round(amount),
                 Round(snapshot.GetPurchaseVat(purchaseOrder)),
-                purchaseOrder.Status));
+                purchaseOrder.Status,
+                IsCommittedPurchase(purchaseOrder.Status) ? "ActualOut" : "ExpectedOut",
+                null));
         }
 
         return movements
@@ -198,6 +242,47 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
             .ThenBy(x => x.Reference)
             .Take(250)
             .ToList();
+    }
+
+    public async Task<TreasuryMovementDto> CreateManualEntryAsync(TreasuryManualEntryCreateDto request, CancellationToken cancellationToken)
+    {
+        var label = request.Label.Trim();
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            throw new InvalidOperationException("Le libelle de l'ecriture est obligatoire.");
+        }
+
+        if (request.Amount <= 0m)
+        {
+            throw new InvalidOperationException("Le montant doit etre superieur a zero.");
+        }
+
+        var direction = request.Direction.Equals("Out", StringComparison.OrdinalIgnoreCase) ? "Out" : "In";
+        var id = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var occurredOn = request.OccurredOn == default ? DateOnly.FromDateTime(now.UtcDateTime) : request.OccurredOn;
+        var amount = Round(request.Amount);
+        var vatAmount = Round(Math.Max(0m, request.VatAmount));
+        var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $@"INSERT INTO ""TreasuryManualEntries""
+                (""Id"", ""CreatedAt"", ""OccurredOn"", ""Label"", ""Direction"", ""Amount"", ""VatAmount"", ""Note"")
+                VALUES ({id}, {now}, {occurredOn}, {label}, {direction}, {amount}, {vatAmount}, {note})",
+            cancellationToken);
+
+        return new TreasuryMovementDto(
+            id,
+            ToUtc(occurredOn),
+            label,
+            "Tresorerie",
+            "Ecriture manuelle",
+            direction,
+            amount,
+            vatAmount,
+            "Manuel",
+            direction == "Out" ? "ActualOut" : "ActualIn",
+            note);
     }
 
     private async Task<TreasurySnapshot> LoadSnapshotAsync(CancellationToken cancellationToken)
@@ -210,6 +295,7 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         var purchaseOrders = await db.PurchaseOrders.AsNoTracking().ToListAsync(cancellationToken);
         var purchaseOrderLines = await db.PurchaseOrderLines.AsNoTracking().ToListAsync(cancellationToken);
         var purchaseOrderCharges = await db.PurchaseOrderCharges.AsNoTracking().ToListAsync(cancellationToken);
+        var manualEntries = await LoadManualEntriesAsync(cancellationToken);
 
         return new TreasurySnapshot(
             invoices,
@@ -219,7 +305,23 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
             salesOrderLines,
             purchaseOrders,
             purchaseOrderLines,
-            purchaseOrderCharges);
+            purchaseOrderCharges,
+            manualEntries);
+    }
+
+    private async Task<IReadOnlyList<TreasuryManualEntryRow>> LoadManualEntriesAsync(CancellationToken cancellationToken)
+    {
+        return await db.Database.SqlQueryRaw<TreasuryManualEntryRow>(
+                @"SELECT ""Id"",
+                         (""OccurredOn""::timestamp AT TIME ZONE 'UTC') AS ""Date"",
+                         ""Label"",
+                         ""Direction"",
+                         ""Amount"",
+                         ""VatAmount"",
+                         ""Note"",
+                         ""CreatedAt""
+                  FROM ""TreasuryManualEntries""")
+            .ToListAsync(cancellationToken);
     }
 
     private static bool IsCancelled(string status) => status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase)
@@ -228,6 +330,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
 
     private static bool IsPaid(string status) => status.Equals("Paid", StringComparison.OrdinalIgnoreCase)
         || status.Equals("Payee", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPaidSalesOrder(SalesOrder order) => (order.PaidTotal ?? 0m) > 0m;
 
     private static bool IsOpenSalesOrder(string status) => !status.Equals("Draft", StringComparison.OrdinalIgnoreCase)
         && !status.Equals("Brouillon", StringComparison.OrdinalIgnoreCase)
@@ -258,7 +362,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         IReadOnlyList<SalesOrderLine> salesOrderLines,
         IReadOnlyList<PurchaseOrder> purchaseOrders,
         IReadOnlyList<PurchaseOrderLine> purchaseOrderLines,
-        IReadOnlyList<PurchaseOrderCharge> purchaseOrderCharges)
+        IReadOnlyList<PurchaseOrderCharge> purchaseOrderCharges,
+        IReadOnlyList<TreasuryManualEntryRow> manualEntries)
     {
         private readonly Dictionary<Guid, decimal> _invoiceNetTotals = invoiceLines
             .GroupBy(x => x.InvoiceId)
@@ -295,6 +400,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         public IReadOnlyList<SalesOrder> SalesOrders { get; } = salesOrders;
 
         public IReadOnlyList<PurchaseOrder> PurchaseOrders { get; } = purchaseOrders;
+
+        public IReadOnlyList<TreasuryManualEntryRow> ManualEntries { get; } = manualEntries;
 
         public decimal GetInvoiceGross(Invoice invoice)
         {
@@ -355,5 +462,24 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         }
 
         private static decimal WithVat(decimal net, decimal vatRate) => net + net * vatRate / 100m;
+    }
+
+    private sealed class TreasuryManualEntryRow
+    {
+        public Guid Id { get; set; }
+
+        public DateTimeOffset Date { get; set; }
+
+        public string Label { get; set; } = string.Empty;
+
+        public string Direction { get; set; } = "In";
+
+        public decimal Amount { get; set; }
+
+        public decimal VatAmount { get; set; }
+
+        public string? Note { get; set; }
+
+        public DateTimeOffset CreatedAt { get; set; }
     }
 }

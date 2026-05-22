@@ -111,6 +111,8 @@ export type TreasuryMovement = {
   amount: number;
   vatAmount: number;
   status: string;
+  category: string;
+  notes?: string | null;
 };
 
 export type AuditLog = {

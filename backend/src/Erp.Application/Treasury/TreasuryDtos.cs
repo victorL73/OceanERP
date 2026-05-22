@@ -32,4 +32,14 @@ public sealed record TreasuryMovementDto(
     string Direction,
     decimal Amount,
     decimal VatAmount,
-    string Status);
+    string Status,
+    string Category,
+    string? Notes);
+
+public sealed record TreasuryManualEntryCreateDto(
+    string Label,
+    string Direction,
+    decimal Amount,
+    decimal VatAmount,
+    DateOnly OccurredOn,
+    string? Note);

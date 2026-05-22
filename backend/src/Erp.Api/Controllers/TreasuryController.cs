@@ -22,4 +22,11 @@ public sealed class TreasuryController(ITreasuryService treasury) : ControllerBa
     {
         return Ok(await treasury.GetMovementsAsync(cancellationToken));
     }
+
+    [HttpPost("manual-entries")]
+    [Authorize(Policy = "treasury.read")]
+    public async Task<ActionResult<TreasuryMovementDto>> CreateManualEntry(TreasuryManualEntryCreateDto request, CancellationToken cancellationToken)
+    {
+        return Ok(await treasury.CreateManualEntryAsync(request, cancellationToken));
+    }
 }

@@ -5,4 +5,6 @@ public interface ITreasuryService
     Task<TreasurySummaryDto> GetSummaryAsync(CancellationToken cancellationToken);
 
     Task<IReadOnlyList<TreasuryMovementDto>> GetMovementsAsync(CancellationToken cancellationToken);
+
+    Task<TreasuryMovementDto> CreateManualEntryAsync(TreasuryManualEntryCreateDto request, CancellationToken cancellationToken);
 }

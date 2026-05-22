@@ -843,48 +843,129 @@ export default function App() {
 }
 
 function Treasury({ summary, movements, onChanged }: { summary: TreasurySummary | null; movements: TreasuryMovement[]; onChanged: () => Promise<void> }) {
+  const today = Date.now();
+  const [selectedCard, setSelectedCard] = useState<{
+    label: string;
+    value: number;
+    note: string;
+    movements: TreasuryMovement[];
+  } | null>(null);
+  const [manualEntry, setManualEntry] = useState({
+    label: 'Apport de fonds',
+    direction: 'In' as 'In' | 'Out',
+    amount: '',
+    vatAmount: '0',
+    occurredOn: new Date().toISOString().slice(0, 10),
+    note: ''
+  });
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [savingManualEntry, setSavingManualEntry] = useState(false);
+
+  const actualInMovements = movements.filter((item) => item.category === 'ActualIn');
+  const actualOutMovements = movements.filter((item) => item.category === 'ActualOut');
+  const expectedInMovements = movements.filter((item) => item.category === 'ExpectedIn');
+  const expectedOutMovements = movements.filter((item) => item.category === 'ExpectedOut');
+  const vatMovements = movements.filter((item) => Math.abs(item.vatAmount) > 0);
+  const overdueMovements = expectedInMovements.filter((item) => item.module === 'Factures' && new Date(item.date).getTime() < today);
+
   const cards = summary ? [
     {
       label: 'Solde utile',
       value: summary.availableBalance,
-      note: 'Encaissements - achats - TVA a reverser'
+      note: 'Encaissements reels - decaissements reels - TVA a reverser',
+      movements: [...actualInMovements, ...actualOutMovements, ...vatMovements]
     },
     {
       label: 'TVA a reverser',
       value: summary.vatToPay,
-      note: `Collectee ${formatDashboardValue(summary.vatCollected, 'currency')} - deductible ${formatDashboardValue(summary.vatDeductible, 'currency')}`
+      note: `Collectee ${formatDashboardValue(summary.vatCollected, 'currency')} - deductible ${formatDashboardValue(summary.vatDeductible, 'currency')}`,
+      movements: vatMovements
     },
     {
       label: 'Encaissements',
       value: summary.cashIn,
-      note: `Ce mois ${formatDashboardValue(summary.monthCashIn, 'currency')}`
+      note: `Ce mois ${formatDashboardValue(summary.monthCashIn, 'currency')}`,
+      movements: actualInMovements
     },
     {
       label: 'Decaissements achats',
       value: summary.cashOut,
-      note: `Ce mois ${formatDashboardValue(summary.monthCashOut, 'currency')}`
+      note: `Ce mois ${formatDashboardValue(summary.monthCashOut, 'currency')}`,
+      movements: actualOutMovements
     },
     {
       label: 'A encaisser',
       value: summary.expectedIncoming,
-      note: `${summary.unpaidInvoiceCount} facture(s), ${summary.openSalesOrderCount} commande(s)`
+      note: `${summary.unpaidInvoiceCount} facture(s), ${summary.openSalesOrderCount} commande(s) non payee(s)`,
+      movements: expectedInMovements
     },
     {
       label: 'A decaisser',
       value: summary.expectedOutgoing,
-      note: `${summary.openPurchaseOrderCount} commande(s) fournisseur`
+      note: `${summary.openPurchaseOrderCount} commande(s) fournisseur`,
+      movements: expectedOutMovements
     },
     {
       label: 'Previsionnel',
       value: summary.cashForecast,
-      note: 'Solde utile + a encaisser - a decaisser'
+      note: 'Solde utile + a encaisser - a decaisser',
+      movements
     },
     {
       label: 'Impayes en retard',
       value: summary.overdueInvoices,
-      note: `${summary.overdueInvoiceCount} facture(s) en retard`
+      note: `${summary.overdueInvoiceCount} facture(s) en retard`,
+      movements: overdueMovements
     }
   ] : [];
+
+  async function submitManualEntry(event: FormEvent) {
+    event.preventDefault();
+    setManualError(null);
+
+    const amount = Number(manualEntry.amount);
+    const vatAmount = Number(manualEntry.vatAmount || '0');
+    if (!manualEntry.label.trim()) {
+      setManualError('Le libelle est obligatoire.');
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setManualError('Le montant doit etre superieur a zero.');
+      return;
+    }
+
+    setSavingManualEntry(true);
+    try {
+      await api.createTreasuryManualEntry({
+        label: manualEntry.label.trim(),
+        direction: manualEntry.direction,
+        amount,
+        vatAmount: Number.isFinite(vatAmount) ? vatAmount : 0,
+        occurredOn: manualEntry.occurredOn,
+        note: manualEntry.note.trim() || undefined
+      });
+      setManualEntry((current) => ({ ...current, amount: '', vatAmount: '0', note: '' }));
+      await onChanged();
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : 'Ecriture de tresorerie impossible.');
+    } finally {
+      setSavingManualEntry(false);
+    }
+  }
+
+  const movementRows = (items: TreasuryMovement[]) =>
+    items.map((item) => [
+      formatOrderDate(item.date),
+      item.label,
+      item.module,
+      item.reference || '-',
+      item.direction === 'In' ? formatDashboardValue(item.amount, 'currency') : '-',
+      item.direction === 'Out' ? formatDashboardValue(item.amount, 'currency') : '-',
+      formatDashboardValue(item.vatAmount, 'currency'),
+      item.status,
+      item.notes || '-'
+    ]);
 
   return (
     <section className="module-stack">
@@ -906,29 +987,77 @@ function Treasury({ summary, movements, onChanged }: { summary: TreasurySummary 
 
       <section className="grid metrics">
         {cards.map((card) => (
-          <article className="metric-card" key={card.label}>
+          <button className="metric-card metric-card-button" key={card.label} type="button" onClick={() => setSelectedCard(card)}>
             <span>{card.label}</span>
             <strong>{formatDashboardValue(card.value, 'currency')}</strong>
             <small>{card.note}</small>
-          </article>
+          </button>
         ))}
       </section>
 
+      <Panel title="Ajouter des fonds">
+        {manualError && <div className="alert">{manualError}</div>}
+        <form className="treasury-manual-form" onSubmit={(event) => void submitManualEntry(event)}>
+          <label>
+            <span>Libelle</span>
+            <input value={manualEntry.label} onChange={(event) => setManualEntry((current) => ({ ...current, label: event.target.value }))} />
+          </label>
+          <label>
+            <span>Type</span>
+            <select value={manualEntry.direction} onChange={(event) => setManualEntry((current) => ({ ...current, direction: event.target.value as 'In' | 'Out' }))}>
+              <option value="In">Entree de fonds</option>
+              <option value="Out">Sortie manuelle</option>
+            </select>
+          </label>
+          <label>
+            <span>Montant TTC</span>
+            <input required type="number" min="0.01" step="0.01" value={manualEntry.amount} onChange={(event) => setManualEntry((current) => ({ ...current, amount: event.target.value }))} />
+          </label>
+          <label>
+            <span>TVA incluse</span>
+            <input type="number" min="0" step="0.01" value={manualEntry.vatAmount} onChange={(event) => setManualEntry((current) => ({ ...current, vatAmount: event.target.value }))} />
+          </label>
+          <label>
+            <span>Date</span>
+            <input required type="date" value={manualEntry.occurredOn} onChange={(event) => setManualEntry((current) => ({ ...current, occurredOn: event.target.value }))} />
+          </label>
+          <label className="treasury-note-field">
+            <span>Note</span>
+            <input value={manualEntry.note} onChange={(event) => setManualEntry((current) => ({ ...current, note: event.target.value }))} />
+          </label>
+          <button type="submit" disabled={savingManualEntry}>
+            <Plus size={16} />
+            Ajouter
+          </button>
+        </form>
+      </Panel>
+
       <Panel title="Mouvements de tresorerie">
         <DataTable
-          columns={['Date', 'Flux', 'Module', 'Reference', 'Entree', 'Sortie', 'TVA', 'Statut']}
-          rows={movements.map((item) => [
-            formatOrderDate(item.date),
-            item.label,
-            item.module,
-            item.reference || '-',
-            item.direction === 'In' ? formatDashboardValue(item.amount, 'currency') : '-',
-            item.direction === 'Out' ? formatDashboardValue(item.amount, 'currency') : '-',
-            formatDashboardValue(item.vatAmount, 'currency'),
-            item.status
-          ])}
+          columns={['Date', 'Flux', 'Module', 'Reference', 'Entree', 'Sortie', 'TVA', 'Statut', 'Note']}
+          rows={movementRows(movements)}
         />
       </Panel>
+
+      {selectedCard && (
+        <div className="modal-backdrop" onClick={() => setSelectedCard(null)}>
+          <section className="modal-panel treasury-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" type="button" onClick={() => setSelectedCard(null)} aria-label="Fermer">
+              <X size={20} />
+            </button>
+            <span className="eyebrow">Tresorerie</span>
+            <h2>{selectedCard.label}</h2>
+            <div className="treasury-modal-summary">
+              <strong>{formatDashboardValue(selectedCard.value, 'currency')}</strong>
+              <span>{selectedCard.note}</span>
+            </div>
+            <DataTable
+              columns={['Date', 'Flux', 'Module', 'Reference', 'Entree', 'Sortie', 'TVA', 'Statut', 'Note']}
+              rows={movementRows(selectedCard.movements)}
+            />
+          </section>
+        </div>
+      )}
     </section>
   );
 }

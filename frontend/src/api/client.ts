@@ -128,6 +128,10 @@ export class ApiClient {
     return this.request<TreasuryMovement[]>('/api/treasury/movements', { auth: true });
   }
 
+  createTreasuryManualEntry(payload: { label: string; direction: 'In' | 'Out'; amount: number; vatAmount: number; occurredOn: string; note?: string }) {
+    return this.request<TreasuryMovement>('/api/treasury/manual-entries', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
   backups() {
     return this.request<BackupArchive[]>('/api/backups', { auth: true });
   }
