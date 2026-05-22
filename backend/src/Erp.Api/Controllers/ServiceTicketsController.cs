@@ -74,7 +74,7 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
                 "service.assigned",
                 "Ticket SAV attribue",
                 $"{result.Value.Number} - {result.Value.Subject}",
-                "/service",
+                ServiceTicketLink(result.Value.Number),
                 cancellationToken);
         }
 
@@ -186,7 +186,7 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
             return;
         }
 
-        await PublishToUsersAsync(recipients.ToList(), type, title, message, "/service", cancellationToken);
+        await PublishToUsersAsync(recipients.ToList(), type, title, message, ServiceTicketLink(ticket.Number), cancellationToken);
     }
 
     private async Task PublishToUsersAsync(IReadOnlyList<Guid> userIds, string type, string title, string message, string linkUrl, CancellationToken cancellationToken)
@@ -196,4 +196,7 @@ public sealed class ServiceTicketsController(IServiceTicketService tickets, IRea
             await notifications.PublishAsync(new CreateNotificationRequest(userId, type, title, message, linkUrl), cancellationToken);
         }
     }
+
+    private static string ServiceTicketLink(string ticketNumber)
+        => $"/service?search={Uri.EscapeDataString(ticketNumber)}";
 }

@@ -66,13 +66,14 @@ public sealed class CalendarReminderWorker(
 
             var start = calendarEvent.StartsAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
             var location = string.IsNullOrWhiteSpace(calendarEvent.Location) ? string.Empty : $" - {calendarEvent.Location}";
+            var linkUrl = $"/calendar?search={Uri.EscapeDataString(calendarEvent.Title)}";
             await publisher.PublishAsync(
                 new CreateNotificationRequest(
                     calendarEvent.IsPrivate ? calendarEvent.CreatedByUserId : null,
                     "calendar.reminder",
                     "Rappel agenda",
                     $"{calendarEvent.Title} le {start}{location}",
-                    "/calendar"),
+                    linkUrl),
                 cancellationToken);
 
             reminder.IsSent = true;

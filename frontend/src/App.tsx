@@ -179,6 +179,33 @@ function serviceTicketFiltersToQuery(filters: ServiceTicketFilters) {
   };
 }
 
+function notificationTargetSearch(item: NotificationItem, link: URL) {
+  const explicitSearch = link.searchParams.get('search')
+    ?? link.searchParams.get('q')
+    ?? link.searchParams.get('subject')
+    ?? link.searchParams.get('number')
+    ?? link.searchParams.get('ticket')
+    ?? link.searchParams.get('order')
+    ?? link.searchParams.get('email');
+
+  if (explicitSearch?.trim()) {
+    return explicitSearch.trim();
+  }
+
+  return [item.title, item.message].filter(Boolean).join(' ').trim();
+}
+
+function textMatchesSearch(values: Array<string | number | undefined | null>, search: string) {
+  const term = search.trim().toLowerCase();
+  if (!term) {
+    return true;
+  }
+
+  return values
+    .filter((value): value is string | number => value !== undefined && value !== null)
+    .some((value) => String(value).toLowerCase().includes(term));
+}
+
 export default function App() {
   const publicSignatureToken = useMemo(readPublicSignatureToken, []);
   const publicMeetToken = useMemo(readPublicMeetToken, []);
@@ -226,6 +253,9 @@ export default function App() {
   const [signatureRequests, setSignatureRequests] = useState<PagedResult<SignatureRequest> | null>(null);
   const [backups, setBackups] = useState<BackupArchive[]>([]);
   const [stockFocusProductIds, setStockFocusProductIds] = useState<string[]>([]);
+  const [emailNotificationFilter, setEmailNotificationFilter] = useState('');
+  const [orderNotificationFilter, setOrderNotificationFilter] = useState('');
+  const [calendarNotificationFilter, setCalendarNotificationFilter] = useState('');
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const [serviceTicketCreateOpen, setServiceTicketCreateOpen] = useState(false);
   const [serviceTicketFilters, setServiceTicketFilters] = useState<ServiceTicketFilters>(defaultServiceTicketFilters);
@@ -457,6 +487,7 @@ export default function App() {
   async function openNotification(item: NotificationItem) {
     if (item.linkUrl) {
       const link = new URL(item.linkUrl, window.location.origin);
+      const search = notificationTargetSearch(item, link);
       if (link.pathname === '/stock') {
         const productIds = (link.searchParams.get('products') ?? '')
           .split(',')
@@ -465,12 +496,23 @@ export default function App() {
         setStockFocusProductIds(productIds);
         setView('stock');
       } else if (link.pathname === '/emails') {
+        setEmailNotificationFilter(search);
         setView('emails');
       } else if (link.pathname === '/orders') {
+        setOrderNotificationFilter(search);
         setView('orders');
       } else if (link.pathname === '/service') {
+        const nextFilters: ServiceTicketFilters = {
+          ...defaultServiceTicketFilters,
+          search,
+          assignee: 'all',
+          includeClosed: true
+        };
+        setServiceTicketFilters(nextFilters);
+        void refreshServiceTickets(nextFilters);
         setView('service');
       } else if (link.pathname === '/calendar') {
+        setCalendarNotificationFilter(search);
         setView('calendar');
       }
     }
@@ -765,16 +807,17 @@ export default function App() {
         {view === 'customers' && <Customers items={customers?.items ?? []} createOpen={customerCreateOpen} onCloseCreate={() => setCustomerCreateOpen(false)} onChanged={() => load('customers')} />}
         {view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
         {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} mailServerSettings={mailServerSettings} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('quotes')} />}
-        {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('orders')} />}
+        {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} notificationFilter={orderNotificationFilter} onChanged={() => load('orders')} />}
         {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
-        {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} onChanged={() => load('emails')} />}
+        {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} notificationFilter={emailNotificationFilter} onChanged={() => load('emails')} />}
         {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} currentUser={currentUser} filters={serviceTicketFilters} createOpen={serviceTicketCreateOpen} onFiltersChange={applyServiceTicketFilters} onCloseCreate={() => setServiceTicketCreateOpen(false)} onChanged={() => load('service')} />}
         {view === 'calendar' && (
           <Calendar
             events={calendarEvents?.items ?? []}
             canCreateMeetingRoom={hasPermission(currentUser, 'meet.write')}
+            notificationFilter={calendarNotificationFilter}
             onChanged={() => load('calendar')}
             onOpenMeeting={(roomId) => {
               setMeetingInitialRoomId(roomId);
@@ -5598,13 +5641,45 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder, on
   );
 }
 
-function Orders({ items, customers, warehouses, isAdministrator, onChanged }: { items: SalesOrder[]; customers: Customer[]; warehouses: Warehouse[]; isAdministrator: boolean; onChanged: () => Promise<void> }) {
+function Orders({ items, customers, warehouses, isAdministrator, notificationFilter = '', onChanged }: { items: SalesOrder[]; customers: Customer[]; warehouses: Warehouse[]; isAdministrator: boolean; notificationFilter?: string; onChanged: () => Promise<void> }) {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [orderSearch, setOrderSearch] = useState('');
 
   const selectedOrder = items.find((item) => item.id === selectedOrderId) ?? null;
   const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
   const warehouseById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+  const filteredItems = useMemo(() => items.filter((item) => {
+    const customer = customerById.get(item.customerId);
+    const warehouse = item.warehouseId ? warehouseById.get(item.warehouseId) : undefined;
+    return textMatchesSearch([
+      item.number,
+      item.customerName,
+      customer?.companyName,
+      customer?.legalName,
+      customer?.tradeName,
+      customer?.email,
+      item.externalStatusName,
+      salesOrderStatusLabel(item.status),
+      item.shippingServiceName,
+      item.shippingCarrierName,
+      item.shippingTrackingNumber,
+      item.shippingAddress?.name,
+      item.shippingAddress?.email,
+      item.shippingAddress?.city,
+      item.paymentMethod,
+      item.paymentModule,
+      warehouse?.name,
+      item.lines.map((line) => line.description).join(' ')
+    ], orderSearch);
+  }), [customerById, items, orderSearch, warehouseById]);
+
+  useEffect(() => {
+    const nextSearch = notificationFilter.trim();
+    if (nextSearch) {
+      setOrderSearch(nextSearch);
+    }
+  }, [notificationFilter]);
 
   useEffect(() => {
     if (selectedOrderId && !items.some((item) => item.id === selectedOrderId)) {
@@ -5688,9 +5763,18 @@ function Orders({ items, customers, warehouses, isAdministrator, onChanged }: { 
     <>
       <div className="sync-note">Les commandes sont creees depuis un devis signe ou importees depuis PrestaShop.</div>
       {message && <div className="inline-message">{message}</div>}
+      <Panel title="Filtres commandes">
+        <div className="form-grid compact">
+          <label>
+            Recherche
+            <input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Numero, client, transporteur, suivi..." />
+          </label>
+          <button className="secondary" type="button" onClick={() => setOrderSearch('')}>Reinitialiser</button>
+        </div>
+      </Panel>
       <DataTable
         columns={['Numero', 'Date', 'Client', 'Entrepot', 'Transporteur', 'Statut', 'Total', 'Actions']}
-        rows={items.map((item) => [
+        rows={filteredItems.map((item) => [
           item.number,
           formatOrderDate(item.orderedAt ?? item.createdAt),
           item.customerName ?? customerById.get(item.customerId)?.companyName ?? item.customerId,
@@ -5739,8 +5823,8 @@ function Orders({ items, customers, warehouses, isAdministrator, onChanged }: { 
             )}
           </div>
         ])}
-        onRowClick={(index) => setSelectedOrderId(items[index]?.id ?? null)}
-        selectedRowIndex={selectedOrder ? items.findIndex((item) => item.id === selectedOrder.id) : undefined}
+        onRowClick={(index) => setSelectedOrderId(filteredItems[index]?.id ?? null)}
+        selectedRowIndex={selectedOrder ? filteredItems.findIndex((item) => item.id === selectedOrder.id) : undefined}
       />
       {selectedOrder && (
         <SalesOrderDetailModal
@@ -8013,7 +8097,7 @@ function emailSendFeedback(message: EmailMessage) {
   return `Email traite avec le statut ${message.status}.`;
 }
 
-function Emails({ accounts, messages, templates, distributionLists, customers, onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; distributionLists: EmailDistributionList[]; customers: Customer[]; onChanged: () => Promise<void> }) {
+function Emails({ accounts, messages, templates, distributionLists, customers, notificationFilter = '', onChanged }: { accounts: MailAccount[]; messages: EmailMessage[]; templates: EmailTemplate[]; distributionLists: EmailDistributionList[]; customers: Customer[]; notificationFilter?: string; onChanged: () => Promise<void> }) {
   const [tab, setTab] = useState<'accounts' | 'messages' | 'templates' | 'lists'>(() => readStoredChoice('oceanerp.emails.activeTab', 'messages', ['accounts', 'messages', 'templates', 'lists'] as const));
   const [editingAccountId, setEditingAccountId] = useState('');
   const [email, setEmail] = useState('');
@@ -8157,6 +8241,17 @@ function Emails({ accounts, messages, templates, distributionLists, customers, o
   useEffect(() => {
     storeChoice('oceanerp.emails.activeTab', tab);
   }, [tab]);
+
+  useEffect(() => {
+    const nextSearch = notificationFilter.trim();
+    if (!nextSearch) {
+      return;
+    }
+
+    setTab('messages');
+    setMessageAccountFilter('');
+    setMessageSearch(nextSearch);
+  }, [notificationFilter]);
 
   useEffect(() => {
     if (tab !== 'messages' || activeAccounts.length === 0) {
@@ -11306,7 +11401,7 @@ function MeetRemoteVideoTile({ participant, item }: { participant: MeetingPartic
   );
 }
 
-function Calendar({ events, canCreateMeetingRoom, onChanged, onOpenMeeting }: { events: CalendarEvent[]; canCreateMeetingRoom: boolean; onChanged: () => Promise<void>; onOpenMeeting: (roomId: string) => void }) {
+function Calendar({ events, canCreateMeetingRoom, notificationFilter = '', onChanged, onOpenMeeting }: { events: CalendarEvent[]; canCreateMeetingRoom: boolean; notificationFilter?: string; onChanged: () => Promise<void>; onOpenMeeting: (roomId: string) => void }) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
   const [cursorDate, setCursorDate] = useState(() => startOfCalendarDay(new Date()));
   const [calendarItems, setCalendarItems] = useState<CalendarEvent[]>(events);
@@ -11315,19 +11410,37 @@ function Calendar({ events, canCreateMeetingRoom, onChanged, onOpenMeeting }: { 
   const [editing, setEditing] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [calendarSearch, setCalendarSearch] = useState('');
 
   const visibleRange = useMemo(() => calendarVisibleRange(cursorDate, viewMode), [cursorDate, viewMode]);
   const visibleEvents = useMemo(
     () => calendarItems
       .filter((item) => eventIntersectsRange(item, visibleRange.start, visibleRange.end))
+      .filter((item) => calendarEventMatchesSearch(item, calendarSearch))
       .sort(compareCalendarEvents),
-    [calendarItems, visibleRange.end, visibleRange.start]
+    [calendarItems, calendarSearch, visibleRange.end, visibleRange.start]
   );
   const rangeTitle = calendarRangeTitle(cursorDate, viewMode);
 
   useEffect(() => {
     setCalendarItems(events);
   }, [events]);
+
+  useEffect(() => {
+    const nextSearch = notificationFilter.trim();
+    if (!nextSearch) {
+      return;
+    }
+
+    setCalendarSearch(nextSearch);
+    const match = events.find((event) => calendarEventMatchesSearch(event, nextSearch));
+    if (match) {
+      setCursorDate(startOfCalendarDay(new Date(match.startsAt)));
+      setSelected(match);
+      setDraft(createCalendarDraftFromEvent(match));
+      setEditing(false);
+    }
+  }, [events, notificationFilter]);
 
   useEffect(() => {
     let alive = true;
@@ -11549,6 +11662,13 @@ function Calendar({ events, canCreateMeetingRoom, onChanged, onOpenMeeting }: { 
               Evenement
             </button>
           </div>
+        </div>
+        <div className="form-grid compact">
+          <label>
+            Filtrer l'agenda
+            <input value={calendarSearch} onChange={(event) => setCalendarSearch(event.target.value)} placeholder="Titre, lieu, description..." />
+          </label>
+          {calendarSearch && <button className="secondary" type="button" onClick={() => setCalendarSearch('')}>Reinitialiser</button>}
         </div>
         {viewMode === 'month' ? renderMonth() : renderTimeline(viewMode === 'week' ? eachCalendarDay(visibleRange.start, addCalendarDays(visibleRange.start, 7)) : [cursorDate])}
       </section>
@@ -12636,6 +12756,15 @@ function eventIntersectsRange(event: CalendarEvent, start: Date, end: Date) {
 function eventIntersectsDay(event: CalendarEvent, day: Date) {
   const start = startOfCalendarDay(day);
   return eventIntersectsRange(event, start, addCalendarDays(start, 1));
+}
+
+function calendarEventMatchesSearch(event: CalendarEvent, search: string) {
+  return textMatchesSearch([
+    event.title,
+    event.description,
+    event.location,
+    event.links.map((link) => `${link.module} ${link.entityId}`).join(' ')
+  ], search);
 }
 
 function compareCalendarEvents(left: CalendarEvent, right: CalendarEvent) {

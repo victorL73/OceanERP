@@ -22,8 +22,9 @@ public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublishe
         var message = orders.Count == 1
             ? $"La commande {orderNumbers} est descendue depuis {shopUrl}."
             : $"{orders.Count} commandes sont descendues depuis {shopUrl}: {orderNumbers}{suffix}.";
+        var linkUrl = $"/orders?search={Uri.EscapeDataString(orderNumbers)}";
 
-        await publisher.PublishAsync(new CreateNotificationRequest(null, "prestashop.orders.new", title, message, "/orders"), cancellationToken);
+        await publisher.PublishAsync(new CreateNotificationRequest(null, "prestashop.orders.new", title, message, linkUrl), cancellationToken);
     }
 
     public async Task NotifyNewServiceMessagesAsync(Guid connectionId, string shopUrl, IReadOnlyList<PrestashopImportedServiceTicketNotification> tickets, CancellationToken cancellationToken)
@@ -46,7 +47,8 @@ public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublishe
                 .FirstOrDefaultAsync(cancellationToken);
 
             var message = $"{ticket.Number} - {ticket.Subject}: {ticket.NewMessages} nouveau(x) message(s) depuis {shopUrl}.";
-            await PublishServiceNotificationAsync(assignedUserId, initialResponders, title, message, cancellationToken);
+            var linkUrl = $"/service?search={Uri.EscapeDataString($"{ticket.Number} {ticket.Subject}")}";
+            await PublishServiceNotificationAsync(assignedUserId, initialResponders, title, message, linkUrl, cancellationToken);
         }
     }
 
@@ -60,23 +62,23 @@ public sealed class PrestashopRealtimeSyncNotifier(IRealtimeNotificationPublishe
         await hubContext.Clients.All.SendAsync("prestashopSyncCompleted", syncEvent, cancellationToken);
     }
 
-    private async Task PublishServiceNotificationAsync(Guid? assignedUserId, IReadOnlyList<Guid> initialResponders, string title, string message, CancellationToken cancellationToken)
+    private async Task PublishServiceNotificationAsync(Guid? assignedUserId, IReadOnlyList<Guid> initialResponders, string title, string message, string linkUrl, CancellationToken cancellationToken)
     {
         if (assignedUserId.HasValue)
         {
-            await publisher.PublishAsync(new CreateNotificationRequest(assignedUserId.Value, "service.prestashop.new", title, message, "/service"), cancellationToken);
+            await publisher.PublishAsync(new CreateNotificationRequest(assignedUserId.Value, "service.prestashop.new", title, message, linkUrl), cancellationToken);
             return;
         }
 
         if (initialResponders.Count == 0)
         {
-            await publisher.PublishAsync(new CreateNotificationRequest(null, "service.prestashop.new", title, message, "/service"), cancellationToken);
+            await publisher.PublishAsync(new CreateNotificationRequest(null, "service.prestashop.new", title, message, linkUrl), cancellationToken);
             return;
         }
 
         foreach (var userId in initialResponders.Distinct())
         {
-            await publisher.PublishAsync(new CreateNotificationRequest(userId, "service.prestashop.new", title, message, "/service"), cancellationToken);
+            await publisher.PublishAsync(new CreateNotificationRequest(userId, "service.prestashop.new", title, message, linkUrl), cancellationToken);
         }
     }
 }

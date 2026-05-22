@@ -199,16 +199,17 @@ public sealed class EmailsController(IEmailService emails, IRealtimeNotification
             var message = account.Imported == 1
                 ? $"1 nouveau mail dans {account.Email}."
                 : $"{account.Imported} nouveaux mails dans {account.Email}.";
+            var linkUrl = $"/emails?search={Uri.EscapeDataString(account.Email)}";
 
             if (account.NotificationUserIds.Count == 0)
             {
-                await notificationPublisher.PublishAsync(new CreateNotificationRequest(null, "emails.new", "Nouveaux emails", message, "/emails"), cancellationToken);
+                await notificationPublisher.PublishAsync(new CreateNotificationRequest(null, "emails.new", "Nouveaux emails", message, linkUrl), cancellationToken);
                 continue;
             }
 
             foreach (var userId in account.NotificationUserIds)
             {
-                await notificationPublisher.PublishAsync(new CreateNotificationRequest(userId, "emails.new", "Nouveaux emails", message, "/emails"), cancellationToken);
+                await notificationPublisher.PublishAsync(new CreateNotificationRequest(userId, "emails.new", "Nouveaux emails", message, linkUrl), cancellationToken);
             }
         }
     }

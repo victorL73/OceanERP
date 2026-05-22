@@ -68,16 +68,17 @@ public sealed class EmailAutoSyncWorker(
             var message = account.Imported == 1
                 ? $"1 nouveau mail dans {account.Email}."
                 : $"{account.Imported} nouveaux mails dans {account.Email}.";
+            var linkUrl = $"/emails?search={Uri.EscapeDataString(account.Email)}";
 
             if (account.NotificationUserIds.Count == 0)
             {
-                await publisher.PublishAsync(new CreateNotificationRequest(null, "emails.new", "Nouveaux emails", message, "/emails"), cancellationToken);
+                await publisher.PublishAsync(new CreateNotificationRequest(null, "emails.new", "Nouveaux emails", message, linkUrl), cancellationToken);
                 continue;
             }
 
             foreach (var userId in account.NotificationUserIds)
             {
-                await publisher.PublishAsync(new CreateNotificationRequest(userId, "emails.new", "Nouveaux emails", message, "/emails"), cancellationToken);
+                await publisher.PublishAsync(new CreateNotificationRequest(userId, "emails.new", "Nouveaux emails", message, linkUrl), cancellationToken);
             }
         }
     }

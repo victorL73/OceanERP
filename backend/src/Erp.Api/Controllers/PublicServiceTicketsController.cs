@@ -55,8 +55,9 @@ public sealed class PublicServiceTicketsController(IServiceTicketService tickets
 
         foreach (var userId in recipients)
         {
+            var linkUrl = $"/service?search={Uri.EscapeDataString(ticket.Number)}";
             await notifications.PublishAsync(
-                new CreateNotificationRequest(userId, "service.message.public", "Reponse client SAV", $"Le client a repondu sur {ticket.Number}.", "/service"),
+                new CreateNotificationRequest(userId, "service.message.public", "Reponse client SAV", $"Le client a repondu sur {ticket.Number}.", linkUrl),
                 cancellationToken);
         }
     }
