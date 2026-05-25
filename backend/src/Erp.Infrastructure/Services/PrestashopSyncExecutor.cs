@@ -1583,11 +1583,11 @@ internal sealed class PrestashopSyncExecutor(ErpDbContext db, IConfiguration con
 
         if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedOffset))
         {
-            return parsedOffset;
+            return parsedOffset.ToUniversalTime();
         }
 
         return DateTime.TryParseExact(value, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedDate)
-            ? new DateTimeOffset(parsedDate)
+            ? new DateTimeOffset(parsedDate).ToUniversalTime()
             : null;
     }
 
