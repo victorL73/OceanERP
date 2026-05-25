@@ -659,7 +659,8 @@ public sealed class EmailService(ErpDbContext db, IConfiguration configuration, 
         try
         {
             var mime = new MimeMessage();
-            var envelopeSender = new MailboxAddress(account.DisplayName ?? account.Email, account.Email);
+            var senderDisplayName = NormalizeOptional(account.DisplayName) ?? account.Email;
+            var envelopeSender = new MailboxAddress(senderDisplayName, account.Email);
             mime.From.Add(envelopeSender);
             mime.To.AddRange(recipients);
             mime.Cc.AddRange(ccRecipients);

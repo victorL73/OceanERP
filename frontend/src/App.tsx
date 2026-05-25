@@ -3578,8 +3578,8 @@ function MailAccountSettings({
             <input required readOnly={!canManageServerSettings} type="email" placeholder="contact@entreprise.fr" value={email} onChange={(event) => setEmail(event.target.value)} />
           </label>
           <label className="field">
-            <span>Nom affiche</span>
-            <input placeholder="Commercial, SAV, Direction..." value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            <span>Nom expediteur visible</span>
+            <input placeholder="RenovBoat, Service commercial..." value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
           </label>
           <label className="field">
             <span>Utilisateur</span>
@@ -9065,8 +9065,8 @@ function Emails({ accounts, messages, templates, distributionLists, customers, n
                 <input required type="email" placeholder="contact@entreprise.fr" value={email} onChange={(event) => setEmail(event.target.value)} />
               </label>
               <label className="field">
-                <span>Nom affiche</span>
-                <input placeholder="OceanERP" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                <span>Nom expediteur visible</span>
+                <input placeholder="RenovBoat, Service commercial..." value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
               </label>
               <label className="field">
                 <span>Utilisateur</span>
