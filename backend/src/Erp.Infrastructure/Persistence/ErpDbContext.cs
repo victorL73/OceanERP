@@ -82,6 +82,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
     public DbSet<CalendarReminder> CalendarReminders => Set<CalendarReminder>();
     public DbSet<CalendarEventLink> CalendarEventLinks => Set<CalendarEventLink>();
+    public DbSet<CalendarParticipant> CalendarParticipants => Set<CalendarParticipant>();
     public DbSet<SignatureRequest> SignatureRequests => Set<SignatureRequest>();
     public DbSet<SignatureRecipient> SignatureRecipients => Set<SignatureRecipient>();
     public DbSet<SignatureOtp> SignatureOtps => Set<SignatureOtp>();
@@ -630,6 +631,20 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasIndex(x => new { x.Module, x.EntityId });
             entity.Property(x => x.Module).HasMaxLength(80);
             entity.HasOne<CalendarEvent>().WithMany().HasForeignKey(x => x.CalendarEventId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CalendarParticipant>(entity =>
+        {
+            entity.HasIndex(x => x.CalendarEventId);
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.InviteTokenHash).IsUnique().HasFilter("\"InviteTokenHash\" IS NOT NULL");
+            entity.Property(x => x.ExternalName).HasMaxLength(180);
+            entity.Property(x => x.ExternalEmail).HasMaxLength(320);
+            entity.Property(x => x.Type).HasMaxLength(40);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.InviteTokenHash).HasMaxLength(128);
+            entity.HasOne<CalendarEvent>().WithMany().HasForeignKey(x => x.CalendarEventId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<SignatureRequest>(entity =>

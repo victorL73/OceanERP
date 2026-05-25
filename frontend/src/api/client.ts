@@ -32,6 +32,7 @@ import type {
   PrestashopSyncLog,
   Product,
   ProductSupplier,
+  PublicCalendarInvitation,
   PublicServiceTicket,
   PublicSignature,
   PurchaseOrder,
@@ -928,16 +929,24 @@ export class ApiClient {
     return this.request<PagedResult<CalendarEvent>>(`/api/calendar/events?${query.toString()}`, { auth: true });
   }
 
-  createCalendarEvent(payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }> }) {
+  createCalendarEvent(payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }>; participants?: Array<{ userId?: string | null; externalName?: string | null; externalEmail?: string | null }> }) {
     return this.request<CalendarEvent>('/api/calendar/events', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
-  updateCalendarEvent(eventId: string, payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }> }) {
+  updateCalendarEvent(eventId: string, payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }>; participants?: Array<{ userId?: string | null; externalName?: string | null; externalEmail?: string | null }> }) {
     return this.request<CalendarEvent>(`/api/calendar/events/${eventId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
   deleteCalendarEvent(eventId: string) {
     return this.request<void>(`/api/calendar/events/${eventId}`, { method: 'DELETE', auth: true });
+  }
+
+  publicCalendarInvitation(token: string) {
+    return this.request<PublicCalendarInvitation>(`/api/public/calendar/invitations/${encodeURIComponent(token)}`);
+  }
+
+  updatePublicCalendarInvitationStatus(token: string, status: string) {
+    return this.request<PublicCalendarInvitation>(`/api/public/calendar/invitations/${encodeURIComponent(token)}/status`, { method: 'POST', body: JSON.stringify({ status }) });
   }
 
   meetingDashboard() {

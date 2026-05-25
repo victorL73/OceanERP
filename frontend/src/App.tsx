@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
+import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicCalendarInvitation, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
 
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'treasury' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
@@ -142,6 +142,15 @@ function readPublicServiceTicketToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function readPublicCalendarInvitationToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const match = window.location.pathname.match(/^\/calendar\/invitations\/([^/]+)$/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 type PrestashopSyncCompletedEvent = {
   connectionId: string;
   shopUrl: string;
@@ -210,6 +219,7 @@ export default function App() {
   const publicSignatureToken = useMemo(readPublicSignatureToken, []);
   const publicMeetToken = useMemo(readPublicMeetToken, []);
   const publicServiceTicketToken = useMemo(readPublicServiceTicketToken, []);
+  const publicCalendarInvitationToken = useMemo(readPublicCalendarInvitationToken, []);
   const [isAuthenticated, setAuthenticated] = useState(Boolean(api.token));
   const [view, setView] = useState<ViewKey>(() => readStoredChoice('oceanerp.activeView', 'dashboard', appViewKeys));
   const [error, setError] = useState<string | null>(null);
@@ -657,6 +667,10 @@ export default function App() {
     return <PublicServiceTicketPage token={publicServiceTicketToken} />;
   }
 
+  if (publicCalendarInvitationToken) {
+    return <PublicCalendarInvitationPage token={publicCalendarInvitationToken} />;
+  }
+
   if (!isAuthenticated && publicMeetToken) {
     return <PublicMeetPage token={publicMeetToken} />;
   }
@@ -816,6 +830,7 @@ export default function App() {
         {view === 'calendar' && (
           <Calendar
             events={calendarEvents?.items ?? []}
+            users={users}
             canCreateMeetingRoom={hasPermission(currentUser, 'meet.write')}
             notificationFilter={calendarNotificationFilter}
             onChanged={() => load('calendar')}
@@ -1280,6 +1295,79 @@ function PublicServiceTicketPage({ token }: { token: string }) {
                 </div>
               </form>
             </Panel>
+          </>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function PublicCalendarInvitationPage({ token }: { token: string }) {
+  const [invitation, setInvitation] = useState<PublicCalendarInvitation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadInvitation = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setInvitation(await api.publicCalendarInvitation(token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invitation agenda invalide ou expiree.');
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadInvitation();
+  }, [loadInvitation]);
+
+  async function answer(status: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await api.updatePublicCalendarInvitationStatus(token, status);
+      setInvitation(updated);
+      setNotice(status === 'Accepted' ? 'Presence confirmee.' : status === 'Declined' ? 'Invitation refusee.' : 'Reponse enregistree.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reponse impossible.');
+    }
+  }
+
+  return (
+    <main className="login-screen public-ticket-screen">
+      <section className="public-signature-panel public-ticket-panel">
+        <div className="brand large">
+          <div className="brand-mark">OE</div>
+          <div>
+            <strong>OceanERP</strong>
+            <span>Invitation agenda</span>
+          </div>
+        </div>
+        {loading && <div className="empty-state">Chargement de l'invitation...</div>}
+        {error && <div className="alert">{error}</div>}
+        {notice && <div className="inline-message">{notice}</div>}
+        {invitation && (
+          <>
+            <div className="public-ticket-heading">
+              <p className="eyebrow">Evenement</p>
+              <h1>{invitation.title}</h1>
+              <p>{invitation.description ?? 'Vous etes invite a cet evenement.'}</p>
+            </div>
+            <div className="detail-grid">
+              <DetailItem label="Invite" value={`${invitation.participantName} <${invitation.participantEmail}>`} />
+              <DetailItem label="Debut" value={formatOrderDate(invitation.startsAt)} />
+              <DetailItem label="Fin" value={formatOrderDate(invitation.endsAt)} />
+              <DetailItem label="Lieu" value={invitation.location ?? '-'} />
+              <DetailItem label="Statut" value={calendarParticipantStatusLabel(invitation.status)} />
+            </div>
+            <div className="form-actions">
+              <button className="primary" type="button" onClick={() => void answer('Accepted')}>Accepter</button>
+              <button className="secondary" type="button" onClick={() => void answer('Tentative')}>Peut-etre</button>
+              <button className="danger" type="button" onClick={() => void answer('Declined')}>Refuser</button>
+            </div>
           </>
         )}
       </section>
@@ -10991,6 +11079,15 @@ type CalendarDraftState = {
   reminderMinutes: string;
   createMeetingRoom: boolean;
   meetingLanguage: string;
+  participants: CalendarParticipantDraft[];
+};
+
+type CalendarParticipantDraft = {
+  id: string;
+  kind: 'Internal' | 'External';
+  userId: string;
+  externalName: string;
+  externalEmail: string;
 };
 
 const calendarWeekDayLabels = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -11003,6 +11100,16 @@ const meetingLanguageOptions = [
   { code: 'it-IT', label: 'Italien' },
   { code: 'pt-PT', label: 'Portugais' }
 ];
+
+function createCalendarParticipantDraft(kind: CalendarParticipantDraft['kind'] = 'External'): CalendarParticipantDraft {
+  return {
+    id: createMeetClientId(),
+    kind,
+    userId: '',
+    externalName: '',
+    externalEmail: ''
+  };
+}
 
 const meetClientIdStorageKey = 'oceanerp.meet.sessionClientId';
 
@@ -11530,7 +11637,7 @@ function MeetRemoteVideoTile({ participant, item }: { participant: MeetingPartic
   );
 }
 
-function Calendar({ events, canCreateMeetingRoom, notificationFilter = '', onChanged, onOpenMeeting }: { events: CalendarEvent[]; canCreateMeetingRoom: boolean; notificationFilter?: string; onChanged: () => Promise<void>; onOpenMeeting: (roomId: string) => void }) {
+function Calendar({ events, users, canCreateMeetingRoom, notificationFilter = '', onChanged, onOpenMeeting }: { events: CalendarEvent[]; users: User[]; canCreateMeetingRoom: boolean; notificationFilter?: string; onChanged: () => Promise<void>; onOpenMeeting: (roomId: string) => void }) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
   const [cursorDate, setCursorDate] = useState(() => startOfCalendarDay(new Date()));
   const [calendarItems, setCalendarItems] = useState<CalendarEvent[]>(events);
@@ -11814,7 +11921,7 @@ function Calendar({ events, canCreateMeetingRoom, notificationFilter = '', onCha
                 <X size={18} />
               </button>
             </header>
-            <CalendarEventForm draft={draft} setDraft={setDraft} canCreateMeetingRoom={canCreateMeetingRoom} onSubmit={create} onCancel={() => setShowCreate(false)} submitLabel="Ajouter" />
+            <CalendarEventForm draft={draft} setDraft={setDraft} users={users} canCreateMeetingRoom={canCreateMeetingRoom} onSubmit={create} onCancel={() => setShowCreate(false)} submitLabel="Ajouter" />
           </section>
         </div>
       )}
@@ -11832,7 +11939,7 @@ function Calendar({ events, canCreateMeetingRoom, notificationFilter = '', onCha
               </button>
             </header>
             {editing ? (
-              <CalendarEventForm draft={draft} setDraft={setDraft} canCreateMeetingRoom={canCreateMeetingRoom || selected.links.some((link) => link.module === 'meeting')} onSubmit={update} onCancel={() => setEditing(false)} submitLabel="Enregistrer" />
+              <CalendarEventForm draft={draft} setDraft={setDraft} users={users} canCreateMeetingRoom={canCreateMeetingRoom || selected.links.some((link) => link.module === 'meeting')} onSubmit={update} onCancel={() => setEditing(false)} submitLabel="Enregistrer" />
             ) : (
               <>
                 <div className="detail-grid">
@@ -11856,6 +11963,20 @@ function Calendar({ events, canCreateMeetingRoom, notificationFilter = '', onCha
                         ) : (
                           <span>{link.entityId}</span>
                         )}
+                      </article>
+                    ))}
+                  </Panel>
+                )}
+                {(selected.participants ?? []).length > 0 && (
+                  <Panel title="Participants">
+                    {(selected.participants ?? []).map((participant) => (
+                      <article className="document-link-row" key={participant.id}>
+                        <strong>{participant.name || participant.email}</strong>
+                        <span>{participant.email}</span>
+                        <small>
+                          {participant.type === 'Internal' ? 'Interne' : 'Externe'} - {calendarParticipantStatusLabel(participant.status)}
+                          {participant.inviteSentAt ? ` - invite envoye ${formatOrderDate(participant.inviteSentAt)}` : ''}
+                        </small>
                       </article>
                     ))}
                   </Panel>
@@ -12686,7 +12807,24 @@ function formatMeetMediaError(error: unknown, fallback: string) {
   return fallback;
 }
 
-function CalendarEventForm({ draft, setDraft, canCreateMeetingRoom, onSubmit, onCancel, submitLabel }: { draft: CalendarDraftState; setDraft: (next: CalendarDraftState) => void; canCreateMeetingRoom: boolean; onSubmit: (event: FormEvent) => void; onCancel: () => void; submitLabel: string }) {
+function CalendarEventForm({ draft, setDraft, users, canCreateMeetingRoom, onSubmit, onCancel, submitLabel }: { draft: CalendarDraftState; setDraft: (next: CalendarDraftState) => void; users: User[]; canCreateMeetingRoom: boolean; onSubmit: (event: FormEvent) => void; onCancel: () => void; submitLabel: string }) {
+  const activeUsers = users.filter((user) => user.isActive);
+
+  function updateParticipant(id: string, patch: Partial<CalendarParticipantDraft>) {
+    setDraft({
+      ...draft,
+      participants: draft.participants.map((participant) => (participant.id === id ? { ...participant, ...patch } : participant))
+    });
+  }
+
+  function removeParticipant(id: string) {
+    setDraft({ ...draft, participants: draft.participants.filter((participant) => participant.id !== id) });
+  }
+
+  function addParticipant(kind: CalendarParticipantDraft['kind']) {
+    setDraft({ ...draft, participants: [...draft.participants, createCalendarParticipantDraft(kind)] });
+  }
+
   return (
     <form className="form-grid calendar-event-form" onSubmit={onSubmit}>
       <label className="field full-field">
@@ -12748,6 +12886,66 @@ function CalendarEventForm({ draft, setDraft, canCreateMeetingRoom, onSubmit, on
         Description
         <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
       </label>
+      <section className="calendar-participants-card full-field">
+        <div className="calendar-participants-toolbar">
+          <div>
+            <strong>Participants</strong>
+            <p>Les invites externes recoivent automatiquement un email avec un lien public pour accepter ou refuser.</p>
+          </div>
+          <div className="calendar-participants-actions">
+            <button className="secondary" type="button" onClick={() => addParticipant('Internal')}>
+              <Plus size={15} />
+              Utilisateur ERP
+            </button>
+            <button className="secondary" type="button" onClick={() => addParticipant('External')}>
+              <Plus size={15} />
+              Invite externe
+            </button>
+          </div>
+        </div>
+        {draft.participants.length === 0 ? (
+          <p className="panel-note">Aucun participant ajoute.</p>
+        ) : (
+          draft.participants.map((participant) => (
+            <div className="calendar-participant-row" key={participant.id}>
+              <label className="field calendar-participant-type">
+                Type
+                <select value={participant.kind} onChange={(event) => updateParticipant(participant.id, { kind: event.target.value as CalendarParticipantDraft['kind'], userId: '', externalName: '', externalEmail: '' })}>
+                  <option value="Internal">Interne</option>
+                  <option value="External">Externe</option>
+                </select>
+              </label>
+              {participant.kind === 'Internal' ? (
+                <div className="calendar-participant-fields single">
+                  <label className="field">
+                    Utilisateur
+                    <select value={participant.userId} onChange={(event) => updateParticipant(participant.id, { userId: event.target.value })}>
+                      <option value="">Utilisateur ERP</option>
+                      {activeUsers.map((user) => (
+                        <option value={user.id} key={user.id}>{user.displayName} - {user.email}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ) : (
+                <div className="calendar-participant-fields">
+                  <label className="field">
+                    Nom
+                    <input value={participant.externalName} onChange={(event) => updateParticipant(participant.id, { externalName: event.target.value })} placeholder="Nom invite" />
+                  </label>
+                  <label className="field">
+                    Email
+                    <input type="email" value={participant.externalEmail} onChange={(event) => updateParticipant(participant.id, { externalEmail: event.target.value })} placeholder="invite@entreprise.fr" />
+                  </label>
+                </div>
+              )}
+              <button className="danger icon-only" type="button" aria-label="Retirer le participant" title="Retirer le participant" onClick={() => removeParticipant(participant.id)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))
+        )}
+      </section>
       <div className="modal-footer full-field">
         <button className="secondary" type="button" onClick={onCancel}>Annuler</button>
         <button className="primary" type="submit">
@@ -12773,7 +12971,8 @@ function createCalendarDraft(date: Date): CalendarDraftState {
     isPrivate: false,
     reminderMinutes: '30',
     createMeetingRoom: false,
-    meetingLanguage: 'fr-FR'
+    meetingLanguage: 'fr-FR',
+    participants: []
   };
 }
 
@@ -12790,7 +12989,14 @@ function createCalendarDraftFromEvent(event: CalendarEvent): CalendarDraftState 
     isPrivate: event.isPrivate,
     reminderMinutes: reminder?.toString() ?? '30',
     createMeetingRoom: event.links.some((link) => link.module === 'meeting'),
-    meetingLanguage: 'fr-FR'
+    meetingLanguage: 'fr-FR',
+    participants: (event.participants ?? []).map((participant) => ({
+      id: participant.id,
+      kind: participant.userId ? 'Internal' : 'External',
+      userId: participant.userId ?? '',
+      externalName: participant.name ?? '',
+      externalEmail: participant.email ?? ''
+    }))
   };
 }
 
@@ -12807,7 +13013,12 @@ function calendarPayloadFromDraft(draft: CalendarDraftState) {
     isPrivate: draft.isPrivate,
     reminders: Number.isFinite(reminderMinutes) && reminderMinutes > 0
       ? [{ remindAt: new Date(new Date(startsAt).getTime() - reminderMinutes * 60000).toISOString() }]
-      : []
+      : [],
+    participants: draft.participants
+      .map((participant) => (participant.kind === 'Internal'
+        ? { userId: participant.userId || null, externalName: null, externalEmail: null }
+        : { userId: null, externalName: participant.externalName.trim() || null, externalEmail: participant.externalEmail.trim() || null }))
+      .filter((participant) => Boolean(participant.userId || participant.externalEmail))
   };
 }
 
@@ -12892,8 +13103,24 @@ function calendarEventMatchesSearch(event: CalendarEvent, search: string) {
     event.title,
     event.description,
     event.location,
-    event.links.map((link) => `${link.module} ${link.entityId}`).join(' ')
+    event.links.map((link) => `${link.module} ${link.entityId}`).join(' '),
+    (event.participants ?? []).map((participant) => `${participant.name ?? ''} ${participant.email} ${participant.type} ${participant.status}`).join(' ')
   ], search);
+}
+
+function calendarParticipantStatusLabel(status?: string) {
+  switch ((status ?? '').toLowerCase()) {
+    case 'accepted':
+      return 'Accepte';
+    case 'declined':
+      return 'Refuse';
+    case 'tentative':
+      return 'Peut-etre';
+    case 'invited':
+      return 'Invite';
+    default:
+      return status || '-';
+  }
 }
 
 function compareCalendarEvents(left: CalendarEvent, right: CalendarEvent) {

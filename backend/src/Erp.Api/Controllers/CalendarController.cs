@@ -45,4 +45,20 @@ public sealed class CalendarController(ICalendarService calendar) : ControllerBa
         var result = await calendar.DeleteAsync(id, cancellationToken);
         return result.Succeeded ? NoContent() : NotFound(new { error = result.Error });
     }
+
+    [HttpGet("/api/public/calendar/invitations/{token}")]
+    [AllowAnonymous]
+    public async Task<ActionResult<PublicCalendarInvitationDto>> GetPublicInvitation(string token, CancellationToken cancellationToken)
+    {
+        var result = await calendar.GetPublicInvitationAsync(token, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : NotFound(new { error = result.Error });
+    }
+
+    [HttpPost("/api/public/calendar/invitations/{token}/status")]
+    [AllowAnonymous]
+    public async Task<ActionResult<PublicCalendarInvitationDto>> UpdatePublicInvitationStatus(string token, UpdateCalendarInvitationStatusRequest request, CancellationToken cancellationToken)
+    {
+        var result = await calendar.UpdatePublicInvitationStatusAsync(token, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
 }

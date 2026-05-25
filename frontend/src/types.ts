@@ -769,6 +769,16 @@ export type CalendarEventLink = {
   entityId: string;
 };
 
+export type CalendarParticipant = {
+  id: string;
+  userId?: string | null;
+  name?: string | null;
+  email: string;
+  type: string;
+  status: string;
+  inviteSentAt?: string | null;
+};
+
 export type CalendarEvent = {
   id: string;
   title: string;
@@ -780,6 +790,19 @@ export type CalendarEvent = {
   createdAt: string;
   reminders: CalendarReminder[];
   links: CalendarEventLink[];
+  participants: CalendarParticipant[];
+};
+
+export type PublicCalendarInvitation = {
+  id: string;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  startsAt: string;
+  endsAt: string;
+  participantName: string;
+  participantEmail: string;
+  status: string;
 };
 
 export type MeetingLanguage = {
