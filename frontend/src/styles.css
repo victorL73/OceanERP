@@ -963,6 +963,7 @@ iframe {
   min-height: 100dvh;
   width: 100%;
   overflow: hidden;
+  transition: grid-template-columns 180ms ease;
 }
 
 .sidebar {
@@ -983,7 +984,8 @@ iframe {
 
 .mobile-nav-backdrop,
 .mobile-menu-button,
-.sidebar-close {
+.sidebar-close,
+.sidebar-toggle {
   display: none;
 }
 
@@ -1024,6 +1026,23 @@ iframe {
 .brand span {
   color: #9ca3af;
   font-size: 13px;
+}
+
+.sidebar-toggle {
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid rgb(148 163 184 / 0.35);
+  border-radius: 8px;
+  background: rgb(15 23 42 / 0.55);
+  color: #f8fafc;
+}
+
+.sidebar-toggle:hover {
+  border-color: rgb(226 232 240 / 0.55);
+  background: #1e293b;
 }
 
 .nav-list {
@@ -1100,6 +1119,58 @@ iframe {
   padding: 0;
   overflow: hidden;
   background: #f5f7fb;
+}
+
+@media (min-width: 881px) {
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar {
+    gap: 18px;
+    padding: 18px 12px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-head {
+    justify-content: center;
+  }
+
+  .app-shell.sidebar-collapsed .brand {
+    justify-content: center;
+  }
+
+  .app-shell.sidebar-collapsed .brand-text,
+  .app-shell.sidebar-collapsed .nav-list button span,
+  .app-shell.sidebar-collapsed .logout span,
+  .app-shell.sidebar-collapsed .account-button span,
+  .app-shell.sidebar-collapsed .account-button small {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-toggle {
+    position: absolute;
+    top: 70px;
+    right: -17px;
+    z-index: 2;
+    background: #0f172a;
+    box-shadow: 0 8px 20px rgb(15 23 42 / 0.28);
+  }
+
+  .app-shell.sidebar-collapsed .nav-list button,
+  .app-shell.sidebar-collapsed .logout,
+  .app-shell.sidebar-collapsed .account-button {
+    justify-content: center;
+    padding: 10px;
+  }
+
+  .app-shell.sidebar-collapsed .account-button {
+    display: flex;
+    grid-template-columns: none;
+  }
 }
 
 .flowcean-mobile-menu {

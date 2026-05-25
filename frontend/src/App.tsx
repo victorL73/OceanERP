@@ -226,6 +226,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(api.user);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readStoredChoice('oceanerp.sidebarCollapsed', 'false', ['true', 'false']) === 'true');
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [treasurySummary, setTreasurySummary] = useState<TreasurySummary | null>(null);
   const [treasuryMovements, setTreasuryMovements] = useState<TreasuryMovement[]>([]);
@@ -656,6 +657,10 @@ export default function App() {
   }, [view]);
 
   useEffect(() => {
+    storeChoice('oceanerp.sidebarCollapsed', sidebarCollapsed ? 'true' : 'false');
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
     setMobileNavOpen(false);
   }, [view]);
 
@@ -687,7 +692,7 @@ export default function App() {
   }
 
   return (
-    <div className={mobileNavOpen ? 'app-shell nav-open' : 'app-shell'}>
+    <div className={`${mobileNavOpen ? 'app-shell nav-open' : 'app-shell'}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <button
         className="mobile-nav-backdrop"
         type="button"
@@ -698,11 +703,20 @@ export default function App() {
         <div className="sidebar-head">
           <div className="brand">
             <div className="brand-mark">OE</div>
-            <div>
+            <div className="brand-text">
               <strong>OceanERP</strong>
               <span>Gestion commerciale</span>
             </div>
           </div>
+          <button
+            className="sidebar-toggle"
+            type="button"
+            aria-label={sidebarCollapsed ? 'Deplier le menu' : 'Replier le menu'}
+            title={sidebarCollapsed ? 'Deplier le menu' : 'Replier le menu'}
+            onClick={() => setSidebarCollapsed((value) => !value)}
+          >
+            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </button>
           <button className="sidebar-close" type="button" aria-label="Fermer le menu" onClick={() => setMobileNavOpen(false)}>
             <X size={18} />
           </button>
@@ -712,7 +726,7 @@ export default function App() {
           {visibleViews.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => setView(item.key)}>
+              <button key={item.key} className={view === item.key ? 'active' : ''} title={item.label} onClick={() => setView(item.key)}>
                 <Icon size={18} />
                 <span>{item.label}</span>
               </button>
@@ -720,7 +734,7 @@ export default function App() {
           })}
         </nav>
 
-        <button className={view === 'settings' ? 'account-button active' : 'account-button'} onClick={() => setView('settings')}>
+        <button className={view === 'settings' ? 'account-button active' : 'account-button'} title="Parametres utilisateur" onClick={() => setView('settings')}>
           <UserRound size={18} />
           <span>{currentUser?.displayName ?? 'Compte utilisateur'}</span>
           <small>Parametres</small>
@@ -733,6 +747,7 @@ export default function App() {
             setCurrentUser(null);
             setAuthenticated(false);
           }}
+          title="Deconnexion"
         >
           <LogOut size={18} />
           <span>Deconnexion</span>
