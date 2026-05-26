@@ -111,6 +111,9 @@ public sealed class AuthService(
 
         user.Email = email;
         user.DisplayName = displayName;
+        user.Phone = NormalizeOptional(request.Phone);
+        user.JobTitle = NormalizeOptional(request.JobTitle);
+        user.Workplace = NormalizeOptional(request.Workplace);
         AddAudit(user.Id, "auth.profile.updated", "User", user.Id.ToString(), null, null);
         await db.SaveChangesAsync(cancellationToken);
 
@@ -169,7 +172,15 @@ public sealed class AuthService(
             return Result<UserDto>.Failure("A user with this email already exists.");
         }
 
-        var user = new User { Email = email, DisplayName = displayName, IsActive = true };
+        var user = new User
+        {
+            Email = email,
+            DisplayName = displayName,
+            Phone = NormalizeOptional(request.Phone),
+            JobTitle = NormalizeOptional(request.JobTitle),
+            Workplace = NormalizeOptional(request.Workplace),
+            IsActive = true
+        };
         user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
 
         var roleNames = request.Roles is { Count: > 0 }
@@ -218,6 +229,9 @@ public sealed class AuthService(
         }
 
         user.IsActive = request.IsActive;
+        user.Phone = NormalizeOptional(request.Phone);
+        user.JobTitle = NormalizeOptional(request.JobTitle);
+        user.Workplace = NormalizeOptional(request.Workplace);
         user.UserRoles.Clear();
         foreach (var role in roles)
         {
@@ -393,8 +407,11 @@ public sealed class AuthService(
     {
         var roles = user.UserRoles.Select(x => x.Role?.Name).Where(x => x is not null).Cast<string>().Distinct().OrderBy(x => x).ToList();
         var permissions = user.UserRoles.SelectMany(x => x.Role?.Permissions ?? []).Select(x => x.Code).Distinct().OrderBy(x => x).ToList();
-        return new UserDto(user.Id, user.Email, user.DisplayName, user.IsActive, roles, permissions);
+        return new UserDto(user.Id, user.Email, user.DisplayName, user.IsActive, roles, permissions, user.Phone, user.JobTitle, user.Workplace);
     }
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static RoleDto MapRole(Role role)
         => new(role.Id, role.Name, role.Description, role.Permissions.Select(x => x.Code).OrderBy(x => x).ToList());

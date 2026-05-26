@@ -2944,6 +2944,9 @@ function Settings({
   const [activeTab, setActiveTab] = useState<'account' | 'emails' | 'quotes' | 'ai' | 'access' | 'audit' | 'warehouses' | 'prestashop' | 'service'>(() => readStoredChoice('oceanerp.settings.activeTab', 'account', ['account', 'emails', 'quotes', 'ai', 'access', 'audit', 'warehouses', 'prestashop', 'service'] as const));
   const [email, setEmail] = useState(currentUser?.email ?? '');
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
+  const [phone, setPhone] = useState(currentUser?.phone ?? '');
+  const [jobTitle, setJobTitle] = useState(currentUser?.jobTitle ?? '');
+  const [workplace, setWorkplace] = useState(currentUser?.workplace ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -2953,6 +2956,9 @@ function Settings({
   useEffect(() => {
     setEmail(currentUser?.email ?? '');
     setDisplayName(currentUser?.displayName ?? '');
+    setPhone(currentUser?.phone ?? '');
+    setJobTitle(currentUser?.jobTitle ?? '');
+    setWorkplace(currentUser?.workplace ?? '');
   }, [currentUser]);
 
   useEffect(() => {
@@ -2969,7 +2975,7 @@ function Settings({
     event.preventDefault();
     setProfileMessage(null);
     try {
-      const user = await api.updateProfile({ email, displayName });
+      const user = await api.updateProfile({ email, displayName, phone, jobTitle, workplace });
       onUserChanged(user);
       setProfileMessage('Profil mis a jour.');
     } catch (err) {
@@ -3026,6 +3032,9 @@ function Settings({
               <form className="form-grid" onSubmit={updateProfile}>
                 <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
                 <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                <input placeholder="Telephone" value={phone} onChange={(event) => setPhone(event.target.value)} />
+                <input placeholder="Fonction" value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
+                <input placeholder="Lieu de travail" value={workplace} onChange={(event) => setWorkplace(event.target.value)} />
                 <input readOnly value={currentUser?.roles.join(', ') ?? ''} aria-label="Roles" />
                 <button className="primary" type="submit">
                   <SettingsIcon size={16} />
@@ -3055,7 +3064,7 @@ function Settings({
         {activeTab === 'ai' && canManageAiSettings && <AiSettingsPanel settings={aiSettings} onChanged={onAiSettingsChanged} />}
         {activeTab === 'access' && canManageUsers && <UsersRoles users={users} roles={roles} permissions={permissions} onChanged={onUsersRolesChanged} />}
         {activeTab === 'audit' && canManageUsers && <AuditLogs logs={auditLogs} />}
-        {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} onChanged={onWarehousesChanged} />}
+        {activeTab === 'warehouses' && canManageWarehouses && <WarehousesSettings warehouses={warehouses} users={users} onChanged={onWarehousesChanged} />}
         {activeTab === 'prestashop' && canManagePrestashop && <PrestashopSettingsTab connections={prestashopConnections} logs={prestashopLogs} warehouses={warehouses} onSettingsChanged={onPrestashopChanged} onSyncChanged={onPrestashopSyncChanged} />}
         {activeTab === 'service' && canManageServiceAssignments && <ServiceAssignmentSettingsPanel users={users} settings={serviceAssignmentSettings} onChanged={onServiceSettingsChanged} />}
       </section>
@@ -3714,11 +3723,12 @@ function AuditLogs({ logs }: { logs: AuditLog[] }) {
   );
 }
 
-function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]; onChanged: () => Promise<void> }) {
+function WarehousesSettings({ warehouses, users, onChanged }: { warehouses: Warehouse[]; users: User[]; onChanged: () => Promise<void> }) {
   const [draft, setDraft] = useState<WarehouseDraft>(emptyWarehouseDraft);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [editDraft, setEditDraft] = useState<WarehouseDraft>(emptyWarehouseDraft);
   const [message, setMessage] = useState<string | null>(null);
+  const employees = useMemo(() => users.filter((user) => user.isActive).sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr')), [users]);
 
   useEffect(() => {
     const selected = warehouses.find((warehouse) => warehouse.id === selectedWarehouseId);
@@ -3782,7 +3792,7 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
     <>
       <Panel title="Nouvel entrepot">
         <form className="form-grid" onSubmit={submit}>
-          <WarehouseDraftFields draft={draft} onChange={setDraft} />
+          <WarehouseDraftFields draft={draft} onChange={setDraft} employees={employees} datalistId="warehouse-representatives-create" />
           <button className="primary" type="submit">
             <Plus size={16} />
             Creer
@@ -3803,7 +3813,7 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
               ))}
             </select>
           </label>
-          <WarehouseDraftFields draft={editDraft} onChange={setEditDraft} disabled={!selectedWarehouseId} />
+          <WarehouseDraftFields draft={editDraft} onChange={setEditDraft} disabled={!selectedWarehouseId} employees={employees} datalistId="warehouse-representatives-edit" />
           <div className="table-actions form-actions">
             <button className="primary" type="submit" disabled={!selectedWarehouseId}>
               <Save size={15} />
@@ -3830,18 +3840,54 @@ function WarehousesSettings({ warehouses, onChanged }: { warehouses: Warehouse[]
   );
 }
 
-function WarehouseDraftFields({ draft, onChange, disabled = false }: { draft: WarehouseDraft; onChange: (draft: WarehouseDraft) => void; disabled?: boolean }) {
+function WarehouseDraftFields({ draft, onChange, employees, datalistId, disabled = false }: { draft: WarehouseDraft; onChange: (draft: WarehouseDraft) => void; employees: User[]; datalistId: string; disabled?: boolean }) {
   const update = (key: keyof WarehouseDraft, value: string) => onChange({ ...draft, [key]: value });
+  const matchEmployee = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    return employees.find((employee) => {
+      const display = employee.displayName.trim().toLowerCase();
+      const email = employee.email.trim().toLowerCase();
+      return display === normalized || email === normalized || `${display} <${email}>` === normalized;
+    });
+  };
+
+  const updateRepresentative = (value: string) => {
+    const employee = matchEmployee(value);
+    if (!employee) {
+      update('representativeName', value);
+      return;
+    }
+
+    onChange({
+      ...draft,
+      representativeName: employee.displayName,
+      phone: employee.phone ?? draft.phone,
+      email: employee.email,
+      addressLine1: draft.addressLine1 || employee.workplace || ''
+    });
+  };
 
   return (
     <>
+      <datalist id={datalistId}>
+        {employees.map((employee) => (
+          <option key={employee.id} value={employee.displayName}>
+            {employee.email}{employee.jobTitle ? ` - ${employee.jobTitle}` : ''}
+          </option>
+        ))}
+        {employees.map((employee) => (
+          <option key={`${employee.id}-email`} value={employee.email}>
+            {employee.displayName}{employee.jobTitle ? ` - ${employee.jobTitle}` : ''}
+          </option>
+        ))}
+      </datalist>
       <label className="field">
         <span>Nom</span>
         <input required disabled={disabled} placeholder="Nom de l'entrepot" value={draft.name} onChange={(event) => update('name', event.target.value)} />
       </label>
       <label className="field">
         <span>Representant</span>
-        <input disabled={disabled} placeholder="Nom du responsable" value={draft.representativeName} onChange={(event) => update('representativeName', event.target.value)} />
+        <input disabled={disabled} list={datalistId} placeholder="Nom ou email de l'employe" value={draft.representativeName} onChange={(event) => updateRepresentative(event.target.value)} onBlur={(event) => updateRepresentative(event.target.value)} />
       </label>
       <label className="field">
         <span>Telephone</span>
@@ -4046,10 +4092,16 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
+  const [userPhone, setUserPhone] = useState('');
+  const [userJobTitle, setUserJobTitle] = useState('');
+  const [userWorkplace, setUserWorkplace] = useState('');
   const [newUserRoles, setNewUserRoles] = useState<string[]>(['Sales']);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedUserRoles, setSelectedUserRoles] = useState<string[]>([]);
   const [selectedUserActive, setSelectedUserActive] = useState(true);
+  const [selectedUserPhone, setSelectedUserPhone] = useState('');
+  const [selectedUserJobTitle, setSelectedUserJobTitle] = useState('');
+  const [selectedUserWorkplace, setSelectedUserWorkplace] = useState('');
   const [roleName, setRoleName] = useState('');
   const [roleDescription, setRoleDescription] = useState('');
   const [rolePermissions, setRolePermissions] = useState<string[]>(['dashboard.read']);
@@ -4069,6 +4121,15 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
     if (user) {
       setSelectedUserRoles(user.roles);
       setSelectedUserActive(user.isActive);
+      setSelectedUserPhone(user.phone ?? '');
+      setSelectedUserJobTitle(user.jobTitle ?? '');
+      setSelectedUserWorkplace(user.workplace ?? '');
+    } else {
+      setSelectedUserRoles([]);
+      setSelectedUserActive(true);
+      setSelectedUserPhone('');
+      setSelectedUserJobTitle('');
+      setSelectedUserWorkplace('');
     }
   }, [selectedUserId, users]);
 
@@ -4086,10 +4147,13 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
 
   async function createUser(event: FormEvent) {
     event.preventDefault();
-    await api.createUser({ email, displayName, password, roles: newUserRoles.length > 0 ? newUserRoles : ['Sales'] });
+    await api.createUser({ email, displayName, password, phone: userPhone, jobTitle: userJobTitle, workplace: userWorkplace, roles: newUserRoles.length > 0 ? newUserRoles : ['Sales'] });
     setEmail('');
     setDisplayName('');
     setPassword('');
+    setUserPhone('');
+    setUserJobTitle('');
+    setUserWorkplace('');
     setNewUserRoles(['Sales']);
     await onChanged();
   }
@@ -4100,7 +4164,7 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
       throw new Error('Selectionner un utilisateur.');
     }
 
-    await api.updateUserRoles(selectedUserId, { roles: selectedUserRoles, isActive: selectedUserActive });
+    await api.updateUserRoles(selectedUserId, { roles: selectedUserRoles, isActive: selectedUserActive, phone: selectedUserPhone, jobTitle: selectedUserJobTitle, workplace: selectedUserWorkplace });
     await onChanged();
   }
 
@@ -4142,6 +4206,9 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
                 <input required type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
                 <input required placeholder="Nom affiche" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
                 <input required type="password" placeholder="Mot de passe provisoire" value={password} onChange={(event) => setPassword(event.target.value)} />
+                <input placeholder="Telephone" value={userPhone} onChange={(event) => setUserPhone(event.target.value)} />
+                <input placeholder="Fonction" value={userJobTitle} onChange={(event) => setUserJobTitle(event.target.value)} />
+                <input placeholder="Lieu de travail" value={userWorkplace} onChange={(event) => setUserWorkplace(event.target.value)} />
                 <MultiSelect label="Roles" values={newUserRoles} options={roles.map((role) => role.name)} onChange={setNewUserRoles} />
                 <button className="primary" type="submit">
                   <Plus size={16} />
@@ -4160,6 +4227,9 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
                     </option>
                   ))}
                 </select>
+                <input placeholder="Telephone" value={selectedUserPhone} disabled={!selectedUserId} onChange={(event) => setSelectedUserPhone(event.target.value)} />
+                <input placeholder="Fonction" value={selectedUserJobTitle} disabled={!selectedUserId} onChange={(event) => setSelectedUserJobTitle(event.target.value)} />
+                <input placeholder="Lieu de travail" value={selectedUserWorkplace} disabled={!selectedUserId} onChange={(event) => setSelectedUserWorkplace(event.target.value)} />
                 <MultiSelect label="Roles" values={selectedUserRoles} options={roles.map((role) => role.name)} onChange={setSelectedUserRoles} />
                 <label className="check-field">
                   <input type="checkbox" checked={selectedUserActive} onChange={(event) => setSelectedUserActive(event.target.checked)} />
@@ -4172,7 +4242,7 @@ function UsersRoles({ users, roles, permissions, onChanged }: { users: User[]; r
               </form>
             </Panel>
 
-            <DataTable columns={['Email', 'Nom', 'Roles', 'Statut']} rows={users.map((user) => [user.email, user.displayName, user.roles.join(', '), user.isActive ? 'Actif' : 'Inactif'])} />
+            <DataTable columns={['Email', 'Nom', 'Telephone', 'Fonction', 'Lieu de travail', 'Roles', 'Statut']} rows={users.map((user) => [user.email, user.displayName, user.phone ?? '-', user.jobTitle ?? '-', user.workplace ?? '-', user.roles.join(', '), user.isActive ? 'Actif' : 'Inactif'])} />
           </>
         )}
 

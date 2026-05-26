@@ -19,6 +19,9 @@ export type User = {
   isActive: boolean;
   roles: string[];
   permissions: string[];
+  phone?: string;
+  jobTitle?: string;
+  workplace?: string;
 };
 
 export type Role = {

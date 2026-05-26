@@ -109,6 +109,9 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.HasIndex(x => x.Email).IsUnique();
             entity.Property(x => x.Email).HasMaxLength(320);
             entity.Property(x => x.DisplayName).HasMaxLength(160);
+            entity.Property(x => x.Phone).HasMaxLength(80);
+            entity.Property(x => x.JobTitle).HasMaxLength(160);
+            entity.Property(x => x.Workplace).HasMaxLength(240);
             entity.Property(x => x.PasswordHash).HasMaxLength(1024);
         });
 

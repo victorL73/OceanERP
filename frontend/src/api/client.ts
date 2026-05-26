@@ -107,7 +107,7 @@ export class ApiClient {
     return user;
   }
 
-  async updateProfile(payload: { email: string; displayName: string }) {
+  async updateProfile(payload: { email: string; displayName: string; phone?: string; jobTitle?: string; workplace?: string }) {
     const user = await this.request<User>('/api/auth/me', { method: 'PUT', auth: true, body: JSON.stringify(payload) });
     this.setUser(user);
     return user;
@@ -510,11 +510,11 @@ export class ApiClient {
     return this.request<User[]>('/api/users', { auth: true });
   }
 
-  createUser(payload: { email: string; displayName: string; password: string; roles: string[] }) {
+  createUser(payload: { email: string; displayName: string; password: string; roles: string[]; phone?: string; jobTitle?: string; workplace?: string }) {
     return this.request<User>('/api/users', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
-  updateUserRoles(userId: string, payload: { roles: string[]; isActive: boolean }) {
+  updateUserRoles(userId: string, payload: { roles: string[]; isActive: boolean; phone?: string; jobTitle?: string; workplace?: string }) {
     return this.request<User>(`/api/users/${userId}/roles`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 
