@@ -1263,12 +1263,60 @@ h1 {
 .top-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
 }
 
 .topbar-action-button {
   white-space: nowrap;
+}
+
+.system-clock {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+
+.system-clock svg {
+  color: #0f766e;
+  flex: 0 0 auto;
+}
+
+.system-clock strong,
+.system-clock span {
+  display: block;
+  line-height: 1.1;
+}
+
+.system-clock strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.system-clock span {
+  color: #64748b;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.system-clock.compact {
+  min-height: 38px;
+  border-color: var(--flowcean-border);
+  background: var(--flowcean-panel-strong);
+  color: var(--flowcean-text);
+}
+
+.system-clock.compact span {
+  color: var(--flowcean-muted);
 }
 
 .search {
@@ -6130,6 +6178,11 @@ button.drive-main {
   .top-actions {
     width: 100%;
     align-items: stretch;
+  }
+
+  .system-clock {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .search {

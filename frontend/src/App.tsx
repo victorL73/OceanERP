@@ -119,6 +119,34 @@ function formatNavBadgeCount(count: number) {
   return count > 99 ? '99+' : String(count);
 }
 
+function SystemClock({ compact = false }: { compact?: boolean }) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const timeLabel = useMemo(
+    () => new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(now),
+    [now]
+  );
+  const dateLabel = useMemo(
+    () => new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(now),
+    [now]
+  );
+
+  return (
+    <div className={compact ? 'system-clock compact' : 'system-clock'} aria-label={`Date et heure ${dateLabel} ${timeLabel}`}>
+      <Clock size={16} />
+      <div>
+        <strong>{timeLabel}</strong>
+        <span>{dateLabel}</span>
+      </div>
+    </div>
+  );
+}
+
 function readPublicSignatureToken() {
   if (typeof window === 'undefined') {
     return null;
@@ -832,6 +860,7 @@ export default function App() {
                 <Search size={16} />
                 <input aria-label="Recherche" placeholder="Rechercher" />
               </div>
+              <SystemClock />
               <button className="icon-button" title="Notifications" onClick={() => setView('notifications')}>
                 <Bell size={18} />
                 {notifications.some((item) => !item.isRead) && <span className="dot" />}
@@ -14551,6 +14580,7 @@ function FlowceanWorkspaceModule() {
               ))}
             </div>
             <div className="flowcean-topbar-actions">
+              <SystemClock compact />
               <select value={workspace?.slug ?? ''} onChange={(event) => openWorkspace(event.target.value)}>
                 {workspaces.map((item) => <option key={item.id} value={item.slug}>{item.name}</option>)}
               </select>
