@@ -115,6 +115,10 @@ function hasPermission(user: User | null, permission?: string) {
   return !permission || Boolean(user && (user.roles.includes('Administrator') || user.permissions.includes(permission)));
 }
 
+function formatNavBadgeCount(count: number) {
+  return count > 99 ? '99+' : String(count);
+}
+
 function readPublicSignatureToken() {
   if (typeof window === 'undefined') {
     return null;
@@ -271,6 +275,27 @@ export default function App() {
   const [serviceTicketCreateOpen, setServiceTicketCreateOpen] = useState(false);
   const [serviceTicketFilters, setServiceTicketFilters] = useState<ServiceTicketFilters>(defaultServiceTicketFilters);
   const visibleViews = useMemo(() => navViews.filter((item) => hasPermission(currentUser, item.permission)), [currentUser]);
+  const unreadEmailCount = useMemo(() => {
+    if (emailMessages) {
+      return emailMessages.items.filter((message) => message.direction === 'Incoming' && !message.isRead).length;
+    }
+
+    return summary?.newEmails ?? 0;
+  }, [emailMessages, summary?.newEmails]);
+  const unreadNotificationCount = useMemo(() => {
+    if (notifications.length > 0) {
+      return notifications.filter((item) => !item.isRead).length;
+    }
+
+    return summary?.unreadNotifications ?? 0;
+  }, [notifications, summary?.unreadNotifications]);
+  const navBadgeCounts = useMemo<Partial<Record<ViewKey, number>>>(
+    () => ({
+      emails: unreadEmailCount,
+      notifications: unreadNotificationCount
+    }),
+    [unreadEmailCount, unreadNotificationCount]
+  );
 
   async function refreshPrestashopData() {
     const [nextConnections, nextLogs] = await Promise.all([api.prestashopConnections(), api.prestashopLogs()]);
@@ -653,6 +678,19 @@ export default function App() {
   }, [isAuthenticated, view]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    const tasks: Promise<unknown>[] = [api.summary().then(setSummary).catch(() => undefined)];
+    if (hasPermission(currentUser, 'notifications.read')) {
+      tasks.push(api.notifications().then(setNotifications).catch(() => undefined));
+    }
+
+    void Promise.all(tasks);
+  }, [isAuthenticated, currentUser?.id]);
+
+  useEffect(() => {
     storeChoice('oceanerp.activeView', view);
   }, [view]);
 
@@ -725,10 +763,16 @@ export default function App() {
         <nav className="nav-list">
           {visibleViews.map((item) => {
             const Icon = item.icon;
+            const badgeCount = navBadgeCounts[item.key] ?? 0;
             return (
               <button key={item.key} className={view === item.key ? 'active' : ''} title={item.label} onClick={() => setView(item.key)}>
                 <Icon size={18} />
-                <span>{item.label}</span>
+                <span className="nav-label">{item.label}</span>
+                {badgeCount > 0 && (
+                  <strong className="nav-badge" aria-label={`${badgeCount} element(s) non lu(s)`}>
+                    {formatNavBadgeCount(badgeCount)}
+                  </strong>
+                )}
               </button>
             );
           })}
@@ -840,7 +884,7 @@ export default function App() {
         {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
         {view === 'stock' && <Stock items={stockItems} movements={stockMovements} products={products?.items ?? []} warehouses={warehouses} purchaseOrders={purchaseOrders?.items ?? []} focusedProductIds={stockFocusProductIds} onClearFocusedProducts={() => setStockFocusProductIds([])} prestashopConnections={prestashopConnections} onChanged={() => load('stock')} />}
-        {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} notificationFilter={emailNotificationFilter} onChanged={() => load('emails')} />}
+        {view === 'emails' && <Emails accounts={mailAccounts} messages={emailMessages?.items ?? []} templates={emailTemplates} distributionLists={emailDistributionLists} customers={customers?.items ?? []} notificationFilter={emailNotificationFilter} onChanged={async () => { await load('emails'); api.summary().then(setSummary).catch(() => undefined); }} />}
         {view === 'service' && <ServiceTickets items={serviceTickets?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} orders={orders?.items ?? []} users={users} currentUser={currentUser} filters={serviceTicketFilters} createOpen={serviceTicketCreateOpen} onFiltersChange={applyServiceTicketFilters} onCloseCreate={() => setServiceTicketCreateOpen(false)} onChanged={() => load('service')} />}
         {view === 'calendar' && (
           <Calendar
