@@ -7195,6 +7195,22 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
     await onChanged();
   }
 
+  async function deleteCreditNote(invoice: Invoice) {
+    if (invoice.kind !== 'CreditNote') {
+      return;
+    }
+
+    if (!window.confirm(`Supprimer l'avoir ${invoice.number} ?`)) {
+      return;
+    }
+
+    await api.deleteInvoice(invoice.id);
+    if (selectedInvoice?.id === invoice.id) {
+      setSelectedInvoice(null);
+    }
+    await onChanged();
+  }
+
   return (
     <>
       <Panel title="Nouvelle facture depuis commande">
@@ -7265,6 +7281,12 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
               <X size={15} />
               Annuler
             </button>
+            {item.kind === 'CreditNote' && (
+              <button className="danger" onClick={(event) => { event.stopPropagation(); void deleteCreditNote(item); }} type="button">
+                <Trash2 size={15} />
+                Supprimer
+              </button>
+            )}
           </div>
         ])}
         onRowClick={(index) => setSelectedInvoice(items[index])}
@@ -7318,6 +7340,12 @@ function Invoices({ items, orders, onChanged }: { items: Invoice[]; orders: Sale
               <button className="secondary" disabled={selectedInvoice.kind === 'CreditNote' || selectedInvoice.status === 'Cancelled'} type="button" onClick={() => void createCreditNote(selectedInvoice)}>
                 Creer un avoir
               </button>
+              {selectedInvoice.kind === 'CreditNote' && (
+                <button className="danger" type="button" onClick={() => void deleteCreditNote(selectedInvoice)}>
+                  <Trash2 size={15} />
+                  Supprimer l'avoir
+                </button>
+              )}
             </div>
           </section>
         </div>

@@ -208,6 +208,54 @@ public sealed class InvoiceService(
         return Result<InvoiceDto>.Success(await MapAsync(invoice, cancellationToken));
     }
 
+    public async Task<Result> DeleteAsync(Guid invoiceId, CancellationToken cancellationToken)
+    {
+        var invoice = await db.Invoices.FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken);
+        if (invoice is null)
+        {
+            return Result.Failure("Facture introuvable.");
+        }
+
+        if (!string.Equals(invoice.Kind, "CreditNote", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result.Failure("Seuls les avoirs peuvent etre supprimes. Les factures doivent etre annulees pour conserver la piste comptable.");
+        }
+
+        var payments = await db.InvoicePayments.Where(x => x.InvoiceId == invoiceId).ToListAsync(cancellationToken);
+        if (payments.Count > 0)
+        {
+            return Result.Failure("Impossible de supprimer un avoir lie a un paiement.");
+        }
+
+        var documents = await db.InvoiceDocuments.Where(x => x.InvoiceId == invoiceId).ToListAsync(cancellationToken);
+        var documentStoragePaths = documents.Select(x => x.StoragePath).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+        var storagePathsKeptByDrive = await db.DriveItems
+            .Where(x => documentStoragePaths.Contains(x.StoragePath))
+            .Select(x => x.StoragePath)
+            .ToListAsync(cancellationToken);
+        var lines = await db.InvoiceLines.Where(x => x.InvoiceId == invoiceId).ToListAsync(cancellationToken);
+        var history = await db.InvoiceStatusHistories.Where(x => x.InvoiceId == invoiceId).ToListAsync(cancellationToken);
+        var emailLinks = await db.EmailLinks.Where(x => x.Module == "invoices" && x.EntityId == invoiceId).ToListAsync(cancellationToken);
+        var documentLinks = await db.DocumentLinks.Where(x => x.Module == "invoices" && x.EntityId == invoiceId).ToListAsync(cancellationToken);
+
+        db.InvoiceDocuments.RemoveRange(documents);
+        db.InvoiceStatusHistories.RemoveRange(history);
+        db.InvoicePayments.RemoveRange(payments);
+        db.InvoiceLines.RemoveRange(lines);
+        db.EmailLinks.RemoveRange(emailLinks);
+        db.DocumentLinks.RemoveRange(documentLinks);
+        db.Invoices.Remove(invoice);
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var storagePath in documentStoragePaths.Where(path => !storagePathsKeptByDrive.Contains(path)))
+        {
+            await fileStorageService.DeleteAsync(storagePath, cancellationToken);
+        }
+
+        return Result.Success();
+    }
+
     public async Task<Result<InvoiceDocumentDto>> GeneratePdfAsync(Guid id, CancellationToken cancellationToken)
     {
         var invoice = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);

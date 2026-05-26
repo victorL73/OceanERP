@@ -675,6 +675,10 @@ export class ApiClient {
     return this.request<Invoice>(`/api/invoices/${invoiceId}/cancel`, { method: 'POST', auth: true });
   }
 
+  deleteInvoice(invoiceId: string) {
+    return this.request<void>(`/api/invoices/${invoiceId}`, { method: 'DELETE', auth: true });
+  }
+
   generateInvoicePdf(invoiceId: string) {
     return this.request<InvoiceDocument>(`/api/invoices/${invoiceId}/pdf`, { method: 'POST', auth: true });
   }
