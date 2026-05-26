@@ -5958,7 +5958,11 @@ function Orders({ items, customers, warehouses, isAdministrator, notificationFil
 
   async function deleteOrder(order: SalesOrder): Promise<string | null> {
     setMessage(null);
-    if (!window.confirm(`Supprimer la commande ${order.number} ?`)) {
+    const terminalStatus = order.status === 'Shipped' || order.status === 'Completed';
+    const confirmation = terminalStatus
+      ? `Supprimer administrativement la commande ${order.number} ?\n\nLes lignes produit seront remises en stock et les paiements/factures lies seront retires de la tresorerie.`
+      : `Supprimer la commande ${order.number} ?`;
+    if (!window.confirm(confirmation)) {
       return null;
     }
 
@@ -6048,7 +6052,7 @@ function Orders({ items, customers, warehouses, isAdministrator, notificationFil
               </button>
             )}
             {isAdministrator && (
-              <button className="danger" type="button" disabled={item.status === 'Shipped' || item.status === 'Completed'} onClick={(event) => { event.stopPropagation(); void deleteOrder(item); }}>
+              <button className="danger" type="button" onClick={(event) => { event.stopPropagation(); void deleteOrder(item); }}>
                 <Trash2 size={15} />
                 Supprimer
               </button>
@@ -6378,7 +6382,7 @@ function SalesOrderDetailModal({
             </button>
           ))}
           {onDeleteOrder && (
-            <button className="danger" type="button" disabled={deletingOrder || order.status === 'Shipped' || order.status === 'Completed'} onClick={() => void handleDeleteOrder()}>
+            <button className="danger" type="button" disabled={deletingOrder} onClick={() => void handleDeleteOrder()}>
               <Trash2 size={16} />
               {deletingOrder ? 'Suppression...' : 'Supprimer'}
             </button>

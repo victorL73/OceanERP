@@ -351,12 +351,148 @@ public sealed class SalesOrderService(
             }
         }
 
-        var orderLines = await db.SalesOrderLines.Where(x => x.SalesOrderId == id).ToListAsync(cancellationToken);
-        var orderHistory = await db.SalesOrderStatusHistories.Where(x => x.SalesOrderId == id).ToListAsync(cancellationToken);
-        var emailLinks = await db.EmailLinks.Where(x => x.Module == "orders" && x.EntityId == id).ToListAsync(cancellationToken);
-        var documentLinks = await db.DocumentLinks.Where(x => x.Module == "orders" && x.EntityId == id).ToListAsync(cancellationToken);
+        await DeleteOrderGraphAsync(order, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<Result> DeleteAsAdministratorAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var order = await db.SalesOrders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (order is null)
+        {
+            return Result.Failure("Commande introuvable.");
+        }
+
+        var productLines = await GetStockOrderLinesAsync(order.Id, cancellationToken);
+        var stockResult = await UndoStockEffectBeforeAdminDeleteAsync(order, productLines, cancellationToken);
+        if (!stockResult.Succeeded)
+        {
+            return stockResult;
+        }
+
+        await DeleteInvoicesLinkedToOrderAsync(order.Id, cancellationToken);
+        await DeleteOrderGraphAsync(order, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    private async Task<Result> UndoStockEffectBeforeAdminDeleteAsync(SalesOrder order, IReadOnlyList<StockOrderLine> productLines, CancellationToken cancellationToken)
+    {
+        if (productLines.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        order.WarehouseId ??= await ResolveWarehouseIdFromOrderLinesAsync(order.Id, cancellationToken);
+        if (!order.WarehouseId.HasValue)
+        {
+            return Result.Failure("Suppression impossible : aucun entrepot n'est rattache aux lignes produit de cette commande.");
+        }
+
+        if (order.Status is "Confirmed" or "Preparing")
+        {
+            return await ReleaseReservationAsync(order, productLines, cancellationToken);
+        }
+
+        if (order.Status is not ("Shipped" or "Completed"))
+        {
+            return Result.Success();
+        }
+
+        if (await db.StockMovements.AnyAsync(x => x.ReferenceId == order.Id && x.Type == "AdminDeleteRestore", cancellationToken))
+        {
+            return Result.Success();
+        }
+
+        foreach (var line in productLines)
+        {
+            var item = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == line.ProductId && x.WarehouseId == order.WarehouseId.Value, cancellationToken);
+            if (item is null)
+            {
+                db.StockItems.Add(new StockItem
+                {
+                    ProductId = line.ProductId,
+                    WarehouseId = order.WarehouseId.Value,
+                    QuantityOnHand = line.Quantity,
+                    QuantityReserved = 0,
+                    AlertThreshold = 0
+                });
+            }
+            else
+            {
+                item.QuantityOnHand += line.Quantity;
+            }
+
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = line.ProductId,
+                WarehouseId = order.WarehouseId.Value,
+                Quantity = line.Quantity,
+                Type = "AdminDeleteRestore",
+                Reason = $"Stock restored after admin deletion of order {order.Number}",
+                ReferenceModule = "SalesOrder",
+                ReferenceId = order.Id
+            });
+        }
+
+        return Result.Success();
+    }
+
+    private async Task DeleteInvoicesLinkedToOrderAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        var invoices = await db.Invoices
+            .Where(x => x.SalesOrderId == orderId)
+            .ToListAsync(cancellationToken);
+
+        var invoiceIds = invoices.Select(x => x.Id).ToHashSet();
+        while (true)
+        {
+            var creditNotes = await db.Invoices
+                .Where(x => x.CreditOfInvoiceId.HasValue && invoiceIds.Contains(x.CreditOfInvoiceId.Value) && !invoiceIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+            if (creditNotes.Count == 0)
+            {
+                break;
+            }
+
+            invoices.AddRange(creditNotes);
+            foreach (var creditNote in creditNotes)
+            {
+                invoiceIds.Add(creditNote.Id);
+            }
+        }
+
+        if (invoiceIds.Count == 0)
+        {
+            return;
+        }
+
+        var ids = invoiceIds.ToArray();
+        var lines = await db.InvoiceLines.Where(x => ids.Contains(x.InvoiceId)).ToListAsync(cancellationToken);
+        var payments = await db.InvoicePayments.Where(x => ids.Contains(x.InvoiceId)).ToListAsync(cancellationToken);
+        var documents = await db.InvoiceDocuments.Where(x => ids.Contains(x.InvoiceId)).ToListAsync(cancellationToken);
+        var histories = await db.InvoiceStatusHistories.Where(x => ids.Contains(x.InvoiceId)).ToListAsync(cancellationToken);
+
+        db.InvoiceLines.RemoveRange(lines);
+        db.InvoicePayments.RemoveRange(payments);
+        db.InvoiceDocuments.RemoveRange(documents);
+        db.InvoiceStatusHistories.RemoveRange(histories);
+        db.Invoices.RemoveRange(invoices);
+    }
+
+    private async Task DeleteOrderGraphAsync(SalesOrder order, CancellationToken cancellationToken)
+    {
+        var orderLines = await db.SalesOrderLines.Where(x => x.SalesOrderId == order.Id).ToListAsync(cancellationToken);
+        var orderHistory = await db.SalesOrderStatusHistories.Where(x => x.SalesOrderId == order.Id).ToListAsync(cancellationToken);
+        var emailLinks = await db.EmailLinks.Where(x => x.Module == "orders" && x.EntityId == order.Id).ToListAsync(cancellationToken);
+        var documentLinks = await db.DocumentLinks.Where(x => x.Module == "orders" && x.EntityId == order.Id).ToListAsync(cancellationToken);
         var externalReferences = await db.ExternalReferences
-            .Where(x => x.Provider == PrestashopProvider && x.Module == PrestashopOrderModule && x.EntityId == id)
+            .Where(x => x.Provider == PrestashopProvider && x.Module == PrestashopOrderModule && x.EntityId == order.Id)
             .ToListAsync(cancellationToken);
 
         foreach (var externalReference in externalReferences)
@@ -370,10 +506,6 @@ public sealed class SalesOrderService(
         db.EmailLinks.RemoveRange(emailLinks);
         db.DocumentLinks.RemoveRange(documentLinks);
         db.SalesOrders.Remove(order);
-
-        await db.SaveChangesAsync(cancellationToken);
-        await lowStockAlerts.CheckAndNotifyAsync(cancellationToken);
-        return Result.Success();
     }
 
     private async Task<Result<SalesOrderShipmentSlipFileDto>> TryConfiguredColissimoLabelEndpointAsync(

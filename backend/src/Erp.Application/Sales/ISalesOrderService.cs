@@ -13,4 +13,5 @@ public interface ISalesOrderService
     Task<Result<SalesOrderShipmentSlipFileDto>> GenerateShipmentSlipAsync(Guid id, CancellationToken cancellationToken);
     Task<Result<SalesOrderShipmentSlipFileDto>> GenerateColissimoLabelAsync(Guid id, CancellationToken cancellationToken);
     Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken);
+    Task<Result> DeleteAsAdministratorAsync(Guid id, CancellationToken cancellationToken);
 }

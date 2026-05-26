@@ -58,7 +58,7 @@ public sealed class SalesOrdersController(ISalesOrderService orders) : Controlle
     [Authorize(Roles = "Administrator")]
     public async Task<ActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var result = await orders.DeleteAsync(id, cancellationToken);
+        var result = await orders.DeleteAsAdministratorAsync(id, cancellationToken);
         return result.Succeeded ? NoContent() : BadRequest(new { error = result.Error });
     }
 
