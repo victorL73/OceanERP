@@ -203,6 +203,7 @@ public sealed class CalendarService(ErpDbContext db, IEmailService emailService,
         var seenEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var request in participants ?? [])
         {
+            var languageCode = NormalizeLanguageCode(request.LanguageCode);
             if (request.UserId.HasValue)
             {
                 if (!seenUsers.Add(request.UserId.Value))
@@ -221,7 +222,8 @@ public sealed class CalendarService(ErpDbContext db, IEmailService emailService,
                     CalendarEventId = eventId,
                     UserId = user.Id,
                     Type = "Internal",
-                    Status = "Invited"
+                    Status = "Invited",
+                    LanguageCode = languageCode
                 });
                 continue;
             }
@@ -245,6 +247,7 @@ public sealed class CalendarService(ErpDbContext db, IEmailService emailService,
                 ExternalEmail = email,
                 Type = "External",
                 Status = "Invited",
+                LanguageCode = languageCode,
                 InviteTokenHash = HashToken(token)
             };
             db.CalendarParticipants.Add(participant);
@@ -387,7 +390,7 @@ public sealed class CalendarService(ErpDbContext db, IEmailService emailService,
                 users.TryGetValue(participant.UserId ?? Guid.Empty, out var user);
                 var name = user?.DisplayName ?? participant.ExternalName;
                 var email = user?.Email ?? participant.ExternalEmail ?? string.Empty;
-                return new CalendarParticipantDto(participant.Id, participant.UserId, name, email, participant.Type, participant.Status, participant.InviteSentAt);
+                return new CalendarParticipantDto(participant.Id, participant.UserId, name, email, participant.Type, participant.Status, participant.InviteSentAt, participant.LanguageCode);
             })
             .ToList();
     }
@@ -462,6 +465,12 @@ public sealed class CalendarService(ErpDbContext db, IEmailService emailService,
 
     private static string? NormalizeOptional(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string NormalizeLanguageCode(string? value)
+    {
+        var normalized = NormalizeOptional(value) ?? "fr-FR";
+        return normalized.Length <= 12 ? normalized : normalized[..12];
+    }
 
     private sealed record PendingInvitation(CalendarParticipant Participant, string Token);
 }

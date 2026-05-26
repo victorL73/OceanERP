@@ -11532,6 +11532,7 @@ type CalendarParticipantDraft = {
   userId: string;
   externalName: string;
   externalEmail: string;
+  languageCode: string;
 };
 
 const calendarWeekDayLabels = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -11545,13 +11546,18 @@ const meetingLanguageOptions = [
   { code: 'pt-PT', label: 'Portugais' }
 ];
 
+function meetingLanguageLabel(code?: string | null) {
+  return meetingLanguageOptions.find((language) => language.code === code)?.label ?? code ?? 'Francais';
+}
+
 function createCalendarParticipantDraft(kind: CalendarParticipantDraft['kind'] = 'External'): CalendarParticipantDraft {
   return {
     id: createMeetClientId(),
     kind,
     userId: '',
     externalName: '',
-    externalEmail: ''
+    externalEmail: '',
+    languageCode: 'fr-FR'
   };
 }
 
@@ -12419,6 +12425,7 @@ function Calendar({ events, users, canCreateMeetingRoom, notificationFilter = ''
                         <span>{participant.email}</span>
                         <small>
                           {participant.type === 'Internal' ? 'Interne' : 'Externe'} - {calendarParticipantStatusLabel(participant.status)}
+                          {` - Langue Meet : ${meetingLanguageLabel(participant.languageCode)}`}
                           {participant.inviteSentAt ? ` - invite envoye ${formatOrderDate(participant.inviteSentAt)}` : ''}
                         </small>
                       </article>
@@ -13370,6 +13377,14 @@ function CalendarEventForm({ draft, setDraft, users, canCreateMeetingRoom, onSub
                       ))}
                     </select>
                   </label>
+                  <label className="field">
+                    Langue Meet
+                    <select value={participant.languageCode} onChange={(event) => updateParticipant(participant.id, { languageCode: event.target.value })}>
+                      {meetingLanguageOptions.map((language) => (
+                        <option value={language.code} key={language.code}>{language.label}</option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
               ) : (
                 <div className="calendar-participant-fields">
@@ -13380,6 +13395,14 @@ function CalendarEventForm({ draft, setDraft, users, canCreateMeetingRoom, onSub
                   <label className="field">
                     Email
                     <input type="email" value={participant.externalEmail} onChange={(event) => updateParticipant(participant.id, { externalEmail: event.target.value })} placeholder="invite@entreprise.fr" />
+                  </label>
+                  <label className="field">
+                    Langue Meet
+                    <select value={participant.languageCode} onChange={(event) => updateParticipant(participant.id, { languageCode: event.target.value })}>
+                      {meetingLanguageOptions.map((language) => (
+                        <option value={language.code} key={language.code}>{language.label}</option>
+                      ))}
+                    </select>
                   </label>
                 </div>
               )}
@@ -13439,7 +13462,8 @@ function createCalendarDraftFromEvent(event: CalendarEvent): CalendarDraftState 
       kind: participant.userId ? 'Internal' : 'External',
       userId: participant.userId ?? '',
       externalName: participant.name ?? '',
-      externalEmail: participant.email ?? ''
+      externalEmail: participant.email ?? '',
+      languageCode: participant.languageCode ?? 'fr-FR'
     }))
   };
 }
@@ -13460,8 +13484,8 @@ function calendarPayloadFromDraft(draft: CalendarDraftState) {
       : [],
     participants: draft.participants
       .map((participant) => (participant.kind === 'Internal'
-        ? { userId: participant.userId || null, externalName: null, externalEmail: null }
-        : { userId: null, externalName: participant.externalName.trim() || null, externalEmail: participant.externalEmail.trim() || null }))
+        ? { userId: participant.userId || null, externalName: null, externalEmail: null, languageCode: participant.languageCode || 'fr-FR' }
+        : { userId: null, externalName: participant.externalName.trim() || null, externalEmail: participant.externalEmail.trim() || null, languageCode: participant.languageCode || 'fr-FR' }))
       .filter((participant) => Boolean(participant.userId || participant.externalEmail))
   };
 }

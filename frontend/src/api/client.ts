@@ -945,11 +945,11 @@ export class ApiClient {
     return this.request<PagedResult<CalendarEvent>>(`/api/calendar/events?${query.toString()}`, { auth: true });
   }
 
-  createCalendarEvent(payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }>; participants?: Array<{ userId?: string | null; externalName?: string | null; externalEmail?: string | null }> }) {
+  createCalendarEvent(payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }>; participants?: Array<{ userId?: string | null; externalName?: string | null; externalEmail?: string | null; languageCode?: string | null }> }) {
     return this.request<CalendarEvent>('/api/calendar/events', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
-  updateCalendarEvent(eventId: string, payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }>; participants?: Array<{ userId?: string | null; externalName?: string | null; externalEmail?: string | null }> }) {
+  updateCalendarEvent(eventId: string, payload: { title: string; startsAt: string; endsAt: string; description?: string | null; location?: string | null; isPrivate: boolean; reminders?: Array<{ remindAt: string }>; links?: Array<{ module: string; entityId: string }>; participants?: Array<{ userId?: string | null; externalName?: string | null; externalEmail?: string | null; languageCode?: string | null }> }) {
     return this.request<CalendarEvent>(`/api/calendar/events/${eventId}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
   }
 

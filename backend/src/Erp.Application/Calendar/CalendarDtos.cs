@@ -17,7 +17,7 @@ public sealed record CalendarEventDto(
 
 public sealed record CalendarReminderDto(Guid Id, DateTimeOffset RemindAt, bool IsSent);
 public sealed record CalendarEventLinkDto(Guid Id, string Module, Guid EntityId);
-public sealed record CalendarParticipantDto(Guid Id, Guid? UserId, string? Name, string Email, string Type, string Status, DateTimeOffset? InviteSentAt);
+public sealed record CalendarParticipantDto(Guid Id, Guid? UserId, string? Name, string Email, string Type, string Status, DateTimeOffset? InviteSentAt, string LanguageCode);
 public sealed record PublicCalendarInvitationDto(Guid Id, string Title, string? Description, string? Location, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string ParticipantName, string ParticipantEmail, string Status);
 
 public sealed record CreateCalendarEventRequest(
@@ -44,7 +44,7 @@ public sealed record UpdateCalendarEventRequest(
 
 public sealed record CreateCalendarReminderRequest(DateTimeOffset RemindAt);
 public sealed record CreateCalendarEventLinkRequest(string Module, Guid EntityId);
-public sealed record CreateCalendarParticipantRequest(Guid? UserId = null, string? ExternalName = null, string? ExternalEmail = null);
+public sealed record CreateCalendarParticipantRequest(Guid? UserId = null, string? ExternalName = null, string? ExternalEmail = null, string? LanguageCode = null);
 public sealed record UpdateCalendarInvitationStatusRequest(string Status);
 
 public interface ICalendarService

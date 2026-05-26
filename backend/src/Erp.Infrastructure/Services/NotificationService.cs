@@ -50,6 +50,7 @@ public sealed class NotificationService(ErpDbContext db) : INotificationService
                 existing.Message = request.Message;
                 existing.LinkUrl = request.LinkUrl;
                 existing.IsRead = false;
+                existing.ReadAt = null;
                 existing.CreatedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
                 return Result<NotificationDto>.Success(Map(existing));
@@ -79,12 +80,30 @@ public sealed class NotificationService(ErpDbContext db) : INotificationService
         }
 
         notification.IsRead = true;
+        notification.ReadAt ??= DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
 
+    public async Task<int> DeleteReadOlderThanAsync(TimeSpan retention, CancellationToken cancellationToken)
+    {
+        var cutoff = DateTimeOffset.UtcNow.Subtract(retention);
+        var expired = await db.Notifications
+            .Where(x => x.IsRead && ((x.ReadAt != null && x.ReadAt <= cutoff) || (x.ReadAt == null && x.CreatedAt <= cutoff)))
+            .ToListAsync(cancellationToken);
+
+        if (expired.Count == 0)
+        {
+            return 0;
+        }
+
+        db.Notifications.RemoveRange(expired);
+        await db.SaveChangesAsync(cancellationToken);
+        return expired.Count;
+    }
+
     private static NotificationDto Map(Notification notification)
-        => new(notification.Id, notification.UserId, notification.Type, notification.Title, notification.Message, notification.LinkUrl, notification.IsRead, notification.CreatedAt);
+        => new(notification.Id, notification.UserId, notification.Type, notification.Title, notification.Message, notification.LinkUrl, notification.IsRead, notification.ReadAt, notification.CreatedAt);
 
     private static bool IsRecurrent(string type)
         => RecurrentNotificationTypes.Contains(type);

@@ -87,6 +87,7 @@ public static class DependencyInjection
         services.AddScoped<IBackupService, BackupService>();
         services.AddHostedService<LowStockAlertWorker>();
         services.AddHostedService<BackupScheduleWorker>();
+        services.AddHostedService<NotificationCleanupWorker>();
 
         return services;
     }

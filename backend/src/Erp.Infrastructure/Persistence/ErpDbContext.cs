@@ -289,6 +289,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
         modelBuilder.Entity<Notification>(entity =>
         {
             entity.HasIndex(x => new { x.UserId, x.IsRead });
+            entity.HasIndex(x => new { x.IsRead, x.ReadAt });
             entity.Property(x => x.Type).HasMaxLength(120);
             entity.Property(x => x.Title).HasMaxLength(180);
         });
@@ -649,6 +650,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.ExternalEmail).HasMaxLength(320);
             entity.Property(x => x.Type).HasMaxLength(40);
             entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.LanguageCode).HasMaxLength(12);
             entity.Property(x => x.InviteTokenHash).HasMaxLength(128);
             entity.HasOne<CalendarEvent>().WithMany().HasForeignKey(x => x.CalendarEventId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);

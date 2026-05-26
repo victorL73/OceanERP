@@ -338,6 +338,7 @@ export type NotificationItem = {
   message: string;
   type: string;
   isRead: boolean;
+  readAt?: string | null;
   createdAt: string;
 };
 
@@ -786,6 +787,7 @@ export type CalendarParticipant = {
   type: string;
   status: string;
   inviteSentAt?: string | null;
+  languageCode: string;
 };
 
 export type CalendarEvent = {

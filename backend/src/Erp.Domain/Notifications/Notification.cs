@@ -10,6 +10,6 @@ public sealed class Notification : Entity
     public string Message { get; set; } = string.Empty;
     public string? LinkUrl { get; set; }
     public bool IsRead { get; set; }
+    public DateTimeOffset? ReadAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
-
