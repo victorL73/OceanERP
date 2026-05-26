@@ -185,7 +185,7 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
-    public async Task OnlyOfficeConfig_UsesFastCoEditingForSpreadsheets()
+    public async Task OnlyOfficeConfig_UsesStrictCoEditingForSpreadsheets()
     {
         using var client = await CreateAuthenticatedClientAsync();
         var file = await UploadDriveFileAsync(
@@ -197,7 +197,7 @@ public sealed class Phase3ApiTests(ApiFactory factory) : IClassFixture<ApiFactor
 
         Assert.NotNull(config);
         Assert.Equal("cell", config!.DocumentType);
-        Assert.Equal("fast", config.EditorConfig.CoEditing?.Mode);
+        Assert.Equal("strict", config.EditorConfig.CoEditing?.Mode);
         Assert.False(config.EditorConfig.Customization?.Autosave ?? true);
         Assert.False(config.EditorConfig.Customization?.Forcesave ?? true);
         Assert.False(config.EditorConfig.Customization?.Comments ?? true);

@@ -9900,7 +9900,7 @@ function getOnlyOfficeEditorConfig(config: OnlyOfficeConfig) {
   };
 
   if (config.documentType === 'cell') {
-    editorConfig.coEditing = { mode: 'fast', change: false };
+    editorConfig.coEditing = { mode: 'strict', change: false };
     editorConfig.customization = {
       ...(editorConfig.customization ?? {}),
       autosave: false,
