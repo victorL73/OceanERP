@@ -308,6 +308,18 @@ export class ApiClient {
     return this.request<Quote>(`/api/quotes/${quoteId}/email`, { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
 
+  reserveQuoteStock(quoteId: string, warehouseId: string) {
+    return this.request<Quote>(`/api/quotes/${quoteId}/reserve-stock`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ warehouseId })
+    });
+  }
+
+  releaseQuoteStock(quoteId: string) {
+    return this.request<Quote>(`/api/quotes/${quoteId}/release-stock`, { method: 'POST', auth: true });
+  }
+
   quoteSettings() {
     return this.request<QuoteSettings>('/api/quotes/settings', { auth: true });
   }

@@ -3,6 +3,7 @@ using Erp.Application.Documents;
 using Erp.Application.Emails;
 using Erp.Application.Quotes;
 using Erp.Domain.Customers;
+using Erp.Domain.FutureModules;
 using Erp.Domain.Quotes;
 using Erp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -122,6 +123,11 @@ public sealed class QuoteService(
             return Result<QuoteDto>.Failure("Un devis signe ou transforme en commande ne peut plus etre modifie.");
         }
 
+        if (quote.StockReserved)
+        {
+            return Result<QuoteDto>.Failure("Liberez le stock bloque avant de modifier ce devis.");
+        }
+
         if (!await db.Customers.AnyAsync(x => x.Id == request.CustomerId && x.IsActive, cancellationToken))
         {
             return Result<QuoteDto>.Failure("Client introuvable ou inactif.");
@@ -212,9 +218,103 @@ public sealed class QuoteService(
         }
 
         quote.SetStatus(nextStatus.Value);
+        if ((nextStatus.Value is QuoteStatus.Refused or QuoteStatus.Expired) && quote.StockReserved)
+        {
+            await ReleaseQuoteStockReservationAsync(quote, "Liberation automatique du stock apres changement de statut", cancellationToken);
+        }
+
         AddHistory(quote, nextStatus.Value, NormalizeOptional(request.Comment));
         await db.SaveChangesAsync(cancellationToken);
         return await RefreshCurrentPdfAndMapAsync(quote.Id, cancellationToken);
+    }
+
+    public async Task<Result<QuoteDto>> ReserveStockAsync(Guid id, ReserveQuoteStockRequest request, CancellationToken cancellationToken)
+    {
+        var quote = await LoadQuote().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (quote is null)
+        {
+            return Result<QuoteDto>.Failure("Devis introuvable.");
+        }
+
+        if (quote.StockReserved)
+        {
+            return Result<QuoteDto>.Failure("Le stock est deja bloque pour ce devis.");
+        }
+
+        if (quote.Status is QuoteStatus.Refused or QuoteStatus.Expired or QuoteStatus.ConvertedToOrder)
+        {
+            return Result<QuoteDto>.Failure("Impossible de bloquer le stock pour ce statut de devis.");
+        }
+
+        var warehouse = await db.Warehouses.FirstOrDefaultAsync(x => x.Id == request.WarehouseId, cancellationToken);
+        if (warehouse is null)
+        {
+            return Result<QuoteDto>.Failure("Entrepot introuvable.");
+        }
+
+        var lines = GetReservableLines(quote);
+        if (lines.Count == 0)
+        {
+            return Result<QuoteDto>.Failure("Aucune ligne produit ne peut etre bloquee.");
+        }
+
+        foreach (var line in lines)
+        {
+            var item = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == line.ProductId && x.WarehouseId == request.WarehouseId, cancellationToken);
+            var available = item is null ? 0 : item.QuantityOnHand - item.QuantityReserved;
+            if (item is null || available < line.Quantity)
+            {
+                var productLabel = await ProductLabelAsync(line.ProductId, cancellationToken);
+                return Result<QuoteDto>.Failure($"Stock insuffisant pour {productLabel}. Disponible: {available:0.###}, requis: {line.Quantity:0.###}.");
+            }
+        }
+
+        foreach (var line in lines)
+        {
+            var item = await db.StockItems.FirstAsync(x => x.ProductId == line.ProductId && x.WarehouseId == request.WarehouseId, cancellationToken);
+            item.QuantityReserved += line.Quantity;
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = line.ProductId,
+                WarehouseId = request.WarehouseId,
+                Quantity = line.Quantity,
+                Type = "QuoteReservation",
+                Reason = $"Stock bloque pour devis {quote.Number}",
+                ReferenceModule = "Quote",
+                ReferenceId = quote.Id
+            });
+        }
+
+        quote.StockReserved = true;
+        quote.StockReservationWarehouseId = request.WarehouseId;
+        quote.StockReservedAt = DateTimeOffset.UtcNow;
+        quote.StockReleasedAt = null;
+        AddHistory(quote, quote.Status, $"Stock bloque dans {warehouse.Name}");
+
+        await db.SaveChangesAsync(cancellationToken);
+        var loaded = await LoadQuote().AsNoTracking().FirstAsync(x => x.Id == id, cancellationToken);
+        return Result<QuoteDto>.Success(await MapAsync(loaded, cancellationToken));
+    }
+
+    public async Task<Result<QuoteDto>> ReleaseStockAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var quote = await LoadQuote().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (quote is null)
+        {
+            return Result<QuoteDto>.Failure("Devis introuvable.");
+        }
+
+        if (!quote.StockReserved)
+        {
+            return Result<QuoteDto>.Failure("Aucun stock n'est bloque pour ce devis.");
+        }
+
+        await ReleaseQuoteStockReservationAsync(quote, "Liberation manuelle du stock bloque", cancellationToken);
+        AddHistory(quote, quote.Status, "Stock libere du devis");
+
+        await db.SaveChangesAsync(cancellationToken);
+        var loaded = await LoadQuote().AsNoTracking().FirstAsync(x => x.Id == id, cancellationToken);
+        return Result<QuoteDto>.Success(await MapAsync(loaded, cancellationToken));
     }
 
     public async Task<Result<QuoteDocumentDto>> GeneratePdfAsync(Guid id, CancellationToken cancellationToken)
@@ -312,7 +412,9 @@ public sealed class QuoteService(
 
     public async Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
-        var quote = await db.Quotes.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var quote = await db.Quotes
+            .Include(x => x.Lines)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (quote is null)
         {
             return Result.Failure("Devis introuvable.");
@@ -342,6 +444,11 @@ public sealed class QuoteService(
         var emailLinks = await db.EmailLinks.Where(x => x.Module == "quotes" && x.EntityId == id).ToListAsync(cancellationToken);
         var documentLinks = await db.DocumentLinks.Where(x => x.Module == "quotes" && x.EntityId == id).ToListAsync(cancellationToken);
 
+        if (quote.StockReserved)
+        {
+            await ReleaseQuoteStockReservationAsync(quote, "Liberation du stock avant suppression du devis", cancellationToken);
+        }
+
         db.QuoteLines.RemoveRange(quoteLines);
         db.QuoteDocuments.RemoveRange(quoteDocuments);
         db.QuoteStatusHistories.RemoveRange(quoteHistory);
@@ -370,6 +477,64 @@ public sealed class QuoteService(
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    private static IReadOnlyList<QuoteStockLine> GetReservableLines(Quote quote)
+        => quote.Lines
+            .Where(x => x.ProductId.HasValue && x.Quantity > 0)
+            .GroupBy(x => x.ProductId!.Value)
+            .Select(x => new QuoteStockLine(x.Key, x.Sum(line => line.Quantity)))
+            .ToList();
+
+    private async Task<string> ProductLabelAsync(Guid productId, CancellationToken cancellationToken)
+    {
+        var product = await db.Products
+            .AsNoTracking()
+            .Where(x => x.Id == productId)
+            .Select(x => new { x.Reference, x.Name })
+            .FirstOrDefaultAsync(cancellationToken);
+        return product is null ? productId.ToString() : $"{product.Reference} - {product.Name}";
+    }
+
+    private async Task ReleaseQuoteStockReservationAsync(Quote quote, string reason, CancellationToken cancellationToken)
+    {
+        if (!quote.StockReserved || !quote.StockReservationWarehouseId.HasValue)
+        {
+            quote.StockReserved = false;
+            quote.StockReleasedAt = DateTimeOffset.UtcNow;
+            return;
+        }
+
+        var warehouseId = quote.StockReservationWarehouseId.Value;
+        foreach (var line in GetReservableLines(quote))
+        {
+            var item = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == line.ProductId && x.WarehouseId == warehouseId, cancellationToken);
+            if (item is null)
+            {
+                continue;
+            }
+
+            var released = Math.Min(item.QuantityReserved, line.Quantity);
+            if (released <= 0)
+            {
+                continue;
+            }
+
+            item.QuantityReserved -= released;
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = line.ProductId,
+                WarehouseId = warehouseId,
+                Quantity = -released,
+                Type = "QuoteRelease",
+                Reason = reason,
+                ReferenceModule = "Quote",
+                ReferenceId = quote.Id
+            });
+        }
+
+        quote.StockReserved = false;
+        quote.StockReleasedAt = DateTimeOffset.UtcNow;
+    }
 
     private async Task<Result<QuoteLine>> BuildLineAsync(Guid quoteId, UpsertQuoteLineRequest request, CancellationToken cancellationToken)
     {
@@ -525,6 +690,7 @@ public sealed class QuoteService(
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
         var quotes = await db.Quotes
+            .Include(x => x.Lines)
             .Where(x => x.ValidUntil < today && (x.Status == QuoteStatus.Draft || x.Status == QuoteStatus.Sent))
             .ToListAsync(cancellationToken);
         if (quotes.Count == 0)
@@ -535,6 +701,11 @@ public sealed class QuoteService(
         foreach (var quote in quotes)
         {
             quote.SetStatus(QuoteStatus.Expired);
+            if (quote.StockReserved)
+            {
+                await ReleaseQuoteStockReservationAsync(quote, "Liberation automatique du stock apres expiration du devis", cancellationToken);
+            }
+
             AddHistory(quote, QuoteStatus.Expired, "Expiration automatique");
         }
 
@@ -554,6 +725,7 @@ public sealed class QuoteService(
                 .ThenInclude(x => x!.Addresses)
             .Include(x => x.Lines)
             .Include(x => x.Documents)
+            .Include(x => x.StockReservationWarehouse)
             .Include(x => x.StatusHistory);
 
     private async Task<(QuotePdfSettings Settings, byte[]? LogoBytes)> LoadPdfSettingsAsync(CancellationToken cancellationToken)
@@ -650,6 +822,11 @@ public sealed class QuoteService(
             quote.VatTotal,
             quote.Total,
             quote.Currency,
+            quote.StockReserved,
+            quote.StockReservationWarehouseId,
+            quote.StockReservationWarehouse?.Name,
+            quote.StockReservedAt,
+            quote.StockReleasedAt,
             quote.Lines.OrderBy(x => x.Id).Select(x => Map(x, products)).ToList(),
             quote.Documents.OrderByDescending(x => x.Version).Select(Map).ToList(),
             quote.StatusHistory.OrderByDescending(x => x.ChangedAt).Select(x => Map(x, users)).ToList());
@@ -747,5 +924,6 @@ public sealed class QuoteService(
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private sealed record ProductSummary(Guid Id, string Reference, string Name);
+    private sealed record QuoteStockLine(Guid ProductId, decimal Quantity);
     private sealed record UserSummary(Guid Id, string DisplayName, string Email);
 }

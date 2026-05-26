@@ -85,6 +85,22 @@ public sealed class QuotesController(IQuoteService quotes, IQuoteSettingsService
         return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPost("{id:guid}/reserve-stock")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteDto>> ReserveStock(Guid id, ReserveQuoteStockRequest request, CancellationToken cancellationToken)
+    {
+        var result = await quotes.ReserveStockAsync(id, request, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("{id:guid}/release-stock")]
+    [Authorize(Policy = "quotes.write")]
+    public async Task<ActionResult<QuoteDto>> ReleaseStock(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await quotes.ReleaseStockAsync(id, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
     [HttpPost("{id:guid}/pdf")]
     [Authorize(Policy = "quotes.write")]
     public async Task<ActionResult<QuoteDocumentDto>> GeneratePdf(Guid id, CancellationToken cancellationToken)

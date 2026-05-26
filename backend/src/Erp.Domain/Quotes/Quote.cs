@@ -1,5 +1,6 @@
 using Erp.Domain.Common;
 using Erp.Domain.Customers;
+using Erp.Domain.FutureModules;
 
 namespace Erp.Domain.Quotes;
 
@@ -15,6 +16,11 @@ public sealed class Quote : AuditableEntity
     public decimal VatTotal { get; private set; }
     public decimal Total { get; private set; }
     public string Currency { get; set; } = "EUR";
+    public bool StockReserved { get; set; }
+    public Guid? StockReservationWarehouseId { get; set; }
+    public Warehouse? StockReservationWarehouse { get; set; }
+    public DateTimeOffset? StockReservedAt { get; set; }
+    public DateTimeOffset? StockReleasedAt { get; set; }
     public ICollection<QuoteLine> Lines { get; set; } = new List<QuoteLine>();
     public ICollection<QuoteDocument> Documents { get; set; } = new List<QuoteDocument>();
     public ICollection<QuoteStatusHistory> StatusHistory { get; set; } = new List<QuoteStatusHistory>();

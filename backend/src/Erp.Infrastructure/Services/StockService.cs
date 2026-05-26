@@ -107,18 +107,46 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
 
     public async Task<IReadOnlyList<StockItemDto>> GetStockItemsAsync(CancellationToken cancellationToken)
     {
-        return await db.StockItems
+        var quoteReservations = await db.Quotes
+            .AsNoTracking()
+            .Include(x => x.Lines)
+            .Where(x => x.StockReserved && x.StockReservationWarehouseId.HasValue)
+            .ToListAsync(cancellationToken);
+
+        var blockedByQuote = quoteReservations
+            .SelectMany(quote => quote.Lines
+                .Where(line => line.ProductId.HasValue)
+                .Select(line => new
+                {
+                    ProductId = line.ProductId!.Value,
+                    WarehouseId = quote.StockReservationWarehouseId!.Value,
+                    line.Quantity
+                }))
+            .GroupBy(x => new { x.ProductId, x.WarehouseId })
+            .ToDictionary(x => (x.Key.ProductId, x.Key.WarehouseId), x => x.Sum(line => line.Quantity));
+
+        var items = await db.StockItems
+            .AsNoTracking()
             .OrderBy(x => x.ProductId)
-            .Select(x => new StockItemDto(
+            .ToListAsync(cancellationToken);
+
+        return items
+            .Select(x =>
+            {
+                var blocked = blockedByQuote.TryGetValue((x.ProductId, x.WarehouseId), out var quantity) ? quantity : 0;
+                var available = x.QuantityOnHand - x.QuantityReserved;
+                return new StockItemDto(
                 x.Id,
                 x.ProductId,
                 x.WarehouseId,
                 x.QuantityOnHand,
                 x.QuantityReserved,
-                x.QuantityOnHand - x.QuantityReserved,
+                blocked,
+                available,
                 x.AlertThreshold,
-                x.AlertThreshold > 0 && x.QuantityOnHand - x.QuantityReserved <= x.AlertThreshold))
-            .ToListAsync(cancellationToken);
+                x.AlertThreshold > 0 && available <= x.AlertThreshold);
+            })
+            .ToList();
     }
 
     public async Task<IReadOnlyList<StockMovementDto>> GetMovementsAsync(Guid? productId, CancellationToken cancellationToken)
@@ -646,7 +674,7 @@ public sealed class StockService(ErpDbContext db, IConfiguration configuration, 
             warehouse.Notes);
 
     private static StockItemDto Map(StockItem item)
-        => new(item.Id, item.ProductId, item.WarehouseId, item.QuantityOnHand, item.QuantityReserved, item.QuantityOnHand - item.QuantityReserved, item.AlertThreshold, item.AlertThreshold > 0 && item.QuantityOnHand - item.QuantityReserved <= item.AlertThreshold);
+        => new(item.Id, item.ProductId, item.WarehouseId, item.QuantityOnHand, item.QuantityReserved, 0, item.QuantityOnHand - item.QuantityReserved, item.AlertThreshold, item.AlertThreshold > 0 && item.QuantityOnHand - item.QuantityReserved <= item.AlertThreshold);
 
     private static StockMovementDto Map(StockMovement movement, string? createdByDisplayName = null, string? createdByEmail = null)
         => new(

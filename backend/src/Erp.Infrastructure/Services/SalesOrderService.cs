@@ -168,24 +168,50 @@ public sealed class SalesOrderService(
             return Result<SalesOrderDto>.Failure("Only a signed quote can be converted to an order.");
         }
 
-        var created = await CreateAsync(new CreateSalesOrderRequest(
-            quote.CustomerId,
-            request.WarehouseId,
-            quote.Lines.Select(x => new CreateSalesOrderLineRequest(x.ProductId, x.Description, x.Quantity, x.UnitPrice)).ToList()), cancellationToken);
-
-        if (created.Succeeded)
+        if (db.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
         {
+            return await CreateOrderAndConvertQuoteAsync();
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var created = await CreateOrderAndConvertQuoteAsync();
+        if (!created.Succeeded)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return created;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return created;
+
+        async Task<Result<SalesOrderDto>> CreateOrderAndConvertQuoteAsync()
+        {
+            var targetWarehouseId = request.WarehouseId ?? quote.StockReservationWarehouseId;
+            if (quote.StockReserved)
+            {
+                await ReleaseQuoteReservationForOrderAsync(quote, $"Transformation du devis {quote.Number} en commande", cancellationToken);
+            }
+
+            var createdOrder = await CreateAsync(new CreateSalesOrderRequest(
+                quote.CustomerId,
+                targetWarehouseId,
+                quote.Lines.Select(x => new CreateSalesOrderLineRequest(x.ProductId, x.Description, x.Quantity, x.UnitPrice)).ToList()), cancellationToken);
+
+            if (!createdOrder.Succeeded)
+            {
+                return createdOrder;
+            }
+
             quote.SetStatus(QuoteStatus.ConvertedToOrder);
             db.QuoteStatusHistories.Add(new QuoteStatusHistory
             {
                 QuoteId = quote.Id,
                 Status = QuoteStatus.ConvertedToOrder,
-                Comment = $"Converted to order {created.Value!.Number}"
+                Comment = $"Converted to order {createdOrder.Value!.Number}"
             });
             await db.SaveChangesAsync(cancellationToken);
+            return createdOrder;
         }
-
-        return created;
     }
 
     public async Task<Result<SalesOrderDto>> ChangeStatusAsync(Guid id, UpdateSalesOrderStatusRequest request, CancellationToken cancellationToken)
@@ -1519,6 +1545,53 @@ public sealed class SalesOrderService(
         return string.Join(" | ", messages.Distinct());
     }
 
+    private async Task ReleaseQuoteReservationForOrderAsync(Quote quote, string orderNumber, CancellationToken cancellationToken)
+    {
+        if (!quote.StockReserved || !quote.StockReservationWarehouseId.HasValue)
+        {
+            quote.StockReserved = false;
+            quote.StockReleasedAt = DateTimeOffset.UtcNow;
+            return;
+        }
+
+        var warehouseId = quote.StockReservationWarehouseId.Value;
+        var lines = quote.Lines
+            .Where(x => x.ProductId.HasValue && x.Quantity > 0)
+            .GroupBy(x => x.ProductId!.Value)
+            .Select(x => new QuoteStockLine(x.Key, x.Sum(line => line.Quantity)))
+            .ToList();
+
+        foreach (var line in lines)
+        {
+            var item = await db.StockItems.FirstOrDefaultAsync(x => x.ProductId == line.ProductId && x.WarehouseId == warehouseId, cancellationToken);
+            if (item is null)
+            {
+                continue;
+            }
+
+            var released = Math.Min(item.QuantityReserved, line.Quantity);
+            if (released <= 0)
+            {
+                continue;
+            }
+
+            item.QuantityReserved -= released;
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = line.ProductId,
+                WarehouseId = warehouseId,
+                Quantity = -released,
+                Type = "QuoteRelease",
+                Reason = $"Liberation du stock bloque apres transformation en commande {orderNumber}",
+                ReferenceModule = "Quote",
+                ReferenceId = quote.Id
+            });
+        }
+
+        quote.StockReserved = false;
+        quote.StockReleasedAt = DateTimeOffset.UtcNow;
+    }
+
     private static string? NormalizeStatus(string status)
     {
         if (string.IsNullOrWhiteSpace(status))
@@ -1531,5 +1604,6 @@ public sealed class SalesOrderService(
     }
 
     private sealed record StockOrderLine(Guid ProductId, decimal Quantity);
+    private sealed record QuoteStockLine(Guid ProductId, decimal Quantity);
     private readonly record struct LabelBinary(string MimeType, byte[] Content);
 }

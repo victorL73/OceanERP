@@ -207,6 +207,11 @@ export type Quote = {
   vatTotal: number;
   total: number;
   currency: string;
+  stockReserved: boolean;
+  stockReservationWarehouseId?: string | null;
+  stockReservationWarehouseName?: string | null;
+  stockReservedAt?: string | null;
+  stockReleasedAt?: string | null;
   lines: QuoteLine[];
   documents: QuoteDocument[];
   statusHistory: QuoteStatusHistory[];
@@ -530,6 +535,7 @@ export type StockItem = {
   warehouseId: string;
   quantityOnHand: number;
   quantityReserved: number;
+  quantityBlockedByQuotes: number;
   availableQuantity: number;
   alertThreshold: number;
   isLowStock: boolean;

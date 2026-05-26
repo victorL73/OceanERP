@@ -227,6 +227,10 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.VatTotal).HasPrecision(18, 2);
             entity.Property(x => x.Total).HasPrecision(18, 2);
             entity.Property(x => x.Currency).HasMaxLength(3);
+            entity.HasOne(x => x.StockReservationWarehouse)
+                .WithMany()
+                .HasForeignKey(x => x.StockReservationWarehouseId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<QuoteLine>(entity =>

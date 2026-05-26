@@ -15,6 +15,11 @@ public sealed record QuoteDto(
     decimal VatTotal,
     decimal Total,
     string Currency,
+    bool StockReserved,
+    Guid? StockReservationWarehouseId,
+    string? StockReservationWarehouseName,
+    DateTimeOffset? StockReservedAt,
+    DateTimeOffset? StockReleasedAt,
     IReadOnlyList<QuoteLineDto> Lines,
     IReadOnlyList<QuoteDocumentDto> Documents,
     IReadOnlyList<QuoteStatusHistoryDto> StatusHistory);
@@ -48,6 +53,7 @@ public sealed record QuoteStatusHistoryDto(Guid Id, string Status, string? Comme
 public sealed record CreateQuoteRequest(Guid CustomerId, DateOnly ValidUntil, IReadOnlyList<UpsertQuoteLineRequest> Lines);
 public sealed record UpdateQuoteRequest(Guid CustomerId, DateOnly ValidUntil, IReadOnlyList<UpsertQuoteLineRequest> Lines);
 public sealed record UpdateQuoteStatusRequest(string Status, string? Comment);
+public sealed record ReserveQuoteStockRequest(Guid WarehouseId);
 public sealed record UpsertQuoteLineRequest(Guid? ProductId, string Description, decimal Quantity, decimal UnitPrice, decimal DiscountRate, decimal VatRate);
 public sealed record SendQuoteEmailRequest(Guid MailAccountId, string To, string? Subject = null, string? Body = null, string? Cc = null, string? Bcc = null);
 public sealed record QuoteSettingsDto(Guid? Id, string CompanyName, string? AddressLine1, string? AddressLine2, string? PostalCode, string? City, string? Country, string? Phone, string? Email, string? Website, string? VatNumber, string? Siret, string? LegalText, string? FooterText, string? LogoFileName, string? LogoMimeType, long? LogoSize, string? LogoDataUrl, bool HasLogo);

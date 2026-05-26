@@ -835,7 +835,7 @@ export default function App() {
         )}
         {view === 'customers' && <Customers items={customers?.items ?? []} createOpen={customerCreateOpen} onCloseCreate={() => setCustomerCreateOpen(false)} onChanged={() => load('customers')} />}
         {view === 'products' && <Products items={products?.items ?? []} onChanged={() => load('products')} />}
-        {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} mailAccounts={mailAccounts} mailServerSettings={mailServerSettings} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={() => load('quotes')} />}
+        {view === 'quotes' && <Quotes items={quotes?.items ?? []} customers={customers?.items ?? []} products={products?.items ?? []} stockItems={stockItems} mailAccounts={mailAccounts} mailServerSettings={mailServerSettings} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} onChanged={async () => { await load('quotes'); await load('stock'); }} />}
         {view === 'orders' && <Orders items={orders?.items ?? []} customers={customers?.items ?? []} warehouses={warehouses} isAdministrator={Boolean(currentUser?.roles.includes('Administrator'))} notificationFilter={orderNotificationFilter} onChanged={() => load('orders')} />}
         {view === 'purchases' && <Purchases items={purchaseOrders?.items ?? []} suppliers={productSuppliers} products={products?.items ?? []} warehouses={warehouses} stockItems={stockItems} onChanged={() => load('purchases')} />}
         {view === 'invoices' && <Invoices items={invoices?.items ?? []} orders={orders?.items ?? []} onChanged={() => load('invoices')} />}
@@ -5191,7 +5191,7 @@ function nextQuoteStatuses(status: string) {
   return map[status] ?? [];
 }
 
-function Quotes({ items, customers, products, mailAccounts, mailServerSettings, warehouses, isAdministrator, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; mailAccounts: MailAccount[]; mailServerSettings: MailServerSettings | null; warehouses: Warehouse[]; isAdministrator: boolean; onChanged: () => Promise<void> }) {
+function Quotes({ items, customers, products, stockItems, mailAccounts, mailServerSettings, warehouses, isAdministrator, onChanged }: { items: Quote[]; customers: Customer[]; products: Product[]; stockItems: StockItem[]; mailAccounts: MailAccount[]; mailServerSettings: MailServerSettings | null; warehouses: Warehouse[]; isAdministrator: boolean; onChanged: () => Promise<void> }) {
   const [customerId, setCustomerId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [validUntil, setValidUntil] = useState(defaultQuoteValidUntil());
@@ -5207,14 +5207,19 @@ function Quotes({ items, customers, products, mailAccounts, mailServerSettings, 
   const [emailBody, setEmailBody] = useState('');
   const [orderQuoteId, setOrderQuoteId] = useState<string | null>(null);
   const [orderWarehouseId, setOrderWarehouseId] = useState('');
+  const [stockQuoteId, setStockQuoteId] = useState<string | null>(null);
+  const [stockWarehouseId, setStockWarehouseId] = useState('');
   const [quoteFeedback, setQuoteFeedback] = useState<string | null>(null);
 
   const editingQuote = items.find((item) => item.id === editingQuoteId);
   const selectedQuote = selectedQuoteId ? items.find((item) => item.id === selectedQuoteId) : undefined;
   const emailQuote = emailQuoteId ? items.find((item) => item.id === emailQuoteId) : undefined;
   const orderQuote = orderQuoteId ? items.find((item) => item.id === orderQuoteId) : undefined;
+  const stockQuote = stockQuoteId ? items.find((item) => item.id === stockQuoteId) : undefined;
   const activeProducts = products.filter((product) => product.isActive);
   const activeMailAccounts = mailAccounts.filter((account) => account.isActive);
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const stockByProductWarehouse = useMemo(() => new Map(stockItems.map((item) => [`${item.productId}:${item.warehouseId}`, item])), [stockItems]);
 
   function customerOptionLabel(customer: Customer) {
     return [customer.companyName, customer.email].filter(Boolean).join(' - ');
@@ -5243,6 +5248,30 @@ function Quotes({ items, customers, products, mailAccounts, mailServerSettings, 
 
   function productOptionLabel(product: Product) {
     return `${product.reference} - ${product.name}`;
+  }
+
+  function quoteStockLines(quote: Quote, warehouseId: string) {
+    return quote.lines
+      .filter((line) => line.productId && line.quantity > 0)
+      .map((line) => {
+        const product = line.productId ? productById.get(line.productId) : undefined;
+        const stock = line.productId && warehouseId ? stockByProductWarehouse.get(`${line.productId}:${warehouseId}`) : undefined;
+        return {
+          line,
+          productLabel: product ? productOptionLabel(product) : line.description,
+          availableQuantity: stock?.availableQuantity ?? 0,
+          quantityReserved: stock?.quantityReserved ?? 0,
+          quantityBlockedByQuotes: stock?.quantityBlockedByQuotes ?? 0
+        };
+      });
+  }
+
+  function quoteStockStatus(quote: Quote) {
+    if (!quote.lines.some((line) => line.productId)) {
+      return 'Aucun produit';
+    }
+
+    return quote.stockReserved ? `Stock bloque${quote.stockReservationWarehouseName ? ` - ${quote.stockReservationWarehouseName}` : ''}` : 'Non bloque';
   }
 
   function productSearchLabel(line: QuoteDraftLine) {
@@ -5449,8 +5478,44 @@ function Quotes({ items, customers, products, mailAccounts, mailServerSettings, 
 
   function openOrderModal(quote: Quote) {
     setOrderQuoteId(quote.id);
-    setOrderWarehouseId('');
+    setOrderWarehouseId(quote.stockReservationWarehouseId ?? '');
     setQuoteFeedback(null);
+  }
+
+  function openStockModal(quote: Quote) {
+    setStockQuoteId(quote.id);
+    setStockWarehouseId(quote.stockReservationWarehouseId ?? warehouses[0]?.id ?? '');
+    setQuoteFeedback(null);
+  }
+
+  async function reserveQuoteStock(event: FormEvent) {
+    event.preventDefault();
+    if (!stockQuoteId || !stockWarehouseId) {
+      return;
+    }
+
+    try {
+      await api.reserveQuoteStock(stockQuoteId, stockWarehouseId);
+      setStockQuoteId(null);
+      setQuoteFeedback('Stock bloque pour ce devis.');
+      await onChanged();
+    } catch (err) {
+      setQuoteFeedback(err instanceof Error ? err.message : 'Blocage du stock impossible.');
+    }
+  }
+
+  async function releaseQuoteStock(quote: Quote) {
+    if (!window.confirm(`Liberer le stock bloque pour ${quote.number} ?`)) {
+      return;
+    }
+
+    try {
+      await api.releaseQuoteStock(quote.id);
+      setQuoteFeedback('Stock libere pour ce devis.');
+      await onChanged();
+    } catch (err) {
+      setQuoteFeedback(err instanceof Error ? err.message : 'Liberation du stock impossible.');
+    }
   }
 
   async function sendEmail(event: FormEvent) {
@@ -5594,13 +5659,14 @@ function Quotes({ items, customers, products, mailAccounts, mailServerSettings, 
         </form>
       </Panel>
       <DataTable
-        columns={['Numero', 'Client', 'Validite', 'Statut', 'Total TTC', 'Actions']}
+        columns={['Numero', 'Client', 'Validite', 'Statut', 'Stock bloque', 'Total TTC', 'Actions']}
         onRowClick={(index) => setSelectedQuoteId(items[index].id)}
         rows={items.map((item) => [
           item.number,
           item.customerName ?? item.customerId,
           item.validUntil,
           quoteStatusLabels[item.status] ?? item.status,
+          quoteStockStatus(item),
           `${item.total.toFixed(2)} ${item.currency}`,
           <div className="table-actions">
             <button className="secondary" disabled={item.status === 'Signed' || item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); startEdit(item); }} type="button">
@@ -5624,6 +5690,17 @@ function Quotes({ items, customers, products, mailAccounts, mailServerSettings, 
               <Mail size={15} />
               Email
             </button>
+            {item.stockReserved ? (
+              <button className="secondary" onClick={(event) => { event.stopPropagation(); void releaseQuoteStock(item); }} type="button">
+                <WarehouseIcon size={15} />
+                Liberer stock
+              </button>
+            ) : (
+              <button className="secondary" disabled={!item.lines.some((line) => line.productId) || item.status === 'Refused' || item.status === 'Expired' || item.status === 'ConvertedToOrder'} onClick={(event) => { event.stopPropagation(); openStockModal(item); }} type="button">
+                <WarehouseIcon size={15} />
+                Bloquer stock
+              </button>
+            )}
             <button className="secondary" disabled={item.status !== 'Signed'} onClick={(event) => { event.stopPropagation(); openOrderModal(item); }} type="button">
               <ShoppingCart size={15} />
               Transformer
@@ -5709,6 +5786,56 @@ function Quotes({ items, customers, products, mailAccounts, mailServerSettings, 
           </section>
         </div>
       )}
+      {stockQuote && (
+        <div className="modal-backdrop" onClick={() => setStockQuoteId(null)}>
+          <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="quote-stock-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-header">
+              <div>
+                <span className="eyebrow">STOCK</span>
+                <h2 id="quote-stock-title">Bloquer le stock {stockQuote.number}</h2>
+                <p>{stockQuote.customerName ?? stockQuote.customerId}</p>
+              </div>
+              <button className="modal-close" type="button" aria-label="Fermer" title="Fermer" onClick={() => setStockQuoteId(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            {quoteFeedback && <div className={quoteFeedback.includes('impossible') || quoteFeedback.includes('insuffisant') ? 'alert' : 'sync-note'}>{quoteFeedback}</div>}
+            <form className="product-edit-form" onSubmit={reserveQuoteStock}>
+              <label className="field">
+                <span>Entrepot a utiliser</span>
+                <select required value={stockWarehouseId} onChange={(event) => setStockWarehouseId(event.target.value)}>
+                  <option value="">Choisir un entrepot</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <DataTable
+                columns={['Produit', 'Quantite devis', 'Disponible', 'Reserve total', 'Bloque devis']}
+                rows={quoteStockLines(stockQuote, stockWarehouseId).map((row) => [
+                  row.productLabel,
+                  row.line.quantity,
+                  row.availableQuantity,
+                  row.quantityReserved,
+                  row.quantityBlockedByQuotes
+                ])}
+              />
+              <p className="panel-note">Le stock bloque est retire du disponible et apparait dans le module Stock. Il sera libere automatiquement si le devis est refuse, expire, supprime ou transforme en commande.</p>
+              <div className="modal-footer">
+                <button className="secondary" type="button" onClick={() => setStockQuoteId(null)}>
+                  Annuler
+                </button>
+                <button className="primary" type="submit">
+                  <WarehouseIcon size={16} />
+                  Bloquer le stock
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
       {orderQuote && (
         <div className="modal-backdrop" onClick={() => setOrderQuoteId(null)}>
           <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="quote-order-title" onClick={(event) => event.stopPropagation()}>
@@ -5734,7 +5861,7 @@ function Quotes({ items, customers, products, mailAccounts, mailServerSettings, 
                   ))}
                 </select>
               </label>
-              <p className="panel-note">La reservation de stock se fera quand la commande sera confirmee.</p>
+              <p className="panel-note">{orderQuote.stockReserved ? "La commande utilisera l'entrepot du stock deja bloque, puis liberera le blocage du devis." : "La reservation de stock se fera quand la commande sera confirmee."}</p>
               <div className="modal-footer">
                 <button className="secondary" type="button" onClick={() => setOrderQuoteId(null)}>
                   Annuler
@@ -5812,6 +5939,9 @@ function QuoteDetailsModal({ quote, onClose, onDownloadPdf, onConvertToOrder, on
           <DetailItem label="Total HT" value={purchaseAmount(quote.subtotal)} />
           <DetailItem label="TVA" value={purchaseAmount(quote.vatTotal)} />
           <DetailItem label="Total TTC" value={purchaseAmount(quote.total)} />
+          <DetailItem label="Stock bloque" value={quote.stockReserved ? 'Oui' : 'Non'} />
+          <DetailItem label="Entrepot bloque" value={quote.stockReservationWarehouseName || '-'} />
+          <DetailItem label="Bloque le" value={quote.stockReservedAt || '-'} />
         </div>
         <section className="customer-detail-section">
           <h3>Client</h3>
@@ -7460,6 +7590,7 @@ function Stock({
       warehouse: warehouseLabel(item.warehouseId),
       stock: item.quantityOnHand.toString(),
       reserved: item.quantityReserved.toString(),
+      blockedQuotes: item.quantityBlockedByQuotes.toString(),
       available: item.availableQuantity.toString(),
       threshold: (item.isLowStock ? `Bas ${item.alertThreshold}` : item.alertThreshold).toString(),
       status: stockStatus(item)
@@ -7584,6 +7715,7 @@ function Stock({
                 <option value="warehouse">Entrepot</option>
                 <option value="stock">Stock</option>
                 <option value="reserved">Reserve</option>
+                <option value="blockedQuotes">Bloque devis</option>
                 <option value="available">Disponible</option>
                 <option value="threshold">Seuil</option>
                 <option value="status">Statut</option>
@@ -7602,8 +7734,8 @@ function Stock({
             </form>
           </Panel>
           <DataTable
-            columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Disponible', 'Seuil', 'Statut']}
-            rows={filteredStockItems.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold, stockStatus(item)])}
+            columns={['Produit', 'Entrepot', 'Stock', 'Reserve', 'Bloque devis', 'Disponible', 'Seuil', 'Statut']}
+            rows={filteredStockItems.map((item) => [productLabel(item.productId), warehouseLabel(item.warehouseId), item.quantityOnHand, item.quantityReserved, item.quantityBlockedByQuotes, item.availableQuantity, item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold, stockStatus(item)])}
             onRowClick={(index) => setSelectedStockId(filteredStockItems[index]?.id ?? null)}
             selectedRowIndex={selectedStock ? filteredStockItems.findIndex((item) => item.id === selectedStock.id) : undefined}
           />
@@ -7817,6 +7949,7 @@ function StockDetailsModal({
               </button>
               <DetailItem label="Stock reel" value={item.quantityOnHand} />
               <DetailItem label="Reserve" value={item.quantityReserved} />
+              <DetailItem label="Bloque par devis" value={item.quantityBlockedByQuotes} />
               <DetailItem label="Disponible" value={item.availableQuantity} />
               <DetailItem label="Seuil alerte" value={item.isLowStock ? `Bas (${item.alertThreshold})` : item.alertThreshold} />
               <DetailItem label="Statut automatique" value={stockStatus} />
