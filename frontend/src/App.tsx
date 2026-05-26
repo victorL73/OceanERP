@@ -4,6 +4,15 @@ import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, Calenda
 import { api } from './api/client';
 import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicCalendarInvitation, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
 
+declare global {
+  interface Window {
+    oceanErpDesktop?: {
+      platform?: string;
+      notify?: (title: string, body?: string) => void;
+    };
+  }
+}
+
 type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'treasury' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
@@ -52,6 +61,79 @@ const viewLabels: Record<ViewKey, string> = {
 
 const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'treasury', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean', 'backups'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
+const REALTIME_NOTIFICATION_REFRESH_MS = 30000;
+const desktopNotificationSeenStorageKey = 'oceanerp.browserNotifications.seen';
+const desktopNotificationPermissionStorageKey = 'oceanerp.browserNotifications.permissionAsked';
+
+function notificationSeenKey(item: NotificationItem) {
+  return `${item.id}:${item.createdAt}`;
+}
+
+function readSeenDesktopNotifications() {
+  try {
+    return new Set((localStorage.getItem(desktopNotificationSeenStorageKey) ?? '').split(',').filter(Boolean));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function rememberDesktopNotification(seenKey: string) {
+  try {
+    const seen = readSeenDesktopNotifications();
+    seen.add(seenKey);
+    localStorage.setItem(desktopNotificationSeenStorageKey, Array.from(seen).slice(-300).join(','));
+  } catch {
+    // Le stockage local peut etre bloque par la politique du navigateur.
+  }
+}
+
+function hasSeenDesktopNotification(seenKey: string) {
+  return readSeenDesktopNotifications().has(seenKey);
+}
+
+async function emitSystemNotification(item: NotificationItem) {
+  if (typeof window === 'undefined' || item.isRead) {
+    return;
+  }
+
+  const seenKey = notificationSeenKey(item);
+  if (hasSeenDesktopNotification(seenKey)) {
+    return;
+  }
+
+  const title = item.title || 'OceanERP';
+  const body = item.message || '';
+
+  if (window.oceanErpDesktop?.notify) {
+    window.oceanErpDesktop.notify(title, body);
+    rememberDesktopNotification(seenKey);
+    return;
+  }
+
+  if (!('Notification' in window)) {
+    return;
+  }
+
+  let permission = Notification.permission;
+  if (permission === 'default') {
+    try {
+      permission = await Notification.requestPermission();
+    } catch {
+      return;
+    }
+  }
+
+  if (permission !== 'granted') {
+    return;
+  }
+
+  try {
+    new Notification(title, { body, tag: seenKey });
+    rememberDesktopNotification(seenKey);
+  } catch {
+    // Certaines politiques navigateur bloquent les notifications hors interaction utilisateur.
+  }
+}
 
 function readStoredChoice<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
   try {
@@ -339,6 +421,13 @@ export default function App() {
   async function applyServiceTicketFilters(nextFilters: ServiceTicketFilters) {
     setServiceTicketFilters(nextFilters);
     await refreshServiceTickets(nextFilters);
+  }
+
+  async function refreshRealtimeNotifications() {
+    await Promise.all([
+      api.summary().then(setSummary).catch(() => undefined),
+      api.notifications().then(setNotifications).catch(() => undefined)
+    ]);
   }
 
   async function refreshAfterPrestashopRealtimeSync(syncEvent: PrestashopSyncCompletedEvent) {
@@ -635,6 +724,7 @@ export default function App() {
 
     connection.on('notificationCreated', (notification: NotificationItem) => {
       setNotifications((items) => [notification, ...items.filter((item) => item.id !== notification.id)]);
+      void emitSystemNotification(notification);
       if (notification.type === 'emails.new') {
         api.emailMessages()
           .then(setEmailMessages)
@@ -665,38 +755,69 @@ export default function App() {
       void refreshAfterPrestashopRealtimeSync(syncEvent);
     });
 
-    connection.start().catch(() => undefined);
+    connection.onreconnected(() => {
+      void refreshRealtimeNotifications();
+    });
+
+    connection.start()
+      .then(() => refreshRealtimeNotifications())
+      .catch(() => undefined);
     return () => {
       connection.stop().catch(() => undefined);
     };
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (!isAuthenticated || typeof window === 'undefined' || !('Notification' in window)) {
+    if (!isAuthenticated || typeof window === 'undefined') {
       return;
     }
 
-    if (Notification.permission === 'default' && notifications.some((item) => !item.isRead)) {
-      Notification.requestPermission().catch(() => undefined);
+    const refresh = () => {
+      void refreshRealtimeNotifications();
+    };
+
+    const timer = window.setInterval(refresh, REALTIME_NOTIFICATION_REFRESH_MS);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === 'undefined' || window.oceanErpDesktop?.notify || !('Notification' in window)) {
       return;
     }
 
-    if (Notification.permission !== 'granted') {
+    if (Notification.permission !== 'default') {
       return;
     }
 
-    const storageKey = 'oceanerp.browserNotifications.seen';
-    const seen = new Set((localStorage.getItem(storageKey) ?? '').split(',').filter(Boolean));
-    const nextSeen = new Set(seen);
+    try {
+      if (localStorage.getItem(desktopNotificationPermissionStorageKey) === 'true') {
+        return;
+      }
+
+      localStorage.setItem(desktopNotificationPermissionStorageKey, 'true');
+    } catch {
+      // La demande de permission reste possible meme sans stockage local.
+    }
+
+    Notification.requestPermission().catch(() => undefined);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
     notifications
-      .map((item) => ({ item, seenKey: `${item.id}:${item.createdAt}` }))
-      .filter(({ item, seenKey }) => !item.isRead && !seen.has(seenKey))
+      .filter((item) => !item.isRead)
       .slice(0, 5)
-      .forEach(({ item, seenKey }) => {
-        new Notification(item.title, { body: item.message, tag: seenKey });
-        nextSeen.add(seenKey);
-      });
-    localStorage.setItem(storageKey, Array.from(nextSeen).slice(-200).join(','));
+      .forEach((item) => void emitSystemNotification(item));
   }, [isAuthenticated, notifications]);
 
   useEffect(() => {
