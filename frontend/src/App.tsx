@@ -196,7 +196,11 @@ function warehouseToDraft(warehouse?: Warehouse): WarehouseDraft {
 }
 
 function hasPermission(user: User | null, permission?: string) {
-  return !permission || Boolean(user && (user.roles.includes('Administrator') || user.permissions.includes(permission)));
+  return !permission || Boolean(user && (
+    user.roles.includes('Administrator') ||
+    user.permissions.includes(permission) ||
+    (permission.startsWith('backup.') && user.permissions.includes('backup.write'))
+  ));
 }
 
 function formatNavBadgeCount(count: number) {
@@ -1075,7 +1079,7 @@ export default function App() {
         {view === 'signatures' && <Signatures requests={signatureRequests?.items ?? []} files={files} quotes={quotes?.items ?? []} onChanged={() => load('signatures')} />}
         {view === 'flowcean' && <FlowceanDirectModule />}
         {view === 'drive' && <Drive folders={folders} files={files} onChanged={() => load('drive')} />}
-        {view === 'backups' && <Backups archives={backups} onChanged={() => load('backups')} />}
+        {view === 'backups' && <Backups archives={backups} currentUser={currentUser} onChanged={() => load('backups')} />}
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
     </div>
@@ -2909,7 +2913,7 @@ function Dashboard({ summary }: { summary: DashboardSummary | null }) {
   );
 }
 
-function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged: () => Promise<void> }) {
+function Backups({ archives, currentUser, onChanged }: { archives: BackupArchive[]; currentUser: User | null; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [operation, setOperation] = useState<BackupOperationResult | null>(null);
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
@@ -2926,11 +2930,21 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
     remotePath: '/backups/oceanerp'
   });
   const [error, setError] = useState<string | null>(null);
+  const canCreateBackup = hasPermission(currentUser, 'backup.create');
+  const canDownloadBackup = hasPermission(currentUser, 'backup.download');
+  const canRestoreBackup = hasPermission(currentUser, 'backup.restore');
+  const canScheduleBackups = hasPermission(currentUser, 'backup.schedule');
+  const canConfigureRemoteStorage = hasPermission(currentUser, 'backup.remote');
 
   useEffect(() => {
-    void loadSchedule();
-    void loadRemoteStorage();
-  }, []);
+    if (canScheduleBackups) {
+      void loadSchedule();
+    }
+
+    if (canConfigureRemoteStorage) {
+      void loadRemoteStorage();
+    }
+  }, [canScheduleBackups, canConfigureRemoteStorage]);
 
   async function loadSchedule() {
     try {
@@ -3126,164 +3140,170 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
               <Search size={16} />
               Actualiser
             </button>
-            <button className="primary" type="button" disabled={Boolean(busy)} onClick={runBackup}>
-              <Download size={16} />
-              {busy === 'backup' ? 'Sauvegarde...' : 'Lancer une sauvegarde'}
-            </button>
+            {canCreateBackup && (
+              <button className="primary" type="button" disabled={Boolean(busy)} onClick={runBackup}>
+                <Download size={16} />
+                {busy === 'backup' ? 'Sauvegarde...' : 'Lancer une sauvegarde'}
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="backup-schedule">
-          <div>
-            <strong>Automatisation periodique</strong>
-            <p>La sauvegarde automatique est executee par le serveur, meme si l'interface est fermee.</p>
-          </div>
-          <label className="checkbox-line">
-            <input
-              type="checkbox"
-              checked={scheduleDraft.enabled}
-              onChange={(event) => setScheduleDraft((current) => ({ ...current, enabled: event.target.checked }))}
-            />
-            Activee
-          </label>
-          <label>
-            Frequence (heures)
-            <input
-              type="number"
-              min="1"
-              max={24 * 30}
-              value={scheduleDraft.intervalHours}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                setScheduleDraft((current) => ({ ...current, intervalHours: Number.isFinite(value) ? value : 1 }));
-              }}
-            />
-          </label>
-          <label>
-            Heure
-            <input
-              type="time"
-              value={scheduleDraft.timeOfDay}
-              onChange={(event) => setScheduleDraft((current) => ({ ...current, timeOfDay: event.target.value || '02:00' }))}
-            />
-          </label>
-          <label>
-            Conservation (jours)
-            <input
-              type="number"
-              min="1"
-              max="3650"
-              value={scheduleDraft.retentionDays}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                setScheduleDraft((current) => ({ ...current, retentionDays: Number.isFinite(value) ? value : 14 }));
-              }}
-            />
-          </label>
-          <button className="secondary" type="button" disabled={Boolean(busy)} onClick={saveSchedule}>
-            <Save size={16} />
-            {busy === 'schedule' ? 'Enregistrement...' : 'Enregistrer'}
-          </button>
-          <div className="backup-schedule-meta">
-            <span>Derniere : {schedule?.lastRunAt ? formatBackupDate(schedule.lastRunAt) : '-'}</span>
-            <span>Prochaine : {schedule?.nextRunAt ? formatBackupDate(schedule.nextRunAt) : '-'}</span>
-          </div>
-        </div>
-
-        <div className="backup-remote">
-          <div className="backup-remote-header">
+        {canScheduleBackups && (
+          <div className="backup-schedule">
             <div>
-              <strong>Stockage externe SFTP</strong>
-              <p>Copie les ZIP de sauvegarde sur un autre serveur pour garder une archive hors du serveur ERP.</p>
+              <strong>Automatisation periodique</strong>
+              <p>La sauvegarde automatique est executee par le serveur, meme si l'interface est fermee.</p>
             </div>
-            <div className="backup-actions">
-              <button className="secondary" type="button" disabled={Boolean(busy)} onClick={testRemoteStorage}>
-                <Search size={16} />
-                {busy === 'remote-test' ? 'Test...' : 'Tester'}
-              </button>
-              <button className="secondary" type="button" disabled={Boolean(busy)} onClick={saveRemoteStorage}>
-                <Save size={16} />
-                {busy === 'remote-save' ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
-            </div>
-          </div>
-          <div className="backup-remote-grid">
             <label className="checkbox-line">
               <input
                 type="checkbox"
-                checked={remoteDraft.enabled}
-                onChange={(event) => setRemoteDraft((current) => ({ ...current, enabled: event.target.checked }))}
+                checked={scheduleDraft.enabled}
+                onChange={(event) => setScheduleDraft((current) => ({ ...current, enabled: event.target.checked }))}
               />
-              Serveur externe actif
-            </label>
-            <label className="checkbox-line">
-              <input
-                type="checkbox"
-                checked={remoteDraft.uploadAfterBackup}
-                onChange={(event) => setRemoteDraft((current) => ({ ...current, uploadAfterBackup: event.target.checked }))}
-              />
-              Envoyer apres chaque sauvegarde
+              Activee
             </label>
             <label>
-              Hote
-              <input
-                value={remoteDraft.host}
-                placeholder="backup.mondomaine.fr"
-                onChange={(event) => setRemoteDraft((current) => ({ ...current, host: event.target.value }))}
-              />
-            </label>
-            <label>
-              Port
+              Frequence (heures)
               <input
                 type="number"
                 min="1"
-                max="65535"
-                value={remoteDraft.port}
+                max={24 * 30}
+                value={scheduleDraft.intervalHours}
                 onChange={(event) => {
                   const value = Number(event.target.value);
-                  setRemoteDraft((current) => ({ ...current, port: Number.isFinite(value) ? value : 22 }));
+                  setScheduleDraft((current) => ({ ...current, intervalHours: Number.isFinite(value) ? value : 1 }));
                 }}
               />
             </label>
             <label>
-              Utilisateur
+              Heure
               <input
-                value={remoteDraft.username}
-                placeholder="oceanerp-backup"
-                onChange={(event) => setRemoteDraft((current) => ({ ...current, username: event.target.value }))}
+                type="time"
+                value={scheduleDraft.timeOfDay}
+                onChange={(event) => setScheduleDraft((current) => ({ ...current, timeOfDay: event.target.value || '02:00' }))}
               />
             </label>
             <label>
-              Mot de passe
+              Conservation (jours)
               <input
-                type="password"
-                value={remoteDraft.password}
-                placeholder={remoteStorage?.hasPassword ? 'Laisser vide pour conserver' : 'Mot de passe SFTP'}
-                onChange={(event) => setRemoteDraft((current) => ({ ...current, password: event.target.value, clearPassword: false }))}
+                type="number"
+                min="1"
+                max="3650"
+                value={scheduleDraft.retentionDays}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setScheduleDraft((current) => ({ ...current, retentionDays: Number.isFinite(value) ? value : 14 }));
+                }}
               />
             </label>
-            <label>
-              Chemin distant
-              <input
-                value={remoteDraft.remotePath}
-                placeholder="/backups/oceanerp"
-                onChange={(event) => setRemoteDraft((current) => ({ ...current, remotePath: event.target.value }))}
-              />
-            </label>
-            <label className="checkbox-line">
-              <input
-                type="checkbox"
-                checked={remoteDraft.clearPassword}
-                onChange={(event) => setRemoteDraft((current) => ({ ...current, clearPassword: event.target.checked, password: '' }))}
-              />
-              Effacer le mot de passe enregistre
-            </label>
+            <button className="secondary" type="button" disabled={Boolean(busy)} onClick={saveSchedule}>
+              <Save size={16} />
+              {busy === 'schedule' ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+            <div className="backup-schedule-meta">
+              <span>Derniere : {schedule?.lastRunAt ? formatBackupDate(schedule.lastRunAt) : '-'}</span>
+              <span>Prochaine : {schedule?.nextRunAt ? formatBackupDate(schedule.nextRunAt) : '-'}</span>
+            </div>
           </div>
-          <div className="backup-remote-status">
-            <span>Dernier test : {remoteStorage?.lastTestAt ? `${formatBackupDate(remoteStorage.lastTestAt)} - ${remoteStorage.lastTestStatus ?? '-'}` : '-'}</span>
-            <span>Dernier envoi : {remoteStorage?.lastUploadAt ? `${formatBackupDate(remoteStorage.lastUploadAt)} - ${remoteStorage.lastUploadStatus ?? '-'}` : '-'}</span>
+        )}
+
+        {canConfigureRemoteStorage && (
+          <div className="backup-remote">
+            <div className="backup-remote-header">
+              <div>
+                <strong>Stockage externe SFTP</strong>
+                <p>Copie les ZIP de sauvegarde sur un autre serveur pour garder une archive hors du serveur ERP.</p>
+              </div>
+              <div className="backup-actions">
+                <button className="secondary" type="button" disabled={Boolean(busy)} onClick={testRemoteStorage}>
+                  <Search size={16} />
+                  {busy === 'remote-test' ? 'Test...' : 'Tester'}
+                </button>
+                <button className="secondary" type="button" disabled={Boolean(busy)} onClick={saveRemoteStorage}>
+                  <Save size={16} />
+                  {busy === 'remote-save' ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </div>
+            <div className="backup-remote-grid">
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={remoteDraft.enabled}
+                  onChange={(event) => setRemoteDraft((current) => ({ ...current, enabled: event.target.checked }))}
+                />
+                Serveur externe actif
+              </label>
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={remoteDraft.uploadAfterBackup}
+                  onChange={(event) => setRemoteDraft((current) => ({ ...current, uploadAfterBackup: event.target.checked }))}
+                />
+                Envoyer apres chaque sauvegarde
+              </label>
+              <label>
+                Hote
+                <input
+                  value={remoteDraft.host}
+                  placeholder="backup.mondomaine.fr"
+                  onChange={(event) => setRemoteDraft((current) => ({ ...current, host: event.target.value }))}
+                />
+              </label>
+              <label>
+                Port
+                <input
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={remoteDraft.port}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setRemoteDraft((current) => ({ ...current, port: Number.isFinite(value) ? value : 22 }));
+                  }}
+                />
+              </label>
+              <label>
+                Utilisateur
+                <input
+                  value={remoteDraft.username}
+                  placeholder="oceanerp-backup"
+                  onChange={(event) => setRemoteDraft((current) => ({ ...current, username: event.target.value }))}
+                />
+              </label>
+              <label>
+                Mot de passe
+                <input
+                  type="password"
+                  value={remoteDraft.password}
+                  placeholder={remoteStorage?.hasPassword ? 'Laisser vide pour conserver' : 'Mot de passe SFTP'}
+                  onChange={(event) => setRemoteDraft((current) => ({ ...current, password: event.target.value, clearPassword: false }))}
+                />
+              </label>
+              <label>
+                Chemin distant
+                <input
+                  value={remoteDraft.remotePath}
+                  placeholder="/backups/oceanerp"
+                  onChange={(event) => setRemoteDraft((current) => ({ ...current, remotePath: event.target.value }))}
+                />
+              </label>
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={remoteDraft.clearPassword}
+                  onChange={(event) => setRemoteDraft((current) => ({ ...current, clearPassword: event.target.checked, password: '' }))}
+                />
+                Effacer le mot de passe enregistre
+              </label>
+            </div>
+            <div className="backup-remote-status">
+              <span>Dernier test : {remoteStorage?.lastTestAt ? `${formatBackupDate(remoteStorage.lastTestAt)} - ${remoteStorage.lastTestStatus ?? '-'}` : '-'}</span>
+              <span>Dernier envoi : {remoteStorage?.lastUploadAt ? `${formatBackupDate(remoteStorage.lastUploadAt)} - ${remoteStorage.lastUploadStatus ?? '-'}` : '-'}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {error && <div className="alert">{error}</div>}
         {operation && (
@@ -3305,42 +3325,49 @@ function Backups({ archives, onChanged }: { archives: BackupArchive[]; onChanged
               archive.hasDocumentsArchive ? formatBytes(archive.documentsSizeBytes) : <span className="text-danger">Manquant</span>,
               formatBytes(archive.totalSizeBytes),
               <div key="actions" className="backup-row-actions">
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={Boolean(busy) || !complete}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    downloadBackup(archive);
-                  }}
-                >
-                  <Download size={16} />
-                  {busy === `download:${archive.name}` ? 'Telechargement...' : 'Telecharger'}
-                </button>
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={Boolean(busy) || !complete}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    restoreBackup(archive);
-                  }}
-                >
-                  <Upload size={16} />
-                  {busy === archive.name ? 'Restauration...' : 'Restaurer'}
-                </button>
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={Boolean(busy) || !complete}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    uploadRemoteBackup(archive);
-                  }}
-                >
-                  <Upload size={16} />
-                  {busy === `remote-upload:${archive.name}` ? 'Envoi...' : 'Envoyer externe'}
-                </button>
+                {canDownloadBackup && (
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={Boolean(busy) || !complete}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      downloadBackup(archive);
+                    }}
+                  >
+                    <Download size={16} />
+                    {busy === `download:${archive.name}` ? 'Telechargement...' : 'Telecharger'}
+                  </button>
+                )}
+                {canRestoreBackup && (
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={Boolean(busy) || !complete}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      restoreBackup(archive);
+                    }}
+                  >
+                    <Upload size={16} />
+                    {busy === archive.name ? 'Restauration...' : 'Restaurer'}
+                  </button>
+                )}
+                {canConfigureRemoteStorage && (
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={Boolean(busy) || !complete}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      uploadRemoteBackup(archive);
+                    }}
+                  >
+                    <Upload size={16} />
+                    {busy === `remote-upload:${archive.name}` ? 'Envoi...' : 'Envoyer externe'}
+                  </button>
+                )}
+                {!canDownloadBackup && !canRestoreBackup && !canConfigureRemoteStorage && <span>-</span>}
               </div>
             ];
           })}

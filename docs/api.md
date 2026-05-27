@@ -173,7 +173,16 @@ La Phase 2 ajoute les permissions `orders.*`, `invoices.*`, `stock.*`, `emails.*
 
 La Phase 3 ajoute les permissions `service.*`, `calendar.*`, `signatures.*` et `onlyoffice.*`.
 
-La supervision serveur ajoute la permission `backup.manage` pour consulter les sauvegardes, lancer une sauvegarde, telecharger une archive ZIP, restaurer une sauvegarde et regler la planification periodique. Le planning expose l'activation, la frequence en heures, l'heure locale de reference et le nombre de jours de conservation.
+La supervision serveur expose des permissions granulaires pour le module Sauvegardes :
+
+- `backup.read` : consulter la liste des sauvegardes et l'etat de la planification.
+- `backup.create` : lancer une sauvegarde manuelle.
+- `backup.download` : telecharger une archive ZIP de sauvegarde.
+- `backup.restore` : restaurer une sauvegarde.
+- `backup.schedule` : regler l'automatisation, l'heure locale et la retention.
+- `backup.remote` : configurer, tester et utiliser le stockage externe SFTP.
+
+La permission historique `backup.write` reste acceptee comme droit complet de compatibilite pour les roles existants.
 
 Les endpoints `/api/ai/settings` sont reserves au role `Administrator`. Ils preparent l'integration Groq : fournisseur, URL compatible OpenAI, modele, temperature, limite de tokens, prompt systeme et reference de secret. La cle API peut etre enregistree sous forme protegee ou fournie par variable serveur, mais elle n'est jamais renvoyee a l'interface.
 

@@ -15,7 +15,7 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
         => Ok(await backups.GetBackupsAsync(cancellationToken));
 
     [HttpPost]
-    [Authorize(Policy = "backup.write")]
+    [Authorize(Policy = "backup.create")]
     public async Task<ActionResult<BackupOperationResultDto>> Create(CancellationToken cancellationToken)
     {
         var result = await backups.CreateBackupAsync(cancellationToken);
@@ -28,7 +28,7 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
         => Ok(await backups.GetScheduleAsync(cancellationToken));
 
     [HttpPut("schedule")]
-    [Authorize(Policy = "backup.write")]
+    [Authorize(Policy = "backup.schedule")]
     public async Task<ActionResult<BackupScheduleDto>> UpdateSchedule(UpdateBackupScheduleRequest request, CancellationToken cancellationToken)
     {
         var result = await backups.UpdateScheduleAsync(request, cancellationToken);
@@ -36,12 +36,12 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
     }
 
     [HttpGet("remote-storage")]
-    [Authorize(Policy = "backup.read")]
+    [Authorize(Policy = "backup.remote")]
     public async Task<ActionResult<BackupRemoteStorageDto>> GetRemoteStorage(CancellationToken cancellationToken)
         => Ok(await backups.GetRemoteStorageAsync(cancellationToken));
 
     [HttpPut("remote-storage")]
-    [Authorize(Policy = "backup.write")]
+    [Authorize(Policy = "backup.remote")]
     public async Task<ActionResult<BackupRemoteStorageDto>> UpdateRemoteStorage(UpdateBackupRemoteStorageRequest request, CancellationToken cancellationToken)
     {
         var result = await backups.UpdateRemoteStorageAsync(request, cancellationToken);
@@ -49,7 +49,7 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
     }
 
     [HttpPost("remote-storage/test")]
-    [Authorize(Policy = "backup.write")]
+    [Authorize(Policy = "backup.remote")]
     public async Task<ActionResult<BackupOperationResultDto>> TestRemoteStorage(CancellationToken cancellationToken)
     {
         var result = await backups.TestRemoteStorageAsync(cancellationToken);
@@ -57,7 +57,7 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
     }
 
     [HttpGet("{name}/download")]
-    [Authorize(Policy = "backup.read")]
+    [Authorize(Policy = "backup.download")]
     public async Task<IActionResult> Download(string name, CancellationToken cancellationToken)
     {
         var result = await backups.OpenBackupDownloadAsync(Uri.UnescapeDataString(name), cancellationToken);
@@ -70,7 +70,7 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
     }
 
     [HttpPost("{name}/restore")]
-    [Authorize(Policy = "backup.write")]
+    [Authorize(Policy = "backup.restore")]
     public async Task<ActionResult<BackupOperationResultDto>> Restore(string name, CancellationToken cancellationToken)
     {
         var result = await backups.RestoreBackupAsync(Uri.UnescapeDataString(name), cancellationToken);
@@ -78,7 +78,7 @@ public sealed class BackupsController(IBackupService backups) : ControllerBase
     }
 
     [HttpPost("{name}/upload")]
-    [Authorize(Policy = "backup.write")]
+    [Authorize(Policy = "backup.remote")]
     public async Task<ActionResult<BackupOperationResultDto>> Upload(string name, CancellationToken cancellationToken)
     {
         var result = await backups.UploadBackupAsync(Uri.UnescapeDataString(name), cancellationToken);

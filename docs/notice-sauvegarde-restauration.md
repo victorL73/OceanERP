@@ -7,13 +7,27 @@ Les sauvegardes couvrent deux elements distincts :
 
 ## 1. Creer une sauvegarde
 
-Depuis l'interface OceanERP, un administrateur peut utiliser le module `Sauvegardes` :
+Depuis l'interface OceanERP, un utilisateur autorise peut utiliser le module `Sauvegardes` :
 
 - `Sauvegardes > Lancer une sauvegarde` execute le script `deploy/ubuntu/backup.sh`.
 - La liste affiche les archives disponibles, leur taille et la presence des fichiers PostgreSQL/documents.
 - Le bouton `Telecharger` recupere une archive ZIP contenant `postgres.sql.gz` et `documents.tar.gz`.
 - Le bloc `Automatisation periodique` permet d'activer une sauvegarde serveur, de choisir la frequence, l'heure locale de reference et le nombre de jours de conservation.
 - Depuis l'interface, le conteneur API utilise `pg_dump`, `psql` et le volume documents monte directement. En SSH, les memes scripts utilisent Docker Compose comme avant.
+
+## 1.1 Droits configurables
+
+Les administrateurs peuvent donner les droits de sauvegarde depuis `Parametres > Utilisateurs/Roles` sans rendre l'utilisateur administrateur complet :
+
+- `backup.read` : voir le module et la liste des sauvegardes.
+- `backup.create` : lancer une sauvegarde manuelle.
+- `backup.download` : telecharger une archive ZIP.
+- `backup.restore` : restaurer une sauvegarde. A donner uniquement aux personnes habilitees, car cette action remplace la base et les documents.
+- `backup.schedule` : modifier l'automatisation, l'heure de sauvegarde et la retention.
+- `backup.remote` : configurer le serveur SFTP externe, tester la connexion et envoyer des archives.
+- `backup.write` : droit complet historique conserve pour compatibilite avec les roles deja crees.
+
+L'interface masque automatiquement les boutons et blocs non autorises. Apres modification des droits d'un utilisateur, il doit se reconnecter pour recevoir un JWT avec ses nouvelles permissions.
 
 La sauvegarde peut aussi etre lancee en SSH :
 

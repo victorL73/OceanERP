@@ -112,7 +112,7 @@ var permissionCodes = new[]
     "signatures.read", "signatures.write",
     "onlyoffice.read", "onlyoffice.write",
     "flowcean.read", "flowcean.write",
-    "backup.read", "backup.write"
+    "backup.read", "backup.create", "backup.download", "backup.restore", "backup.schedule", "backup.remote", "backup.write"
 };
 
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
