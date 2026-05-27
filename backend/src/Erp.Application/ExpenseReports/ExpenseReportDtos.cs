@@ -18,6 +18,7 @@ public sealed record ExpenseReportDto(
     DateTimeOffset? RefusedAt,
     DateTimeOffset? ReimbursedAt,
     IReadOnlyList<ExpenseReportLineDto> Lines,
+    IReadOnlyList<ExpenseReportAttachmentDto> Attachments,
     IReadOnlyList<ExpenseReportStatusHistoryDto> History);
 
 public sealed record ExpenseReportLineDto(
@@ -35,6 +36,26 @@ public sealed record ExpenseReportStatusHistoryDto(
     string? Comment,
     string? ChangedBy,
     DateTimeOffset ChangedAt);
+
+public sealed record ExpenseReportAttachmentDto(
+    Guid Id,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    Guid? UploadedByUserId,
+    string? UploadedBy,
+    DateTimeOffset UploadedAt);
+
+public sealed record ExpenseReportAttachmentUpload(
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    Stream Content);
+
+public sealed record ExpenseReportAttachmentDownload(
+    string FileName,
+    string ContentType,
+    Stream Content);
 
 public sealed record CreateExpenseReportRequest(
     string Title,
@@ -69,4 +90,12 @@ public interface IExpenseReportService
     Task<Result<ExpenseReportDto>> UpdateAsync(Guid id, UpdateExpenseReportRequest request, CancellationToken cancellationToken);
 
     Task<Result<ExpenseReportDto>> ChangeStatusAsync(Guid id, ChangeExpenseReportStatusRequest request, CancellationToken cancellationToken);
+
+    Task<Result<IReadOnlyList<ExpenseReportAttachmentDto>>> AddAttachmentsAsync(Guid id, IReadOnlyList<ExpenseReportAttachmentUpload> files, CancellationToken cancellationToken);
+
+    Task<Result<IReadOnlyList<ExpenseReportAttachmentDto>>> ListAttachmentsAsync(Guid id, CancellationToken cancellationToken);
+
+    Task<Result<ExpenseReportAttachmentDownload>> OpenAttachmentAsync(Guid id, Guid attachmentId, CancellationToken cancellationToken);
+
+    Task<Result> DeleteAttachmentAsync(Guid id, Guid attachmentId, CancellationToken cancellationToken);
 }

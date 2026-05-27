@@ -1,4 +1,5 @@
 using Erp.Application.Common;
+using Erp.Application.Documents;
 using Erp.Application.ExpenseReports;
 using Erp.Domain.Auth;
 using Erp.Domain.FutureModules;
@@ -7,8 +8,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Erp.Infrastructure.Services;
 
-public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService currentUser) : IExpenseReportService
+public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService currentUser, IFileStorageService fileStorageService) : IExpenseReportService
 {
+    private const string AttachmentStorageArea = "expense-reports";
+    private const int MaxAttachmentUploadCount = 20;
+    private const long MaxAttachmentSizeBytes = 25L * 1024L * 1024L;
+
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         "Sent",
@@ -186,6 +191,105 @@ public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService cu
         return await GetAsync(id, cancellationToken);
     }
 
+    public async Task<Result<IReadOnlyList<ExpenseReportAttachmentDto>>> AddAttachmentsAsync(Guid id, IReadOnlyList<ExpenseReportAttachmentUpload> files, CancellationToken cancellationToken)
+    {
+        var exists = await db.ExpenseReports.AnyAsync(x => x.Id == id, cancellationToken);
+        if (!exists)
+        {
+            return Result<IReadOnlyList<ExpenseReportAttachmentDto>>.Failure("Note de frais introuvable.");
+        }
+
+        if (files is null || files.Count == 0)
+        {
+            return Result<IReadOnlyList<ExpenseReportAttachmentDto>>.Failure("Aucun fichier fourni.");
+        }
+
+        if (files.Count > MaxAttachmentUploadCount)
+        {
+            return Result<IReadOnlyList<ExpenseReportAttachmentDto>>.Failure($"Maximum {MaxAttachmentUploadCount} justificatifs par envoi.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var upload in files)
+        {
+            if (upload.SizeBytes <= 0)
+            {
+                return Result<IReadOnlyList<ExpenseReportAttachmentDto>>.Failure($"Le fichier \"{upload.FileName}\" est vide.");
+            }
+
+            if (upload.SizeBytes > MaxAttachmentSizeBytes)
+            {
+                return Result<IReadOnlyList<ExpenseReportAttachmentDto>>.Failure($"Le fichier \"{upload.FileName}\" depasse 25 Mo.");
+            }
+
+            var safeName = SafeFileName(upload.FileName);
+            var stored = await fileStorageService.SaveAsync(AttachmentStorageArea, safeName, upload.Content, cancellationToken);
+            db.ExpenseReportAttachments.Add(new ExpenseReportAttachment
+            {
+                Id = Guid.NewGuid(),
+                ExpenseReportId = id,
+                FileName = safeName,
+                ContentType = CleanContentType(upload.ContentType),
+                SizeBytes = stored.Size > 0 ? stored.Size : upload.SizeBytes,
+                StoragePath = stored.StoragePath,
+                UploadedByUserId = currentUser.UserId,
+                UploadedAt = now
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return await ListAttachmentsAsync(id, cancellationToken);
+    }
+
+    public async Task<Result<IReadOnlyList<ExpenseReportAttachmentDto>>> ListAttachmentsAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var exists = await db.ExpenseReports.AnyAsync(x => x.Id == id, cancellationToken);
+        if (!exists)
+        {
+            return Result<IReadOnlyList<ExpenseReportAttachmentDto>>.Failure("Note de frais introuvable.");
+        }
+
+        var attachments = await db.ExpenseReportAttachments
+            .AsNoTracking()
+            .Where(x => x.ExpenseReportId == id)
+            .OrderByDescending(x => x.UploadedAt)
+            .ToListAsync(cancellationToken);
+        var users = await LoadAttachmentUsersAsync(attachments, cancellationToken);
+
+        return Result<IReadOnlyList<ExpenseReportAttachmentDto>>.Success(attachments.Select(x => MapAttachment(x, users)).ToList());
+    }
+
+    public async Task<Result<ExpenseReportAttachmentDownload>> OpenAttachmentAsync(Guid id, Guid attachmentId, CancellationToken cancellationToken)
+    {
+        var attachment = await db.ExpenseReportAttachments
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == attachmentId && x.ExpenseReportId == id, cancellationToken);
+
+        if (attachment is null)
+        {
+            return Result<ExpenseReportAttachmentDownload>.Failure("Justificatif introuvable.");
+        }
+
+        var content = await fileStorageService.OpenReadAsync(attachment.StoragePath, cancellationToken);
+        return Result<ExpenseReportAttachmentDownload>.Success(new ExpenseReportAttachmentDownload(attachment.FileName, attachment.ContentType, content));
+    }
+
+    public async Task<Result> DeleteAttachmentAsync(Guid id, Guid attachmentId, CancellationToken cancellationToken)
+    {
+        var attachment = await db.ExpenseReportAttachments
+            .FirstOrDefaultAsync(x => x.Id == attachmentId && x.ExpenseReportId == id, cancellationToken);
+
+        if (attachment is null)
+        {
+            return Result.Failure("Justificatif introuvable.");
+        }
+
+        db.ExpenseReportAttachments.Remove(attachment);
+        await db.SaveChangesAsync(cancellationToken);
+        await fileStorageService.DeleteAsync(attachment.StoragePath, cancellationToken);
+        return Result.Success();
+    }
+
     private async Task<Result<User>> ResolveCurrentUserAsync(CancellationToken cancellationToken)
     {
         if (currentUser.UserId is null)
@@ -254,9 +358,15 @@ public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService cu
             .Where(x => ids.Contains(x.ExpenseReportId))
             .OrderByDescending(x => x.ChangedAt)
             .ToListAsync(cancellationToken);
+        var attachments = await db.ExpenseReportAttachments
+            .AsNoTracking()
+            .Where(x => ids.Contains(x.ExpenseReportId))
+            .OrderByDescending(x => x.UploadedAt)
+            .ToListAsync(cancellationToken);
         var userIds = history
             .Where(x => x.ChangedByUserId.HasValue)
             .Select(x => x.ChangedByUserId!.Value)
+            .Concat(attachments.Where(x => x.UploadedByUserId.HasValue).Select(x => x.UploadedByUserId!.Value))
             .Distinct()
             .ToList();
         var users = await db.Users
@@ -270,6 +380,7 @@ public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService cu
             var gross = reportLines.Sum(x => x.Amount);
             var vat = reportLines.Sum(x => VatFromGross(x.Amount, x.VatRate));
             var reportHistory = history.Where(x => x.ExpenseReportId == report.Id).ToList();
+            var reportAttachments = attachments.Where(x => x.ExpenseReportId == report.Id).ToList();
 
             return new ExpenseReportDto(
                 report.Id,
@@ -294,6 +405,7 @@ public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService cu
                     line.VatRate,
                     line.ExpenseDate,
                     line.ReceiptFileName)).ToList(),
+                reportAttachments.Select(item => MapAttachment(item, users)).ToList(),
                 reportHistory.Select(item => new ExpenseReportStatusHistoryDto(
                     item.Id,
                     item.Status,
@@ -318,6 +430,49 @@ public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService cu
         };
     }
 
+    private async Task<IReadOnlyDictionary<Guid, string>> LoadAttachmentUsersAsync(IReadOnlyList<ExpenseReportAttachment> attachments, CancellationToken cancellationToken)
+    {
+        var userIds = attachments
+            .Where(x => x.UploadedByUserId.HasValue)
+            .Select(x => x.UploadedByUserId!.Value)
+            .Distinct()
+            .ToList();
+
+        return await db.Users
+            .AsNoTracking()
+            .Where(x => userIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, DisplayName, cancellationToken);
+    }
+
+    private static ExpenseReportAttachmentDto MapAttachment(ExpenseReportAttachment attachment, IReadOnlyDictionary<Guid, string> users)
+    {
+        return new ExpenseReportAttachmentDto(
+            attachment.Id,
+            attachment.FileName,
+            attachment.ContentType,
+            attachment.SizeBytes,
+            attachment.UploadedByUserId,
+            attachment.UploadedByUserId.HasValue && users.TryGetValue(attachment.UploadedByUserId.Value, out var userName) ? userName : null,
+            attachment.UploadedAt);
+    }
+
+    private static string SafeFileName(string? fileName)
+    {
+        var safe = Path.GetFileName(string.IsNullOrWhiteSpace(fileName) ? "justificatif" : fileName.Trim());
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            safe = safe.Replace(invalid, '_');
+        }
+
+        safe = safe.Trim();
+        if (string.IsNullOrWhiteSpace(safe))
+        {
+            return "justificatif";
+        }
+
+        return safe.Length <= 240 ? safe : safe[..240];
+    }
+
     private static string NormalizeStatus(string status)
     {
         var normalized = (status ?? string.Empty).Trim();
@@ -339,6 +494,8 @@ public sealed class ExpenseReportService(ErpDbContext db, ICurrentUserService cu
     }
 
     private static string DisplayName(User user) => string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email : user.DisplayName;
+
+    private static string CleanContentType(string? contentType) => Clean(contentType, "application/octet-stream", 180);
 
     private static string Clean(string? value, string fallback, int maxLength)
     {

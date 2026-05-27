@@ -33,6 +33,7 @@ Les migrations presentes dans `backend/src/Erp.Infrastructure/Persistence/Migrat
 - `PrestashopColissimoConnectionSettings`
 - `MeetRooms`
 - `AiSettings`
+- `ExpenseReportAttachments`
 
 Les tables recentes ajoutent notamment les listes de diffusion email, les salles Meet, les signaux WebRTC, le chat Meet, les espaces Flowcean, les parametres SAV, les donnees Colissimo, les champs clients enrichis, les avoirs facture, les reglages avances de sauvegarde et les parametres IA Groq. Le module Tresorerie est calcule depuis les ventes, achats, paiements, factures et mouvements existants : il n'a pas besoin d'une table de solde manuel pour rester raccord avec les donnees source.
 
@@ -47,6 +48,7 @@ La migration initiale est disponible dans `backend/src/Erp.Infrastructure/Persis
 - `Quotes`, `QuoteLines`, `QuoteDocuments`, `QuoteStatusHistories`.
 - `QuoteDocumentSettings` pour la personnalisation PDF des devis.
 - `AiSettings` pour la configuration administrateur Groq : fournisseur, endpoint, modele, secret, temperature, tokens et prompt systeme.
+- `ExpenseReports`, `ExpenseReportLines`, `ExpenseReportStatusHistories`, `ExpenseReportAttachments`.
 - `DriveFolders`, `DriveItems`, `DriveFileVersions`, `DrivePermissions`, `DriveShares`, `DriveActivityLogs`, `DocumentLinks`.
 - `Notifications`, `NotificationPreferences`.
 
@@ -64,6 +66,8 @@ PostgreSQL stocke uniquement les métadonnées :
 - permissions prévues
 
 Le contenu binaire est stocké dans le volume `oceanerp_documents`.
+
+Les justificatifs de notes de frais suivent la meme regle : `ExpenseReportAttachments` stocke uniquement le nom, le type MIME, la taille, le chemin de stockage relatif, l'utilisateur et la date d'ajout. Le fichier facture ou preuve d'achat reste dans le stockage documents et passe uniquement par l'API securisee.
 
 ## Evolutions prevues
 

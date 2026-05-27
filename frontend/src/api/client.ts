@@ -17,6 +17,7 @@ import type {
   EmailSyncSummary,
   EmailTemplate,
   ExpenseReport,
+  ExpenseReportAttachment,
   FlowceanWorkspace,
   FlowceanWorkspaceSummary,
   Invoice,
@@ -152,6 +153,10 @@ export class ApiClient {
     return this.request<ExpenseReport[]>('/api/expense-reports', { auth: true });
   }
 
+  expenseReport(id: string) {
+    return this.request<ExpenseReport>(`/api/expense-reports/${id}`, { auth: true });
+  }
+
   createExpenseReport(payload: ExpenseReportPayload) {
     return this.request<ExpenseReport>('/api/expense-reports', { method: 'POST', auth: true, body: JSON.stringify(payload) });
   }
@@ -162,6 +167,20 @@ export class ApiClient {
 
   changeExpenseReportStatus(id: string, status: string, comment?: string | null) {
     return this.request<ExpenseReport>(`/api/expense-reports/${id}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status, comment }) });
+  }
+
+  uploadExpenseReportAttachments(id: string, files: File[] | FileList) {
+    const form = new FormData();
+    Array.from(files).forEach((file) => form.append('files', file));
+    return this.request<ExpenseReportAttachment[]>(`/api/expense-reports/${id}/attachments`, { method: 'POST', auth: true, body: form });
+  }
+
+  async downloadExpenseReportAttachment(reportId: string, attachmentId: string, fileName: string) {
+    await this.download(`/api/expense-reports/${reportId}/attachments/${attachmentId}/download`, fileName);
+  }
+
+  deleteExpenseReportAttachment(reportId: string, attachmentId: string) {
+    return this.request<void>(`/api/expense-reports/${reportId}/attachments/${attachmentId}`, { method: 'DELETE', auth: true });
   }
 
   backups() {

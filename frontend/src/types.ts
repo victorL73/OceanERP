@@ -136,6 +136,16 @@ export type ExpenseReportStatusHistory = {
   changedAt: string;
 };
 
+export type ExpenseReportAttachment = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedByUserId?: string | null;
+  uploadedBy?: string | null;
+  uploadedAt: string;
+};
+
 export type ExpenseReport = {
   id: string;
   number: string;
@@ -152,6 +162,7 @@ export type ExpenseReport = {
   refusedAt?: string | null;
   reimbursedAt?: string | null;
   lines: ExpenseReportLine[];
+  attachments: ExpenseReportAttachment[];
   history: ExpenseReportStatusHistory[];
 };
 

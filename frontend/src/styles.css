@@ -1353,6 +1353,18 @@ h1 {
   font-weight: 700;
 }
 
+.primary.compact {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.field-hint,
+.muted-inline {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.45;
+}
+
 .icon-button {
   position: relative;
   width: 40px;
@@ -3023,6 +3035,104 @@ th {
   border-radius: 8px;
   background: #f8fafc;
   padding: 12px;
+}
+
+.expense-attachments-uploader,
+.expense-attachments {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.expense-attachments-uploader {
+  background: #f8fafc;
+}
+
+.expense-attachment-file-list,
+.expense-attachment-existing-list,
+.expense-attachment-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.expense-attachment-file-list li,
+.expense-attachment-existing-list span,
+.expense-attachment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.expense-attachment-row {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.expense-attachment-file-list span,
+.expense-attachment-existing-list span,
+.expense-attachment-main {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.expense-attachment-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expense-attachment-meta {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.expense-pending-upload {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f0fdfa;
+}
+
+.attachment-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.attachment-button-like {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.attachment-button-like input {
+  display: none;
 }
 
 .detail-note {
@@ -6178,6 +6288,15 @@ button.drive-main {
   .flowcean-property-list article,
   .flowcean-add-property {
     grid-template-columns: 1fr;
+  }
+
+  .expense-attachment-row {
+    grid-template-columns: 1fr;
+  }
+
+  .expense-pending-upload {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

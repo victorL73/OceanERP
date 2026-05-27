@@ -2,7 +2,7 @@ import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, ty
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, ReceiptText, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, ExpenseReport, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicCalendarInvitation, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
+import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, ExpenseReport, ExpenseReportAttachment, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicCalendarInvitation, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
 
 declare global {
   interface Window {
@@ -1142,6 +1142,18 @@ function parseMoneyInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatFileSize(sizeBytes: number) {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return '0 Ko';
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(sizeBytes / 1024))} Ko`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`;
+}
+
 function expenseReportStatusLabel(status: string) {
   return ({
     Sent: 'Envoyee',
@@ -1163,6 +1175,8 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
   const [statusComment, setStatusComment] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  const [detailAttachmentFiles, setDetailAttachmentFiles] = useState<File[]>([]);
 
   const formTotals = useMemo(() => {
     const totalAmount = form.lines.reduce((sum, line) => sum + parseMoneyInput(line.amount), 0);
@@ -1183,6 +1197,8 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
     setSelected(null);
     setEditing(null);
     setForm(createExpenseReportForm());
+    setAttachmentFiles([]);
+    setDetailAttachmentFiles([]);
     setFormOpen(true);
   }
 
@@ -1191,6 +1207,8 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
     setSelected(null);
     setEditing(report);
     setForm(createExpenseReportForm(report));
+    setAttachmentFiles([]);
+    setDetailAttachmentFiles([]);
     setFormOpen(true);
   }
 
@@ -1199,7 +1217,20 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
     setEditing(null);
     setFormOpen(false);
     setStatusComment('');
+    setAttachmentFiles([]);
+    setDetailAttachmentFiles([]);
     setError(null);
+  }
+
+  async function refreshExpenseReport(id: string) {
+    const refreshed = await api.expenseReport(id);
+    setSelected(refreshed);
+    await onChanged();
+  }
+
+  function captureAttachmentFiles(event: ChangeEvent<HTMLInputElement>, setter: (files: File[]) => void) {
+    setter(Array.from(event.target.files ?? []));
+    event.target.value = '';
   }
 
   function updateLine(index: number, patch: Partial<ExpenseReportFormLine>) {
@@ -1254,9 +1285,15 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
       const saved = editing
         ? await api.updateExpenseReport(editing.id, payload)
         : await api.createExpenseReport(payload);
+      let refreshed = saved;
+      if (attachmentFiles.length > 0) {
+        await api.uploadExpenseReportAttachments(saved.id, attachmentFiles);
+        refreshed = await api.expenseReport(saved.id);
+      }
       setFormOpen(false);
       setEditing(null);
-      setSelected(saved);
+      setAttachmentFiles([]);
+      setSelected(refreshed);
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Enregistrement impossible.');
@@ -1275,6 +1312,46 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Changement de statut impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadDetailAttachments(report: ExpenseReport) {
+    if (detailAttachmentFiles.length === 0) {
+      return;
+    }
+
+    setError(null);
+    setBusy(true);
+    try {
+      await api.uploadExpenseReportAttachments(report.id, detailAttachmentFiles);
+      setDetailAttachmentFiles([]);
+      await refreshExpenseReport(report.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Envoi des justificatifs impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function downloadExpenseAttachment(report: ExpenseReport, attachment: ExpenseReportAttachment) {
+    setError(null);
+    try {
+      await api.downloadExpenseReportAttachment(report.id, attachment.id, attachment.fileName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Telechargement impossible.');
+    }
+  }
+
+  async function deleteExpenseAttachment(report: ExpenseReport, attachment: ExpenseReportAttachment) {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.deleteExpenseReportAttachment(report.id, attachment.id);
+      await refreshExpenseReport(report.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suppression impossible.');
     } finally {
       setBusy(false);
     }
@@ -1308,7 +1385,7 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
       </section>
 
       <DataTable
-        columns={['Numero', 'Employe', 'Titre', 'Date', 'Statut', 'Total TTC', 'TVA', 'Actions']}
+        columns={['Numero', 'Employe', 'Titre', 'Date', 'Statut', 'Total TTC', 'TVA', 'Justificatifs', 'Actions']}
         rows={reports.map((item) => [
           item.number,
           item.employeeName,
@@ -1317,6 +1394,7 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
           <span className={expenseReportStatusClass(item.status)}>{expenseReportStatusLabel(item.status)}</span>,
           formatDashboardValue(item.totalAmount, 'currency'),
           formatDashboardValue(item.vatAmount, 'currency'),
+          item.attachments?.length ? <span className="attachment-count"><Paperclip size={14} /> {item.attachments.length}</span> : '-',
           <div className="table-actions" key={item.id} onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => setSelected(item)}>
               Voir
@@ -1400,6 +1478,34 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
               <textarea value={form.comment} onChange={(event) => setForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Ajoutez un commentaire pour le valideur." />
             </label>
 
+            <section className="expense-attachments-uploader">
+              <div className="section-title-row">
+                <h3>Justificatifs</h3>
+                <label className="attachment-button-like">
+                  <Upload size={16} /> Ajouter des fichiers
+                  <input type="file" multiple onChange={(event) => captureAttachmentFiles(event, setAttachmentFiles)} />
+                </label>
+              </div>
+              <p className="field-hint">Factures, tickets et preuves d'achat. Les fichiers sont stockes hors base PostgreSQL.</p>
+              {attachmentFiles.length > 0 && (
+                <ul className="expense-attachment-file-list">
+                  {attachmentFiles.map((file) => (
+                    <li key={`${file.name}-${file.size}-${file.lastModified}`}>
+                      <span><Paperclip size={14} /> {file.name}</span>
+                      <small>{formatFileSize(file.size)}</small>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {editing?.attachments?.length ? (
+                <div className="expense-attachment-existing-list">
+                  {editing.attachments.map((attachment) => (
+                    <span key={attachment.id}><Paperclip size={14} /> {attachment.fileName}</span>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+
             <div className="expense-form-total">
               <DetailItem label="Total TTC" value={formatDashboardValue(formTotals.totalAmount, 'currency')} />
               <DetailItem label="TVA deductible estimee" value={formatDashboardValue(formTotals.vatAmount, 'currency')} />
@@ -1457,6 +1563,47 @@ function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onCh
                 line.receiptFileName || '-'
               ])}
             />
+
+            <section className="expense-attachments">
+              <div className="section-title-row">
+                <h3>Justificatifs</h3>
+                <label className="attachment-button-like">
+                  <Upload size={16} /> Ajouter
+                  <input type="file" multiple onChange={(event) => captureAttachmentFiles(event, setDetailAttachmentFiles)} />
+                </label>
+              </div>
+              {detailAttachmentFiles.length > 0 && (
+                <div className="expense-pending-upload">
+                  <span>{detailAttachmentFiles.length} fichier(s) pret(s) a envoyer.</span>
+                  <button type="button" className="primary compact" onClick={() => uploadDetailAttachments(selected)} disabled={busy}>
+                    <Upload size={14} /> Envoyer
+                  </button>
+                </div>
+              )}
+              {selected.attachments?.length ? (
+                <ul className="expense-attachment-list">
+                  {selected.attachments.map((attachment) => (
+                    <li key={attachment.id} className="expense-attachment-row">
+                      <span className="expense-attachment-main">
+                        <Paperclip size={16} />
+                        <span>{attachment.fileName}</span>
+                      </span>
+                      <small className="expense-attachment-meta">
+                        {formatFileSize(attachment.sizeBytes)} - {attachment.uploadedBy ?? 'Utilisateur'} - {formatOrderDate(attachment.uploadedAt)}
+                      </small>
+                      <button type="button" onClick={() => downloadExpenseAttachment(selected, attachment)}>
+                        <Download size={14} /> Telecharger
+                      </button>
+                      <button type="button" className="danger icon-only" onClick={() => deleteExpenseAttachment(selected, attachment)} disabled={busy} aria-label="Supprimer le justificatif">
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted-inline">Aucun justificatif ajoute.</p>
+              )}
+            </section>
 
             <section className="expense-status-panel">
               <label className="field">

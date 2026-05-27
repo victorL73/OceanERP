@@ -24,6 +24,7 @@ Les groupes REST suivants sont exposes par l'API actuelle. Swagger reste la refe
 - `api/meetings` : salles Meet, invitations, signaux WebRTC, chat, pieces jointes, transcription et acces public invite.
 - `api/backups` : sauvegardes, telechargement, restauration, planification, retention et stockage externe SFTP.
 - `api/treasury` : resume tresorerie et mouvements calcules.
+- `api/expense-reports` : notes de frais, statuts, justificatifs televerses hors base, telechargement et suppression controlee.
 - `api/ai` : parametres IA Groq reserves aux administrateurs.
 - `api/notifications` : notifications, creation interne et marquage lu.
 - `api/dashboard` : indicateurs du tableau de bord.
@@ -96,6 +97,15 @@ Swagger est activé en environnement `Development`.
 - `GET /api/backups/{name}/download`
 - `POST /api/backups/{name}/restore`
 - `POST /api/backups/{name}/upload`
+- `GET /api/expense-reports`
+- `GET /api/expense-reports/{id}`
+- `POST /api/expense-reports`
+- `PUT /api/expense-reports/{id}`
+- `POST /api/expense-reports/{id}/status`
+- `GET /api/expense-reports/{id}/attachments`
+- `POST /api/expense-reports/{id}/attachments`
+- `GET /api/expense-reports/{id}/attachments/{attachmentId}/download`
+- `DELETE /api/expense-reports/{id}/attachments/{attachmentId}`
 - `GET /api/ai/settings`
 - `PUT /api/ai/settings`
 

@@ -61,6 +61,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<PurchaseOrderCharge> PurchaseOrderCharges => Set<PurchaseOrderCharge>();
     public DbSet<ExpenseReport> ExpenseReports => Set<ExpenseReport>();
     public DbSet<ExpenseReportLine> ExpenseReportLines => Set<ExpenseReportLine>();
+    public DbSet<ExpenseReportAttachment> ExpenseReportAttachments => Set<ExpenseReportAttachment>();
     public DbSet<ExpenseReportStatusHistory> ExpenseReportStatusHistories => Set<ExpenseReportStatusHistory>();
     public DbSet<MailServerSettings> MailServerSettings => Set<MailServerSettings>();
     public DbSet<MailAccount> MailAccounts => Set<MailAccount>();
@@ -454,6 +455,16 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.VatRate).HasPrecision(5, 2);
             entity.Property(x => x.ReceiptFileName).HasMaxLength(260);
             entity.HasOne<ExpenseReport>().WithMany().HasForeignKey(x => x.ExpenseReportId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExpenseReportAttachment>(entity =>
+        {
+            entity.HasIndex(x => x.ExpenseReportId);
+            entity.Property(x => x.FileName).HasMaxLength(260);
+            entity.Property(x => x.ContentType).HasMaxLength(180);
+            entity.Property(x => x.StoragePath).HasMaxLength(1024);
+            entity.HasOne<ExpenseReport>().WithMany().HasForeignKey(x => x.ExpenseReportId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UploadedByUserId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<ExpenseReportStatusHistory>(entity =>

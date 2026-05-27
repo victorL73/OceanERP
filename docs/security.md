@@ -11,6 +11,7 @@
 - ONLYOFFICE utilise des URLs temporaires signees et un callback serveur ; une erreur `errorCode -4` indique generalement que Document Server ne peut pas joindre l'URL de telechargement.
 - Les emails supprimes le sont logiquement pour eviter leur retour a la prochaine synchronisation IMAP.
 - Les notifications recurrentes doivent etre regroupees par sujet metier et remises en non-lu au besoin, plutot que dupliquees chaque jour.
+- Les justificatifs de notes de frais sont stockes hors PostgreSQL et telecharges uniquement via les endpoints controles par permissions.
 
 ## Implémenté dans le socle
 
@@ -34,6 +35,7 @@
 - CORS configurable.
 - Rate limiting global.
 - Documents servis par API uniquement.
+- Justificatifs de notes de frais servis par API uniquement avec permissions `expenses.read`, `expenses.write` et `expenses.approve`; PostgreSQL ne conserve que les metadonnees.
 - Stockage fichiers hors base de données.
 - Logs structurés Serilog.
 
