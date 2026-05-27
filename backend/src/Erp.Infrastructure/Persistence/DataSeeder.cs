@@ -31,6 +31,7 @@ public static class DataSeeder
             "notifications.read", "notifications.write",
             "dashboard.read",
             "treasury.read",
+            "expenses.read", "expenses.write", "expenses.approve",
             "stock.read", "stock.write",
             "orders.read", "orders.write",
             "purchases.read", "purchases.write",
@@ -77,7 +78,13 @@ public static class DataSeeder
             db.Roles.Add(salesRole);
         }
 
-        foreach (var permission in await db.Permissions.Where(x => x.Code.StartsWith("customers") || x.Code.StartsWith("products") || x.Code.StartsWith("quotes") || x.Code == "dashboard.read").ToListAsync(cancellationToken))
+        foreach (var permission in await db.Permissions.Where(x =>
+            x.Code.StartsWith("customers") ||
+            x.Code.StartsWith("products") ||
+            x.Code.StartsWith("quotes") ||
+            x.Code == "expenses.read" ||
+            x.Code == "expenses.write" ||
+            x.Code == "dashboard.read").ToListAsync(cancellationToken))
         {
             if (!salesRole.Permissions.Any(x => x.Id == permission.Id))
             {

@@ -1,8 +1,8 @@
 import { type ChangeEvent, type DragEvent, type FormEvent, type PointerEvent, type ReactNode, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
-import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Bell, BookOpen, Box, BriefcaseBusiness, CalendarDays, Camera, CameraOff, CheckSquare, ChevronLeft, ChevronRight, Clock, Code2, Copy, Download, FilePlus2, FileSignature, FileText, Folder, FolderTree, Forward, Grid2X2, Image as ImageIcon, KanbanSquare, KeyRound, Languages, LayoutDashboard, LifeBuoy, Link2, List, ListTodo, LogOut, Mail, Mic, MicOff, Minus, Moon, Package, Paperclip, Pencil, PhoneOff, Plus, Printer, Quote as QuoteIcon, ReceiptText, Reply, ReplyAll, Save, ScreenShare, Search, Settings as SettingsIcon, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Sun, Table2, Trash2, Upload, UserRound, Users, Video, Warehouse as WarehouseIcon, X } from 'lucide-react';
 import { api } from './api/client';
-import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicCalendarInvitation, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
+import type { AiSettings, AuditLog, BackupArchive, BackupOperationResult, BackupRemoteStorage, BackupSchedule, CalendarEvent, Customer, DashboardSummary, DocumentLink, DriveFolder, DriveItem, EmailDistributionList, EmailMessage, EmailSyncSummary, EmailTemplate, ExpenseReport, FlowceanWorkspace, FlowceanWorkspaceSummary, Invoice, MailAccount, MailServerSettings, MeetingDashboard, MeetingParticipant, MeetingRoomState, MeetingSignal, NotificationItem, OnlyOfficeConfig, PagedResult, Permission, PrestashopConnection, PrestashopSyncLog, Product, ProductSupplier, PublicCalendarInvitation, PublicServiceTicket, PublicSignature, PurchaseOrder, Quote, QuoteSettings, Role, SalesOrder, ServiceTicket, ServiceTicketAssignmentSettings, ServiceTicketPublicLink, SignatureRequest, StockItem, StockMovement, TreasuryMovement, TreasurySummary, User, Warehouse } from './types';
 
 declare global {
   interface Window {
@@ -13,7 +13,7 @@ declare global {
   }
 }
 
-type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'treasury' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
+type ViewKey = 'dashboard' | 'settings' | 'customers' | 'products' | 'quotes' | 'drive' | 'notifications' | 'orders' | 'purchases' | 'invoices' | 'stock' | 'treasury' | 'expenses' | 'emails' | 'prestashop' | 'service' | 'calendar' | 'meetings' | 'signatures' | 'flowcean' | 'backups';
 
 const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: typeof LayoutDashboard; permission?: string }> = [
   { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: 'dashboard.read' },
@@ -24,6 +24,7 @@ const navViews: Array<{ key: Exclude<ViewKey, 'settings'>; label: string; icon: 
   { key: 'purchases', label: 'Achats', icon: ShoppingBag, permission: 'purchases.read' },
   { key: 'invoices', label: 'Factures', icon: FileText, permission: 'invoices.read' },
   { key: 'treasury', label: 'Tresorerie', icon: BriefcaseBusiness, permission: 'treasury.read' },
+  { key: 'expenses', label: 'Notes de frais', icon: ReceiptText, permission: 'expenses.read' },
   { key: 'stock', label: 'Stock', icon: WarehouseIcon, permission: 'stock.read' },
   { key: 'emails', label: 'Emails', icon: Mail, permission: 'emails.read' },
   { key: 'service', label: 'SAV', icon: LifeBuoy, permission: 'service.read' },
@@ -46,6 +47,7 @@ const viewLabels: Record<ViewKey, string> = {
   purchases: 'Achats fournisseurs',
   invoices: 'Factures',
   treasury: 'Tresorerie',
+  expenses: 'Notes de frais',
   stock: 'Stock',
   emails: 'Emails',
   prestashop: 'PrestaShop',
@@ -59,7 +61,7 @@ const viewLabels: Record<ViewKey, string> = {
   notifications: 'Notifications'
 };
 
-const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'treasury', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean', 'backups'];
+const appViewKeys: readonly ViewKey[] = ['dashboard', 'settings', 'customers', 'products', 'quotes', 'drive', 'notifications', 'orders', 'purchases', 'invoices', 'treasury', 'expenses', 'stock', 'emails', 'service', 'calendar', 'meetings', 'signatures', 'flowcean', 'backups'];
 const EMAIL_JOURNAL_AUTO_REFRESH_MS = 15000;
 const REALTIME_NOTIFICATION_REFRESH_MS = 30000;
 const desktopNotificationSeenStorageKey = 'oceanerp.browserNotifications.seen';
@@ -344,6 +346,7 @@ export default function App() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [treasurySummary, setTreasurySummary] = useState<TreasurySummary | null>(null);
   const [treasuryMovements, setTreasuryMovements] = useState<TreasuryMovement[]>([]);
+  const [expenseReports, setExpenseReports] = useState<ExpenseReport[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -482,6 +485,18 @@ export default function App() {
       if (target === 'treasury') {
         const [nextTreasurySummary, nextTreasuryMovements] = await Promise.all([api.treasurySummary(), api.treasuryMovements()]);
         setTreasurySummary(nextTreasurySummary);
+        setTreasuryMovements(nextTreasuryMovements);
+      }
+      if (target === 'expenses') {
+        const [nextExpenseReports, nextTreasurySummary, nextTreasuryMovements] = await Promise.all([
+          api.expenseReports(),
+          hasPermission(currentUser, 'treasury.read') ? api.treasurySummary() : Promise.resolve(treasurySummary),
+          hasPermission(currentUser, 'treasury.read') ? api.treasuryMovements() : Promise.resolve(treasuryMovements)
+        ]);
+        setExpenseReports(nextExpenseReports);
+        if (nextTreasurySummary) {
+          setTreasurySummary(nextTreasurySummary);
+        }
         setTreasuryMovements(nextTreasuryMovements);
       }
       if (target === 'settings') {
@@ -995,6 +1010,7 @@ export default function App() {
 
         {view === 'dashboard' && <Dashboard summary={summary} />}
         {view === 'treasury' && <Treasury summary={treasurySummary} movements={treasuryMovements} onChanged={() => load('treasury')} />}
+        {view === 'expenses' && <ExpenseReports reports={expenseReports} onChanged={() => load('expenses')} />}
         {view === 'settings' && (
           <Settings
             currentUser={currentUser}
@@ -1063,6 +1079,418 @@ export default function App() {
         {view === 'notifications' && <Notifications items={notifications} onOpen={openNotification} />}
       </main>
     </div>
+  );
+}
+
+type ExpenseReportFormLine = {
+  label: string;
+  category: string;
+  amount: string;
+  vatRate: string;
+  expenseDate: string;
+  receiptFileName: string;
+};
+
+type ExpenseReportFormState = {
+  title: string;
+  expenseDate: string;
+  comment: string;
+  lines: ExpenseReportFormLine[];
+};
+
+function todayInputDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function createExpenseReportLine(date = todayInputDate()): ExpenseReportFormLine {
+  return {
+    label: '',
+    category: 'General',
+    amount: '',
+    vatRate: '20',
+    expenseDate: date,
+    receiptFileName: ''
+  };
+}
+
+function createExpenseReportForm(report?: ExpenseReport): ExpenseReportFormState {
+  const defaultDate = report?.expenseDate?.slice(0, 10) || todayInputDate();
+
+  return {
+    title: report?.title ?? 'Note de frais',
+    expenseDate: defaultDate,
+    comment: report?.comment ?? '',
+    lines: report?.lines.length
+      ? report.lines.map((line) => ({
+          label: line.label,
+          category: line.category || 'General',
+          amount: String(line.amount).replace('.', ','),
+          vatRate: String(line.vatRate).replace('.', ','),
+          expenseDate: line.expenseDate?.slice(0, 10) || defaultDate,
+          receiptFileName: line.receiptFileName ?? ''
+        }))
+      : [createExpenseReportLine(defaultDate)]
+  };
+}
+
+function parseMoneyInput(value: string) {
+  const parsed = Number(value.replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function expenseReportStatusLabel(status: string) {
+  return ({
+    Sent: 'Envoyee',
+    Approved: 'Approuvee',
+    Refused: 'Refusee',
+    Reimbursed: 'Remboursee'
+  } satisfies Record<string, string>)[status] ?? status;
+}
+
+function expenseReportStatusClass(status: string) {
+  return `status-badge expense-status-${status.toLowerCase()}`;
+}
+
+function ExpenseReports({ reports, onChanged }: { reports: ExpenseReport[]; onChanged: () => Promise<void> }) {
+  const [selected, setSelected] = useState<ExpenseReport | null>(null);
+  const [editing, setEditing] = useState<ExpenseReport | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState<ExpenseReportFormState>(() => createExpenseReportForm());
+  const [statusComment, setStatusComment] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const formTotals = useMemo(() => {
+    const totalAmount = form.lines.reduce((sum, line) => sum + parseMoneyInput(line.amount), 0);
+    const vatAmount = form.lines.reduce((sum, line) => {
+      const amount = parseMoneyInput(line.amount);
+      const vatRate = parseMoneyInput(line.vatRate);
+      return sum + (amount > 0 && vatRate > 0 ? amount * vatRate / (100 + vatRate) : 0);
+    }, 0);
+
+    return {
+      totalAmount,
+      vatAmount
+    };
+  }, [form.lines]);
+
+  function openCreate() {
+    setError(null);
+    setSelected(null);
+    setEditing(null);
+    setForm(createExpenseReportForm());
+    setFormOpen(true);
+  }
+
+  function openEdit(report: ExpenseReport) {
+    setError(null);
+    setSelected(null);
+    setEditing(report);
+    setForm(createExpenseReportForm(report));
+    setFormOpen(true);
+  }
+
+  function closeModals() {
+    setSelected(null);
+    setEditing(null);
+    setFormOpen(false);
+    setStatusComment('');
+    setError(null);
+  }
+
+  function updateLine(index: number, patch: Partial<ExpenseReportFormLine>) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line))
+    }));
+  }
+
+  function addLine() {
+    setForm((current) => ({ ...current, lines: [...current.lines, createExpenseReportLine(current.expenseDate)] }));
+  }
+
+  function removeLine(index: number) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.length <= 1 ? current.lines : current.lines.filter((_, lineIndex) => lineIndex !== index)
+    }));
+  }
+
+  async function saveExpenseReport(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+
+    const lines = form.lines.map((line) => ({
+      label: line.label.trim(),
+      category: line.category.trim() || 'General',
+      amount: parseMoneyInput(line.amount),
+      vatRate: parseMoneyInput(line.vatRate),
+      expenseDate: line.expenseDate,
+      receiptFileName: line.receiptFileName.trim() || null
+    }));
+
+    if (!form.title.trim()) {
+      setError('Le titre de la note est obligatoire.');
+      return;
+    }
+
+    if (lines.some((line) => !line.label || line.amount <= 0)) {
+      setError('Chaque ligne doit avoir un libelle et un montant positif.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const payload = {
+        title: form.title.trim(),
+        expenseDate: form.expenseDate,
+        comment: form.comment.trim() || null,
+        lines
+      };
+      const saved = editing
+        ? await api.updateExpenseReport(editing.id, payload)
+        : await api.createExpenseReport(payload);
+      setFormOpen(false);
+      setEditing(null);
+      setSelected(saved);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Enregistrement impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeStatus(report: ExpenseReport, status: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      const updated = await api.changeExpenseReportStatus(report.id, status, statusComment.trim() || null);
+      setSelected(updated);
+      setStatusComment('');
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Changement de statut impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="module-actions">
+        <button className="primary" type="button" onClick={openCreate}>
+          <Plus size={16} /> Nouvelle note de frais
+        </button>
+      </div>
+
+      <section className="grid metrics expense-summary-grid">
+        <article className="metric-card">
+          <span>Notes envoyees</span>
+          <strong>{reports.filter((item) => item.status === 'Sent').length}</strong>
+        </article>
+        <article className="metric-card">
+          <span>A approuver</span>
+          <strong>{reports.filter((item) => item.status === 'Sent').length}</strong>
+        </article>
+        <article className="metric-card">
+          <span>A rembourser</span>
+          <strong>{formatDashboardValue(reports.filter((item) => item.status === 'Approved').reduce((sum, item) => sum + item.totalAmount, 0), 'currency')}</strong>
+        </article>
+        <article className="metric-card">
+          <span>Rembourse ce mois</span>
+          <strong>{formatDashboardValue(reports.filter((item) => item.status === 'Reimbursed' && new Date(item.reimbursedAt ?? 0).getMonth() === new Date().getMonth()).reduce((sum, item) => sum + item.totalAmount, 0), 'currency')}</strong>
+        </article>
+      </section>
+
+      <DataTable
+        columns={['Numero', 'Employe', 'Titre', 'Date', 'Statut', 'Total TTC', 'TVA', 'Actions']}
+        rows={reports.map((item) => [
+          item.number,
+          item.employeeName,
+          item.title,
+          formatOrderDate(item.expenseDate),
+          <span className={expenseReportStatusClass(item.status)}>{expenseReportStatusLabel(item.status)}</span>,
+          formatDashboardValue(item.totalAmount, 'currency'),
+          formatDashboardValue(item.vatAmount, 'currency'),
+          <div className="table-actions" key={item.id} onClick={(event) => event.stopPropagation()}>
+            <button type="button" onClick={() => setSelected(item)}>
+              Voir
+            </button>
+            <button type="button" onClick={() => openEdit(item)} disabled={item.status === 'Reimbursed'}>
+              <Pencil size={15} /> Modifier
+            </button>
+          </div>
+        ])}
+        onRowClick={(index) => setSelected(reports[index])}
+      />
+
+      {formOpen && (
+        <div className="modal-backdrop" onClick={closeModals}>
+          <form className="modal-panel expense-modal" onClick={(event) => event.stopPropagation()} onSubmit={saveExpenseReport}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Note de frais</p>
+                <h2>{editing ? `Modifier ${editing.number}` : 'Nouvelle note de frais'}</h2>
+              </div>
+              <button className="modal-close" type="button" onClick={closeModals} aria-label="Fermer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="form-grid">
+              <label className="field">
+                <span>Titre</span>
+                <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+              </label>
+              <label className="field">
+                <span>Date de frais</span>
+                <input type="date" value={form.expenseDate} onChange={(event) => setForm((current) => ({ ...current, expenseDate: event.target.value }))} />
+              </label>
+            </div>
+
+            <section className="expense-lines">
+              <div className="section-title-row">
+                <h3>Lignes de frais</h3>
+                <button type="button" onClick={addLine}>
+                  <Plus size={16} /> Ajouter une ligne
+                </button>
+              </div>
+              {form.lines.map((line, index) => (
+                <article className="expense-line-card" key={index}>
+                  <div className="expense-line-grid">
+                    <label className="field">
+                      <span>Libelle</span>
+                      <input value={line.label} onChange={(event) => updateLine(index, { label: event.target.value })} placeholder="Restaurant, carburant, peage..." />
+                    </label>
+                    <label className="field">
+                      <span>Categorie</span>
+                      <input value={line.category} onChange={(event) => updateLine(index, { category: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Montant TTC</span>
+                      <input inputMode="decimal" value={line.amount} onChange={(event) => updateLine(index, { amount: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>TVA (%)</span>
+                      <input inputMode="decimal" value={line.vatRate} onChange={(event) => updateLine(index, { vatRate: event.target.value })} />
+                    </label>
+                    <label className="field">
+                      <span>Date</span>
+                      <input type="date" value={line.expenseDate} onChange={(event) => updateLine(index, { expenseDate: event.target.value })} />
+                    </label>
+                    <button className="danger icon-only" type="button" onClick={() => removeLine(index)} disabled={form.lines.length <= 1} aria-label="Supprimer la ligne">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <label className="field">
+                    <span>Justificatif / reference</span>
+                    <input value={line.receiptFileName} onChange={(event) => updateLine(index, { receiptFileName: event.target.value })} placeholder="Nom du justificatif ou reference Drive" />
+                  </label>
+                </article>
+              ))}
+            </section>
+
+            <label className="field">
+              <span>Commentaire</span>
+              <textarea value={form.comment} onChange={(event) => setForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Ajoutez un commentaire pour le valideur." />
+            </label>
+
+            <div className="expense-form-total">
+              <DetailItem label="Total TTC" value={formatDashboardValue(formTotals.totalAmount, 'currency')} />
+              <DetailItem label="TVA deductible estimee" value={formatDashboardValue(formTotals.vatAmount, 'currency')} />
+            </div>
+
+            {error && <p className="error-message">{error}</p>}
+            <div className="modal-footer">
+              <button type="button" onClick={closeModals}>Annuler</button>
+              <button className="primary" type="submit" disabled={busy}>
+                <Save size={16} /> Enregistrer
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {selected && !formOpen && (
+        <div className="modal-backdrop" onClick={closeModals}>
+          <section className="modal-panel expense-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Note de frais</p>
+                <h2>{selected.number} - {selected.title}</h2>
+              </div>
+              <button className="modal-close" type="button" onClick={closeModals} aria-label="Fermer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="detail-grid">
+              <DetailItem label="Employe" value={selected.employeeName} />
+              <DetailItem label="Statut" value={<span className={expenseReportStatusClass(selected.status)}>{expenseReportStatusLabel(selected.status)}</span>} />
+              <DetailItem label="Date" value={formatOrderDate(selected.expenseDate)} />
+              <DetailItem label="Soumise le" value={formatOrderDate(selected.submittedAt)} />
+              <DetailItem label="Total TTC" value={formatDashboardValue(selected.totalAmount, 'currency')} />
+              <DetailItem label="TVA deductible" value={formatDashboardValue(selected.vatAmount, 'currency')} />
+            </div>
+
+            {selected.comment && (
+              <section className="detail-note">
+                <h3>Commentaire</h3>
+                <p>{selected.comment}</p>
+              </section>
+            )}
+
+            <h3>Lignes</h3>
+            <DataTable
+              columns={['Date', 'Libelle', 'Categorie', 'Montant TTC', 'TVA', 'Justificatif']}
+              rows={selected.lines.map((line) => [
+                formatOrderDate(line.expenseDate),
+                line.label,
+                line.category || '-',
+                formatDashboardValue(line.amount, 'currency'),
+                `${line.vatRate}%`,
+                line.receiptFileName || '-'
+              ])}
+            />
+
+            <section className="expense-status-panel">
+              <label className="field">
+                <span>Commentaire de statut</span>
+                <textarea value={statusComment} onChange={(event) => setStatusComment(event.target.value)} placeholder="Motif de refus, note de validation ou commentaire de remboursement." />
+              </label>
+              <div className="table-actions">
+                <button type="button" onClick={() => changeStatus(selected, 'Sent')} disabled={busy || selected.status === 'Sent'}>Repasser en envoyee</button>
+                <button type="button" onClick={() => changeStatus(selected, 'Approved')} disabled={busy || selected.status === 'Approved'}>Approuver</button>
+                <button className="danger" type="button" onClick={() => changeStatus(selected, 'Refused')} disabled={busy || selected.status === 'Refused'}>Refuser</button>
+                <button className="primary" type="button" onClick={() => changeStatus(selected, 'Reimbursed')} disabled={busy || selected.status === 'Reimbursed'}>
+                  Rembourser
+                </button>
+              </div>
+            </section>
+
+            <h3>Historique</h3>
+            <DataTable
+              columns={['Statut', 'Commentaire', 'Par', 'Date']}
+              rows={selected.history.map((history) => [
+                expenseReportStatusLabel(history.status),
+                history.comment || '-',
+                history.changedBy || '-',
+                formatOrderDate(history.changedAt)
+              ])}
+            />
+
+            {error && <p className="error-message">{error}</p>}
+            <div className="modal-footer">
+              <button type="button" onClick={() => openEdit(selected)} disabled={selected.status === 'Reimbursed'}>
+                <Pencil size={15} /> Modifier
+              </button>
+              <button type="button" onClick={closeModals}>Fermer</button>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
 

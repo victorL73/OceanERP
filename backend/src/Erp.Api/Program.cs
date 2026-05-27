@@ -99,6 +99,7 @@ var permissionCodes = new[]
     "notifications.read", "notifications.write",
     "dashboard.read",
     "treasury.read",
+    "expenses.read", "expenses.write", "expenses.approve",
     "stock.read", "stock.write",
     "orders.read", "orders.write",
     "purchases.read", "purchases.write",

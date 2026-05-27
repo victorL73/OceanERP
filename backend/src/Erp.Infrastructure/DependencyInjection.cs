@@ -6,6 +6,7 @@ using Erp.Application.Customers;
 using Erp.Application.Dashboard;
 using Erp.Application.Documents;
 using Erp.Application.Emails;
+using Erp.Application.ExpenseReports;
 using Erp.Application.Flowcean;
 using Erp.Application.Invoices;
 using Erp.Application.Meetings;
@@ -72,6 +73,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<ITreasuryService, TreasuryService>();
+        services.AddScoped<IExpenseReportService, ExpenseReportService>();
         services.AddScoped<IStockService, StockService>();
         services.AddScoped<ILowStockAlertService, LowStockAlertService>();
         services.AddScoped<ISalesOrderService, SalesOrderService>();

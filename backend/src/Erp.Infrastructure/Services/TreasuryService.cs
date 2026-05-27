@@ -34,7 +34,11 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
 
         var cashIn = invoicePayments + paidOrders + manualCashIn;
         var committedPurchases = snapshot.PurchaseOrders.Where(x => IsCommittedPurchase(x.Status)).ToList();
-        var cashOut = committedPurchases.Sum(snapshot.GetPurchaseGross) + manualCashOut;
+        var reimbursedExpenseReports = snapshot.ExpenseReports.Where(x => IsReimbursedExpense(x.Status)).ToList();
+        var pendingExpenseReports = snapshot.ExpenseReports.Where(x => IsPendingExpense(x.Status)).ToList();
+        var cashOut = committedPurchases.Sum(snapshot.GetPurchaseGross)
+            + reimbursedExpenseReports.Sum(snapshot.GetExpenseGross)
+            + manualCashOut;
 
         var vatCollected = snapshot.Invoices
             .Where(x => x.Kind == "Invoice" && !IsCancelled(x.Status))
@@ -46,6 +50,7 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
                 .Where(x => x.Direction.Equals("In", StringComparison.OrdinalIgnoreCase))
                 .Sum(x => x.VatAmount);
         var vatDeductible = committedPurchases.Sum(snapshot.GetPurchaseVat)
+            + reimbursedExpenseReports.Sum(snapshot.GetExpenseVat)
             + snapshot.ManualEntries
                 .Where(x => x.Direction.Equals("Out", StringComparison.OrdinalIgnoreCase))
                 .Sum(x => x.VatAmount);
@@ -65,7 +70,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
             .Where(x => IsOpenPurchase(x.Status))
             .ToList();
         var expectedIncoming = unpaidInvoiceAmount + openSalesOrders.Sum(snapshot.GetSalesOrderGross);
-        var expectedOutgoing = openPurchaseOrders.Sum(snapshot.GetPurchaseGross);
+        var expectedOutgoing = openPurchaseOrders.Sum(snapshot.GetPurchaseGross)
+            + pendingExpenseReports.Sum(snapshot.GetExpenseGross);
 
         var monthCashIn = snapshot.InvoicePayments
             .Where(x => ToUtc(x.PaidOn) >= monthStart)
@@ -79,6 +85,9 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         var monthCashOut = committedPurchases
             .Where(x => (x.OrderedAt ?? x.ReceivedAt ?? x.CreatedAt) >= monthStart)
             .Sum(snapshot.GetPurchaseGross)
+            + reimbursedExpenseReports
+                .Where(x => (x.ReimbursedAt ?? x.SubmittedAt) >= monthStart)
+                .Sum(snapshot.GetExpenseGross)
             + snapshot.ManualEntries
                 .Where(x => x.Direction.Equals("Out", StringComparison.OrdinalIgnoreCase) && x.Date >= monthStart)
                 .Sum(x => x.Amount);
@@ -103,7 +112,7 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
             UnpaidInvoiceCount: unpaidInvoices.Count,
             OverdueInvoiceCount: overdueInvoices.Count,
             OpenSalesOrderCount: openSalesOrders.Count,
-            OpenPurchaseOrderCount: openPurchaseOrders.Count,
+            OpenPurchaseOrderCount: openPurchaseOrders.Count + pendingExpenseReports.Count,
             MonthCashIn: Round(monthCashIn),
             MonthCashOut: Round(monthCashOut),
             NetMonthCash: Round(monthCashIn - monthCashOut),
@@ -237,6 +246,29 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
                 null));
         }
 
+        foreach (var expenseReport in snapshot.ExpenseReports.Where(x => IsReimbursedExpense(x.Status) || IsPendingExpense(x.Status)))
+        {
+            var amount = snapshot.GetExpenseGross(expenseReport);
+            if (amount <= 0m)
+            {
+                continue;
+            }
+
+            var reimbursed = IsReimbursedExpense(expenseReport.Status);
+            movements.Add(new TreasuryMovementDto(
+                expenseReport.Id,
+                reimbursed ? expenseReport.ReimbursedAt ?? expenseReport.SubmittedAt : expenseReport.SubmittedAt,
+                $"Note de frais {expenseReport.Number}",
+                "Notes de frais",
+                expenseReport.Number,
+                "Out",
+                Round(amount),
+                Round(snapshot.GetExpenseVat(expenseReport)),
+                expenseReport.Status,
+                reimbursed ? "ActualOut" : "ExpectedOut",
+                expenseReport.Comment));
+        }
+
         return movements
             .OrderByDescending(x => x.Date)
             .ThenBy(x => x.Reference)
@@ -295,6 +327,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         var purchaseOrders = await db.PurchaseOrders.AsNoTracking().ToListAsync(cancellationToken);
         var purchaseOrderLines = await db.PurchaseOrderLines.AsNoTracking().ToListAsync(cancellationToken);
         var purchaseOrderCharges = await db.PurchaseOrderCharges.AsNoTracking().ToListAsync(cancellationToken);
+        var expenseReports = await db.ExpenseReports.AsNoTracking().ToListAsync(cancellationToken);
+        var expenseReportLines = await db.ExpenseReportLines.AsNoTracking().ToListAsync(cancellationToken);
         var manualEntries = await LoadManualEntriesAsync(cancellationToken);
 
         return new TreasurySnapshot(
@@ -306,6 +340,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
             purchaseOrders,
             purchaseOrderLines,
             purchaseOrderCharges,
+            expenseReports,
+            expenseReportLines,
             manualEntries);
     }
 
@@ -348,7 +384,16 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         || status.Equals("PartiallyReceived", StringComparison.OrdinalIgnoreCase)
         || status.Equals("Received", StringComparison.OrdinalIgnoreCase);
 
-    private static decimal VatFromGross(decimal gross) => gross <= 0m ? 0m : gross * DefaultVatRate / (100m + DefaultVatRate);
+    private static bool IsPendingExpense(string status) => status.Equals("Sent", StringComparison.OrdinalIgnoreCase)
+        || status.Equals("Approved", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsReimbursedExpense(string status) => status.Equals("Reimbursed", StringComparison.OrdinalIgnoreCase);
+
+    private static decimal VatFromGross(decimal gross) => VatFromGross(gross, DefaultVatRate);
+
+    private static decimal VatFromGross(decimal gross, decimal vatRate) => gross <= 0m || vatRate <= 0m
+        ? 0m
+        : gross * vatRate / (100m + vatRate);
 
     private static DateTimeOffset ToUtc(DateOnly date) => new(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 
@@ -363,6 +408,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         IReadOnlyList<PurchaseOrder> purchaseOrders,
         IReadOnlyList<PurchaseOrderLine> purchaseOrderLines,
         IReadOnlyList<PurchaseOrderCharge> purchaseOrderCharges,
+        IReadOnlyList<ExpenseReport> expenseReports,
+        IReadOnlyList<ExpenseReportLine> expenseReportLines,
         IReadOnlyList<TreasuryManualEntryRow> manualEntries)
     {
         private readonly Dictionary<Guid, decimal> _invoiceNetTotals = invoiceLines
@@ -393,6 +440,14 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
             .GroupBy(x => x.PurchaseOrderId)
             .ToDictionary(x => x.Key, x => x.Sum(charge => charge.Amount * charge.VatRate / 100m));
 
+        private readonly Dictionary<Guid, decimal> _expenseGrossTotals = expenseReportLines
+            .GroupBy(x => x.ExpenseReportId)
+            .ToDictionary(x => x.Key, x => x.Sum(line => line.Amount));
+
+        private readonly Dictionary<Guid, decimal> _expenseVatTotals = expenseReportLines
+            .GroupBy(x => x.ExpenseReportId)
+            .ToDictionary(x => x.Key, x => x.Sum(line => VatFromGross(line.Amount, line.VatRate)));
+
         public IReadOnlyList<Invoice> Invoices { get; } = invoices;
 
         public IReadOnlyList<InvoicePayment> InvoicePayments { get; } = invoicePayments;
@@ -400,6 +455,8 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         public IReadOnlyList<SalesOrder> SalesOrders { get; } = salesOrders;
 
         public IReadOnlyList<PurchaseOrder> PurchaseOrders { get; } = purchaseOrders;
+
+        public IReadOnlyList<ExpenseReport> ExpenseReports { get; } = expenseReports;
 
         public IReadOnlyList<TreasuryManualEntryRow> ManualEntries { get; } = manualEntries;
 
@@ -460,6 +517,10 @@ public sealed class TreasuryService(ErpDbContext db) : ITreasuryService
         {
             return _purchaseVatTotals.GetValueOrDefault(purchaseOrder.Id) + _purchaseChargeVatTotals.GetValueOrDefault(purchaseOrder.Id);
         }
+
+        public decimal GetExpenseGross(ExpenseReport expenseReport) => _expenseGrossTotals.GetValueOrDefault(expenseReport.Id);
+
+        public decimal GetExpenseVat(ExpenseReport expenseReport) => _expenseVatTotals.GetValueOrDefault(expenseReport.Id);
 
         private static decimal WithVat(decimal net, decimal vatRate) => net + net * vatRate / 100m;
     }

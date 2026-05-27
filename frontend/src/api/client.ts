@@ -16,6 +16,7 @@ import type {
   EmailMessage,
   EmailSyncSummary,
   EmailTemplate,
+  ExpenseReport,
   FlowceanWorkspace,
   FlowceanWorkspaceSummary,
   Invoice,
@@ -67,6 +68,20 @@ type ServiceTicketQuery = {
   unassigned?: boolean;
   includeClosed?: boolean;
   pageSize?: number;
+};
+
+type ExpenseReportPayload = {
+  title: string;
+  expenseDate: string;
+  comment?: string | null;
+  lines: Array<{
+    label: string;
+    category: string;
+    amount: number;
+    vatRate: number;
+    expenseDate: string;
+    receiptFileName?: string | null;
+  }>;
 };
 
 export class ApiClient {
@@ -131,6 +146,22 @@ export class ApiClient {
 
   createTreasuryManualEntry(payload: { label: string; direction: 'In' | 'Out'; amount: number; vatAmount: number; occurredOn: string; note?: string }) {
     return this.request<TreasuryMovement>('/api/treasury/manual-entries', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  expenseReports() {
+    return this.request<ExpenseReport[]>('/api/expense-reports', { auth: true });
+  }
+
+  createExpenseReport(payload: ExpenseReportPayload) {
+    return this.request<ExpenseReport>('/api/expense-reports', { method: 'POST', auth: true, body: JSON.stringify(payload) });
+  }
+
+  updateExpenseReport(id: string, payload: ExpenseReportPayload) {
+    return this.request<ExpenseReport>(`/api/expense-reports/${id}`, { method: 'PUT', auth: true, body: JSON.stringify(payload) });
+  }
+
+  changeExpenseReportStatus(id: string, status: string, comment?: string | null) {
+    return this.request<ExpenseReport>(`/api/expense-reports/${id}/status`, { method: 'POST', auth: true, body: JSON.stringify({ status, comment }) });
   }
 
   backups() {

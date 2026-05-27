@@ -118,6 +118,43 @@ export type TreasuryMovement = {
   notes?: string | null;
 };
 
+export type ExpenseReportLine = {
+  id: string;
+  label: string;
+  category: string;
+  amount: number;
+  vatRate: number;
+  expenseDate: string;
+  receiptFileName?: string | null;
+};
+
+export type ExpenseReportStatusHistory = {
+  id: string;
+  status: string;
+  comment?: string | null;
+  changedBy?: string | null;
+  changedAt: string;
+};
+
+export type ExpenseReport = {
+  id: string;
+  number: string;
+  employeeId: string;
+  employeeName: string;
+  title: string;
+  expenseDate: string;
+  status: string;
+  comment?: string | null;
+  totalAmount: number;
+  vatAmount: number;
+  submittedAt: string;
+  approvedAt?: string | null;
+  refusedAt?: string | null;
+  reimbursedAt?: string | null;
+  lines: ExpenseReportLine[];
+  history: ExpenseReportStatusHistory[];
+};
+
 export type AuditLog = {
   id: string;
   userId?: string;

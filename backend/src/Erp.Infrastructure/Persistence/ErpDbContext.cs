@@ -59,6 +59,9 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
     public DbSet<PurchaseOrderCharge> PurchaseOrderCharges => Set<PurchaseOrderCharge>();
+    public DbSet<ExpenseReport> ExpenseReports => Set<ExpenseReport>();
+    public DbSet<ExpenseReportLine> ExpenseReportLines => Set<ExpenseReportLine>();
+    public DbSet<ExpenseReportStatusHistory> ExpenseReportStatusHistories => Set<ExpenseReportStatusHistory>();
     public DbSet<MailServerSettings> MailServerSettings => Set<MailServerSettings>();
     public DbSet<MailAccount> MailAccounts => Set<MailAccount>();
     public DbSet<MailAccountAccess> MailAccountAccesses => Set<MailAccountAccess>();
@@ -425,6 +428,41 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
             entity.Property(x => x.Amount).HasPrecision(18, 2);
             entity.Property(x => x.VatRate).HasPrecision(5, 2);
             entity.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => x.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExpenseReport>(entity =>
+        {
+            entity.HasIndex(x => x.Number).IsUnique();
+            entity.HasIndex(x => new { x.EmployeeId, x.Status });
+            entity.Property(x => x.Number).HasMaxLength(80);
+            entity.Property(x => x.EmployeeName).HasMaxLength(160);
+            entity.Property(x => x.Title).HasMaxLength(240);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.Comment).HasMaxLength(4000);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.ApprovedByUserId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.RefusedByUserId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.ReimbursedByUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ExpenseReportLine>(entity =>
+        {
+            entity.HasIndex(x => x.ExpenseReportId);
+            entity.Property(x => x.Label).HasMaxLength(240);
+            entity.Property(x => x.Category).HasMaxLength(120);
+            entity.Property(x => x.Amount).HasPrecision(18, 2);
+            entity.Property(x => x.VatRate).HasPrecision(5, 2);
+            entity.Property(x => x.ReceiptFileName).HasMaxLength(260);
+            entity.HasOne<ExpenseReport>().WithMany().HasForeignKey(x => x.ExpenseReportId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExpenseReportStatusHistory>(entity =>
+        {
+            entity.HasIndex(x => x.ExpenseReportId);
+            entity.Property(x => x.Status).HasMaxLength(40);
+            entity.Property(x => x.Comment).HasMaxLength(1000);
+            entity.HasOne<ExpenseReport>().WithMany().HasForeignKey(x => x.ExpenseReportId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.ChangedByUserId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<MailAccount>(entity =>
