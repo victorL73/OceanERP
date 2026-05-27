@@ -139,7 +139,7 @@
 
         clearSpreadsheetSavePreferences();
         config.editorConfig = config.editorConfig || {};
-        config.editorConfig.coEditing = { mode: 'strict', change: false };
+        config.editorConfig.coEditing = { mode: 'fast', change: true };
         config.editorConfig.customization = Object.assign({}, config.editorConfig.customization || {}, {
           autosave: false,
           forcesave: false,

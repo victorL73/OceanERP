@@ -68,7 +68,9 @@ public sealed class OnlyOfficeService(
             Comments: !isCellDocument,
             Plugins: false,
             Macros: false);
-        var coEditing = new OnlyOfficeCoEditingDto(Mode: "strict", Change: false);
+        var coEditing = isCellDocument
+            ? new OnlyOfficeCoEditingDto(Mode: "fast", Change: true)
+            : new OnlyOfficeCoEditingDto(Mode: "strict", Change: false);
         var document = new OnlyOfficeDocumentDto(fileType, key, item.Name, documentUrl, permissions);
         var editorConfig = new OnlyOfficeEditorConfigDto("edit", callbackUrl, new OnlyOfficeUserDto(userId, userName), customization, coEditing);
         var jwtPayload = new
